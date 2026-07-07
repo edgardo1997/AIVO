@@ -1,0 +1,9 @@
+{
+  "id": "system_health",
+  "name": "System Health",
+  "version": "1.0.0",
+  "author": "AIVO",
+  "description": "Custom health checks and extended alerts for system monitoring",
+  "hooks": ["on_metrics", "on_schedule"],
+  "enabled": true
+}

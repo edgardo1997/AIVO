@@ -1,0 +1,48 @@
+{
+  "folders": [
+    {
+      "name": "AIVO",
+      "path": "."
+    }
+  ],
+  "settings": {
+    "files.watcherExclude": {
+      "**/target/**": true,
+      "**/node_modules/**": true,
+      "**/.venv/**": true
+    },
+    "terminal.integrated.defaultLocation": "editor",
+    "workbench.colorTheme": "Dark Modern",
+    "editor.fontSize": 13,
+    "editor.formatOnSave": true
+  },
+  "extensions": {
+    "recommendations": [
+      "rust-lang.rust-analyzer",
+      "tamasfe.even-better-toml",
+      "ms-python.python",
+      "ms-vscode.vscode-typescript-next"
+    ]
+  },
+  "tasks": {
+    "version": "2.0.0",
+    "tasks": [
+      {
+        "label": "Start Sidecar",
+        "type": "shell",
+        "command": "python -m uvicorn main:app --host 127.0.0.1 --port 8765 --reload",
+        "options": { "cwd": "${workspaceFolder}/sidecar" },
+        "problemMatcher": [],
+        "group": "none"
+      },
+      {
+        "label": "Dev Frontend",
+        "type": "shell",
+        "command": "npm run dev",
+        "options": { "cwd": "${workspaceFolder}" },
+        "problemMatcher": [],
+        "group": "none"
+      }
+    ]
+  }
+}

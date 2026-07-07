@@ -1,0 +1,9 @@
+{
+  "id": "media_control",
+  "name": "Media Control",
+  "version": "1.0.0",
+  "author": "AIVO",
+  "description": "Control media playback (play/pause/next/prev/volume) via commands",
+  "hooks": ["on_command"],
+  "enabled": true
+}

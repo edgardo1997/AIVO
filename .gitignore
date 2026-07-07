@@ -17,6 +17,10 @@ dist/
 # Rust / Tauri
 src-tauri/target/
 src-tauri/.cargo/
+src-tauri/updater.key
+
+# Build artifacts
+*.exe
 
 # IDE
 .vscode/

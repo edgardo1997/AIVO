@@ -79,15 +79,17 @@ class ModelFeedbackStore:
             "FROM model_feedback ORDER BY id"
         )
         for row in cursor:
-            self._records.append(ModelFeedback(
-                provider_id=row["provider_id"],
-                model=row["model"],
-                task_type=TaskType(row["task_type"]),
-                success=bool(row["success"]),
-                duration_ms=row["duration_ms"],
-                timestamp=row["timestamp"],
-                error=row["error"],
-            ))
+            self._records.append(
+                ModelFeedback(
+                    provider_id=row["provider_id"],
+                    model=row["model"],
+                    task_type=TaskType(row["task_type"]),
+                    success=bool(row["success"]),
+                    duration_ms=row["duration_ms"],
+                    timestamp=row["timestamp"],
+                    error=row["error"],
+                )
+            )
         logger.debug("Loaded %d feedback records from %s", len(self._records), self._db_path)
 
     def _persist(self, fb: ModelFeedback) -> None:
@@ -98,8 +100,7 @@ class ModelFeedbackStore:
             conn.execute(
                 "INSERT INTO model_feedback (provider_id, model, task_type, success, duration_ms, timestamp, error) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (fb.provider_id, fb.model, fb.task_type.value, int(fb.success),
-                 fb.duration_ms, fb.timestamp, fb.error),
+                (fb.provider_id, fb.model, fb.task_type.value, int(fb.success), fb.duration_ms, fb.timestamp, fb.error),
             )
             conn.commit()
         except Exception as e:
@@ -125,11 +126,15 @@ class ModelFeedbackStore:
         )
         self._records.append(fb)
         if len(self._records) > self._max_records:
-            removed = self._records.pop(0)
+            self._records.pop(0)
         self._persist(fb)
         logger.debug(
             "Feedback recorded: %s/%s %s success=%s %.0fms",
-            provider_id, model, task_type.value, success, duration_ms,
+            provider_id,
+            model,
+            task_type.value,
+            success,
+            duration_ms,
         )
 
     def get_stats(
@@ -153,15 +158,17 @@ class ModelFeedbackStore:
             successes = sum(1 for r in recs if r.success)
             total = len(recs)
             avg_dur = sum(r.duration_ms for r in recs) / total if total else 0.0
-            result.append(ProviderTaskStats(
-                provider_id=pid,
-                task_type=tt,
-                total=total,
-                successes=successes,
-                failures=total - successes,
-                avg_duration_ms=round(avg_dur, 1),
-                success_rate=round(successes / total, 3) if total else 0.0,
-            ))
+            result.append(
+                ProviderTaskStats(
+                    provider_id=pid,
+                    task_type=tt,
+                    total=total,
+                    successes=successes,
+                    failures=total - successes,
+                    avg_duration_ms=round(avg_dur, 1),
+                    success_rate=round(successes / total, 3) if total else 0.0,
+                )
+            )
         result.sort(key=lambda s: s.success_rate, reverse=True)
         return result
 

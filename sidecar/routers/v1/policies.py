@@ -24,6 +24,7 @@ class ReloadResponse(BaseModel):
 
 def _get_engine() -> PolicyEngine:
     from modules import get_gateway
+
     gw = get_gateway()
     return getattr(gw, "_policy_engine", None)
 
@@ -35,11 +36,13 @@ async def list_policies():
         return []
     policies = []
     for pid, policy in engine._policies.items():
-        policies.append(PolicyInfo(
-            id=pid,
-            description=policy.description(),
-            source="YAML",
-        ))
+        policies.append(
+            PolicyInfo(
+                id=pid,
+                description=policy.description(),
+                source="YAML",
+            )
+        )
     return policies
 
 

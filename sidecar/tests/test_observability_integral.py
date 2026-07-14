@@ -51,6 +51,7 @@ def test_unknown_span_is_ignored():
 def test_observability_endpoints_serialize_integral_view():
     from fastapi.testclient import TestClient
     from main import app
+
     client = TestClient(app)
     overview = client.get("/api/sentinel/observability/overview")
     traces = client.get("/api/sentinel/observability/traces")

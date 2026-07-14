@@ -9,8 +9,10 @@ router = APIRouter()
 # Keep _svc for backward compatibility (other modules may reference it)
 _svc = FilesystemService()
 
+
 class FileReadRequest(BaseModel):
     path: str
+
 
 class FileWriteRequest(BaseModel):
     path: str
@@ -43,9 +45,11 @@ def _result_or_raise(result, status_code: int = 403):
 @router.post("/read")
 async def read_file(req: FileReadRequest, request: Request):
     from modules.sentinel_bridge import get_orchestrator
+
     orch = get_orchestrator()
     result = await orch.execute_direct(
-        "filesystem.read", {"path": req.path},
+        "filesystem.read",
+        {"path": req.path},
         identity=_identity_dict(request),
     )
     return _result_or_raise(result.tool_result)
@@ -54,9 +58,11 @@ async def read_file(req: FileReadRequest, request: Request):
 @router.post("/write")
 async def write_file(req: FileWriteRequest, request: Request):
     from modules.sentinel_bridge import get_orchestrator
+
     orch = get_orchestrator()
     result = await orch.execute_direct(
-        "filesystem.write", {"path": req.path, "content": req.content},
+        "filesystem.write",
+        {"path": req.path, "content": req.content},
         identity=_identity_dict(request),
     )
     return _result_or_raise(result.tool_result)
@@ -65,9 +71,11 @@ async def write_file(req: FileWriteRequest, request: Request):
 @router.get("/list")
 async def list_directory(request: Request, path: str = "."):
     from modules.sentinel_bridge import get_orchestrator
+
     orch = get_orchestrator()
     result = await orch.execute_direct(
-        "filesystem.list", {"path": path},
+        "filesystem.list",
+        {"path": path},
         identity=_identity_dict(request),
     )
     return _result_or_raise(result.tool_result)
@@ -76,9 +84,11 @@ async def list_directory(request: Request, path: str = "."):
 @router.get("/search")
 async def search_files(request: Request, query: str, root: str = "C:\\"):
     from modules.sentinel_bridge import get_orchestrator
+
     orch = get_orchestrator()
     result = await orch.execute_direct(
-        "filesystem.search", {"query": query, "root": root},
+        "filesystem.search",
+        {"query": query, "root": root},
         identity=_identity_dict(request),
     )
     return _result_or_raise(result.tool_result)

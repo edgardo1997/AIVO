@@ -7,8 +7,12 @@ import asyncio
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 from sentinel.core.hardening import (
-    HardeningConfig, HardeningService, ToolCircuitBreaker,
-    TimeoutManager, EnhancedRetryHandler, HealthChecker,
+    HardeningConfig,
+    HardeningService,
+    ToolCircuitBreaker,
+    TimeoutManager,
+    EnhancedRetryHandler,
+    HealthChecker,
 )
 from sentinel.core.recovery import ErrorCategory, RecoveryPolicy, RetryExhaustedError
 from sentinel.core.tool import ToolResult
@@ -22,9 +26,11 @@ class TestHardeningConfig:
         assert c.get_timeout("any.tool") == 30
 
     def test_tool_overrides(self):
-        c = HardeningConfig(tool_overrides={
-            "slow.tool": {"timeout_seconds": 120},
-        })
+        c = HardeningConfig(
+            tool_overrides={
+                "slow.tool": {"timeout_seconds": 120},
+            }
+        )
         assert c.get_timeout("slow.tool") == 120
         assert c.get_timeout("other.tool") == 30
         assert c.get_circuit_breaker_threshold("slow.tool") == 3
@@ -53,6 +59,7 @@ class TestToolCircuitBreaker:
         cb.record_failure("test.tool")
         assert cb.allow_request("test.tool") is False
         import time
+
         time.sleep(0.15)
         assert cb.allow_request("test.tool") is True
 

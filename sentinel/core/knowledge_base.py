@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 # ─── Math helpers (no numpy dependency) ─────────────────────────────────────
 
+
 def _dot(a: List[float], b: List[float]) -> float:
     return sum(x * y for x, y in zip(a, b))
 
@@ -36,14 +37,13 @@ def _cosine_sim(a: List[float], b: List[float]) -> float:
 
 # ─── Embedding Providers ────────────────────────────────────────────────────
 
+
 class EmbeddingProvider(ABC):
     @abstractmethod
-    def embed(self, texts: List[str]) -> List[List[float]]:
-        ...
+    def embed(self, texts: List[str]) -> List[List[float]]: ...
 
     @abstractmethod
-    def name(self) -> str:
-        ...
+    def name(self) -> str: ...
 
 
 class OpenRouterEmbeddingProvider(EmbeddingProvider):
@@ -70,6 +70,7 @@ class OpenRouterEmbeddingProvider(EmbeddingProvider):
     def _get_client(self):
         if self._client is None:
             from openai import OpenAI
+
             self._client = OpenAI(api_key=self._api_key, base_url=self._base_url)
         return self._client
 
@@ -174,18 +175,20 @@ def create_embedding_provider(prefer: str = "auto") -> EmbeddingProvider:
         return OpenRouterEmbeddingProvider(api_key=key)
     try:
         import urllib.request
+
         req = urllib.request.Request("http://localhost:11434/api/tags")
         # Fixed loopback-only Ollama health endpoint.
         with urllib.request.urlopen(req, timeout=2) as resp:  # nosec B310
             if resp.status == 200:
                 return OllamaEmbeddingProvider()
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("Ollama embedding probe failed: %s", exc)
     logger.info("No embedding API key or Ollama found, using fallback token embedding")
     return _TokenEmbeddingProvider()
 
 
 # ─── Document Chunking ──────────────────────────────────────────────────────
+
 
 @dataclass
 class Chunk:
@@ -245,6 +248,7 @@ class DocumentChunker:
 
 # ─── Vector Store ────────────────────────────────────────────────────────────
 
+
 class VectorStore:
     """In-memory vector index with SQLite persistence for chunks/metadata."""
 
@@ -258,6 +262,7 @@ class VectorStore:
     def _init_db(self):
         os.makedirs(os.path.dirname(self._db_path) or ".", exist_ok=True)
         import sqlite3
+
         conn = sqlite3.connect(self._db_path, timeout=10)
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("""CREATE TABLE IF NOT EXISTS chunks (
@@ -274,6 +279,7 @@ class VectorStore:
 
     def load(self) -> None:
         import sqlite3
+
         conn = sqlite3.connect(self._db_path, timeout=10)
         conn.row_factory = sqlite3.Row
         rows = conn.execute("SELECT * FROM chunks").fetchall()
@@ -281,19 +287,22 @@ class VectorStore:
         self._index = []
         for r in rows:
             emb = json.loads(r["embedding"]) if r["embedding"] else None
-            self._index.append(Chunk(
-                chunk_id=r["chunk_id"],
-                doc_id=r["doc_id"],
-                text=r["text"],
-                metadata=json.loads(r["metadata"]),
-                embedding=emb,
-                created_at=r["created_at"],
-            ))
+            self._index.append(
+                Chunk(
+                    chunk_id=r["chunk_id"],
+                    doc_id=r["doc_id"],
+                    text=r["text"],
+                    metadata=json.loads(r["metadata"]),
+                    embedding=emb,
+                    created_at=r["created_at"],
+                )
+            )
         logger.info("Loaded %d chunks from vector store", len(self._index))
 
     def save(self) -> None:
         """Flush in-memory index to SQLite."""
         import sqlite3
+
         conn = sqlite3.connect(self._db_path, timeout=10, isolation_level=None)
         conn.execute("BEGIN")
         try:
@@ -301,9 +310,14 @@ class VectorStore:
             for c in self._index:
                 conn.execute(
                     "INSERT INTO chunks (chunk_id, doc_id, text, metadata, embedding, created_at) VALUES (?,?,?,?,?,?)",
-                    (c.chunk_id, c.doc_id, c.text, json.dumps(c.metadata),
-                     json.dumps(c.embedding) if c.embedding else "",
-                     c.created_at),
+                    (
+                        c.chunk_id,
+                        c.doc_id,
+                        c.text,
+                        json.dumps(c.metadata),
+                        json.dumps(c.embedding) if c.embedding else "",
+                        c.created_at,
+                    ),
                 )
             conn.commit()
         except Exception:
@@ -375,6 +389,7 @@ class VectorStore:
 
 
 # ─── KnowledgeBase ──────────────────────────────────────────────────────────
+
 
 @dataclass
 class SearchResult:
@@ -491,8 +506,7 @@ class KnowledgeBase:
         with self._lock:
             docs = self._store.list_docs()
             return [
-                DocInfo(doc_id=d["doc_id"], source=d["source"],
-                        chunks=d["chunks"], created_at=d["created_at"])
+                DocInfo(doc_id=d["doc_id"], source=d["source"], chunks=d["chunks"], created_at=d["created_at"])
                 for d in docs
             ]
 

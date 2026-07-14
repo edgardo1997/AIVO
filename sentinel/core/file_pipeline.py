@@ -30,49 +30,127 @@ MAX_ARCHIVE_RATIO = 200
 # ─── Supported formats ──────────────────────────────────────────────────────
 
 TEXT_EXTENSIONS: Set[str] = {
-    ".txt", ".md", ".rst", ".log", ".ini", ".cfg", ".conf",
-    ".yaml", ".yml", ".toml", ".json", ".xml", ".csv", ".tsv",
-    ".env", ".sql", ".rtf",
+    ".txt",
+    ".md",
+    ".rst",
+    ".log",
+    ".ini",
+    ".cfg",
+    ".conf",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".json",
+    ".xml",
+    ".csv",
+    ".tsv",
+    ".env",
+    ".sql",
+    ".rtf",
 }
 
 CODE_EXTENSIONS: Set[str] = {
-    ".py", ".js", ".ts", ".jsx", ".tsx", ".java", ".c", ".cpp", ".h",
-    ".hpp", ".cs", ".rb", ".go", ".rs", ".swift", ".kt", ".scala",
-    ".php", ".pl", ".pm", ".sh", ".bash", ".zsh", ".ps1", ".bat",
-    ".html", ".css", ".scss", ".less", ".vue", ".svelte",
-    ".lua", ".r", ".m", ".dart", ".elm", ".ex", ".exs",
+    ".py",
+    ".js",
+    ".ts",
+    ".jsx",
+    ".tsx",
+    ".java",
+    ".c",
+    ".cpp",
+    ".h",
+    ".hpp",
+    ".cs",
+    ".rb",
+    ".go",
+    ".rs",
+    ".swift",
+    ".kt",
+    ".scala",
+    ".php",
+    ".pl",
+    ".pm",
+    ".sh",
+    ".bash",
+    ".zsh",
+    ".ps1",
+    ".bat",
+    ".html",
+    ".css",
+    ".scss",
+    ".less",
+    ".vue",
+    ".svelte",
+    ".lua",
+    ".r",
+    ".m",
+    ".dart",
+    ".elm",
+    ".ex",
+    ".exs",
 }
 
 DOCUMENT_EXTENSIONS: Set[str] = {
-    ".pdf", ".docx", ".doc", ".odt", ".epub",
+    ".pdf",
+    ".docx",
+    ".doc",
+    ".odt",
+    ".epub",
 }
 
 IMAGE_EXTENSIONS: Set[str] = {
-    ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".tif", ".webp",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".bmp",
+    ".tiff",
+    ".tif",
+    ".webp",
 }
 
-SUPPORTED_EXTENSIONS: Set[str] = (
-    TEXT_EXTENSIONS | CODE_EXTENSIONS | DOCUMENT_EXTENSIONS | IMAGE_EXTENSIONS
-)
+SUPPORTED_EXTENSIONS: Set[str] = TEXT_EXTENSIONS | CODE_EXTENSIONS | DOCUMENT_EXTENSIONS | IMAGE_EXTENSIONS
 
 SENSITIVE_REPORT_NAMES: Set[str] = {
-    ".env", ".env.local", ".env.production", ".env.development",
-    "credentials.json", "secrets.json", "service-account.json",
+    ".env",
+    ".env.local",
+    ".env.production",
+    ".env.development",
+    "credentials.json",
+    "secrets.json",
+    "service-account.json",
 }
 SENSITIVE_REPORT_MARKERS = ("secret", "credential", "private_key", "api_key", "apikey")
 
 CODE_LANGUAGE_MAP: Dict[str, str] = {
-    ".py": "python", ".js": "javascript", ".ts": "typescript",
-    ".java": "java", ".c": "c", ".cpp": "cpp", ".h": "c",
-    ".hpp": "cpp", ".cs": "csharp", ".rb": "ruby", ".go": "go",
-    ".rs": "rust", ".swift": "swift", ".kt": "kotlin",
-    ".php": "php", ".sh": "bash", ".ps1": "powershell",
-    ".html": "html", ".css": "css", ".sql": "sql",
-    ".r": "r", ".m": "matlab", ".lua": "lua",
+    ".py": "python",
+    ".js": "javascript",
+    ".ts": "typescript",
+    ".java": "java",
+    ".c": "c",
+    ".cpp": "cpp",
+    ".h": "c",
+    ".hpp": "cpp",
+    ".cs": "csharp",
+    ".rb": "ruby",
+    ".go": "go",
+    ".rs": "rust",
+    ".swift": "swift",
+    ".kt": "kotlin",
+    ".php": "php",
+    ".sh": "bash",
+    ".ps1": "powershell",
+    ".html": "html",
+    ".css": "css",
+    ".sql": "sql",
+    ".r": "r",
+    ".m": "matlab",
+    ".lua": "lua",
 }
 
 
 # ─── Result types ───────────────────────────────────────────────────────────
+
 
 @dataclass
 class ExtractResult:
@@ -138,6 +216,7 @@ def _extract_csv(path: Path) -> ExtractResult:
     try:
         import csv as csv_mod
         import io
+
         text = path.read_text(encoding="utf-8", errors="replace")
         reader = csv_mod.reader(io.StringIO(text))
         rows = list(reader)
@@ -158,6 +237,7 @@ def _extract_pdf(path: Path) -> ExtractResult:
     """Extract text from PDF. Tries PyMuPDF first, then pdfminer, then basic."""
     try:
         import fitz  # PyMuPDF
+
         doc = fitz.open(str(path))
         pages = []
         meta = {"pages": len(doc)}
@@ -170,21 +250,25 @@ def _extract_pdf(path: Path) -> ExtractResult:
         pass
     try:
         from pdfminer.high_level import extract_text as pdf_extract
+
         text = pdf_extract(str(path))
         return ExtractResult(text=text, metadata={"chars": len(text)})
     except ImportError:
         pass
     try:
         import subprocess
+
         result = subprocess.run(
             ["pdftotext", str(path), "-"],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         if result.returncode == 0:
             text = result.stdout
             return ExtractResult(text=text, metadata={"chars": len(text), "extractor": "pdftotext"})
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("pdftotext fallback unavailable: %s", exc)
     return ExtractResult(
         error="PDF extraction requires PyMuPDF (fitz), pdfminer, or pdftotext CLI",
         metadata={"path": str(path)},
@@ -197,6 +281,7 @@ def _extract_image(path: Path) -> ExtractResult:
     text_parts: List[str] = []
     try:
         from PIL import Image
+
         img = Image.open(str(path))
         meta["format"] = img.format or ""
         meta["size"] = f"{img.width}x{img.height}"
@@ -204,6 +289,7 @@ def _extract_image(path: Path) -> ExtractResult:
         text_parts.append(f"[Image: {path.name}, {meta['size']}, {meta['format']}]")
         try:
             import pytesseract
+
             ocr_text = pytesseract.image_to_string(img)
             if ocr_text.strip():
                 text_parts.append(ocr_text)
@@ -218,6 +304,7 @@ def _extract_image(path: Path) -> ExtractResult:
 
 def _validate_zip_archive(path: Path) -> Optional[str]:
     import zipfile
+
     try:
         with zipfile.ZipFile(str(path)) as archive:
             members = archive.infolist()
@@ -238,6 +325,7 @@ def _extract_docx(path: Path) -> ExtractResult:
         return ExtractResult(error=archive_error)
     try:
         from docx import Document
+
         doc = Document(str(path))
         paras = [p.text for p in doc.paragraphs]
         text = "\n".join(paras)
@@ -250,10 +338,10 @@ def _extract_docx(path: Path) -> ExtractResult:
     try:
         import zipfile
         from defusedxml import ElementTree as ET
+
         with zipfile.ZipFile(str(path)) as z:
             xml_content = z.read("word/document.xml")
         root = ET.fromstring(xml_content)
-        ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
         texts = []
         for t in root.iter("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t"):
             if t.text:
@@ -270,6 +358,7 @@ def _extract_epub(path: Path) -> ExtractResult:
     try:
         import zipfile
         from defusedxml import ElementTree as ET
+
         texts: List[str] = []
         with zipfile.ZipFile(str(path)) as z:
             for name in z.namelist():
@@ -288,6 +377,7 @@ def _extract_epub(path: Path) -> ExtractResult:
 
 
 # ─── Repo extraction ────────────────────────────────────────────────────────
+
 
 def _extract_repo(path_or_url: str, temp_dir: Optional[str] = None) -> ExtractResult:
     """Extract text from a git repo — supports local path or remote URL."""
@@ -324,19 +414,39 @@ def _extract_repo(path_or_url: str, temp_dir: Optional[str] = None) -> ExtractRe
                 continue
             rel = fpath.relative_to(root)
             parts = [p.name for p in rel.parts]
-            if any(p.startswith(".") or p in ("node_modules", "__pycache__",
-                      "venv", ".venv", "env", ".env", "dist", "build",
-                      ".git", ".svn", ".idea", "vendor", "target",
-                      "bin", "obj", ".next", ".nuxt") for p in parts):
+            if any(
+                p.startswith(".")
+                or p
+                in (
+                    "node_modules",
+                    "__pycache__",
+                    "venv",
+                    ".venv",
+                    "env",
+                    ".env",
+                    "dist",
+                    "build",
+                    ".git",
+                    ".svn",
+                    ".idea",
+                    "vendor",
+                    "target",
+                    "bin",
+                    "obj",
+                    ".next",
+                    ".nuxt",
+                )
+                for p in parts
+            ):
                 continue
             if file_count >= max_files:
                 break
             try:
                 content = fpath.read_text(encoding="utf-8", errors="replace")
-                texts.append(f"```{CODE_LANGUAGE_MAP.get(fpath.suffix.lower(), '')}\n"
-                             f"# File: {rel}\n{content}\n```")
+                texts.append(f"```{CODE_LANGUAGE_MAP.get(fpath.suffix.lower(), '')}\n# File: {rel}\n{content}\n```")
                 file_count += 1
-            except Exception:
+            except Exception as exc:
+                logger.debug("Skipping unreadable repository file %s: %s", fpath, exc)
                 continue
 
         meta["files_processed"] = file_count
@@ -349,30 +459,34 @@ def _extract_repo(path_or_url: str, temp_dir: Optional[str] = None) -> ExtractRe
     finally:
         if cleanup_dir and os.path.isdir(cleanup_dir):
             import shutil
+
             shutil.rmtree(cleanup_dir, ignore_errors=True)
 
 
 def _is_git_url(s: str) -> bool:
-    return (s.startswith("https://") or s.startswith("git@") or
-            s.startswith("http://") or s.endswith(".git"))
+    return s.startswith("https://") or s.startswith("git@") or s.startswith("http://") or s.endswith(".git")
 
 
 def _clone_repo(url: str, dest: str) -> None:
     try:
         import git
+
         git.Repo.clone_from(url, dest, depth=1)
         return
     except ImportError:
         pass
     result = subprocess.run(
         ["git", "clone", "--depth", "1", url, dest],
-        capture_output=True, text=True, timeout=120,
+        capture_output=True,
+        text=True,
+        timeout=120,
     )
     if result.returncode != 0:
         raise RuntimeError(f"git clone failed: {result.stderr.strip()}")
 
 
 # ─── File type detection ────────────────────────────────────────────────────
+
 
 def _detect_type(path: Path) -> str:
     ext = path.suffix.lower()
@@ -410,6 +524,7 @@ EXTRACTOR_MAP: Dict[str, ExtractorFn] = {
 
 # ─── FilePipeline ───────────────────────────────────────────────────────────
 
+
 class FilePipeline:
     """Ingests files/directories/repos, extracts text, sends to Knowledge Base."""
 
@@ -430,22 +545,40 @@ class FilePipeline:
     def set_model_router(self, router) -> None:
         self._model_router = router
 
-    def preview_report(self, path: str, *, recursive: bool = True, max_files: int = 25,
-                       max_chars: int = 120_000, expected_output_tokens: int = 1200) -> Dict[str, Any]:
+    def preview_report(
+        self,
+        path: str,
+        *,
+        recursive: bool = True,
+        max_files: int = 25,
+        max_chars: int = 120_000,
+        expected_output_tokens: int = 1200,
+    ) -> Dict[str, Any]:
         from .model_router import TaskType
+
         if self._model_router is None:
             raise RuntimeError("Model router is not configured for report generation")
         sources, used_chars, skipped = self._collect_report_sources(
-            path, recursive=recursive, max_files=max_files, max_chars=max_chars,
+            path,
+            recursive=recursive,
+            max_files=max_files,
+            max_chars=max_chars,
         )
         decision = self._model_router.select(TaskType.ANALYSIS, context={"source_count": len(sources)})
         prompt_tokens = max(1, (used_chars + 800) // 4)
         tracker = getattr(self._model_router, "_cost_tracker", None)
-        cost = tracker.estimate_cost(decision.provider_id, decision.model, prompt_tokens, expected_output_tokens) if tracker else 0.0
+        cost = (
+            tracker.estimate_cost(decision.provider_id, decision.model, prompt_tokens, expected_output_tokens)
+            if tracker
+            else 0.0
+        )
         return {
-            "provider": decision.provider_id, "model": decision.model,
-            "selection_reason": decision.reason, "source_count": len(sources),
-            "source_chars": used_chars, "estimated_prompt_tokens": prompt_tokens,
+            "provider": decision.provider_id,
+            "model": decision.model,
+            "selection_reason": decision.reason,
+            "source_count": len(sources),
+            "source_chars": used_chars,
+            "estimated_prompt_tokens": prompt_tokens,
             "estimated_output_tokens": expected_output_tokens,
             "estimated_total_tokens": prompt_tokens + expected_output_tokens,
             "estimated_cost_usd": round(cost, 6),
@@ -453,8 +586,9 @@ class FilePipeline:
             "skipped_sensitive": skipped,
         }
 
-    def _collect_report_sources(self, path: str, *, recursive: bool, max_files: int,
-                                max_chars: int) -> tuple[List[Dict[str, Any]], int, List[str]]:
+    def _collect_report_sources(
+        self, path: str, *, recursive: bool, max_files: int, max_chars: int
+    ) -> tuple[List[Dict[str, Any]], int, List[str]]:
         root = Path(path).expanduser()
         if not root.exists():
             raise FileNotFoundError(f"Source path not found: {path}")
@@ -481,11 +615,17 @@ class FilePipeline:
             if extracted.error or not extracted.text.strip():
                 continue
             security = scan_untrusted_content(extracted.text)
-            text = wrap_untrusted_content(extracted.text[:max_chars - used_chars])
+            text = wrap_untrusted_content(extracted.text[: max_chars - used_chars])
             used_chars += len(text)
-            sources.append({"path": str(candidate.resolve()), "name": candidate.name,
-                            "chars": len(text), "text": text,
-                            "security_indicators": list(security.indicators)})
+            sources.append(
+                {
+                    "path": str(candidate.resolve()),
+                    "name": candidate.name,
+                    "chars": len(text),
+                    "text": text,
+                    "security_indicators": list(security.indicators),
+                }
+            )
         if not sources:
             raise ValueError("No supported readable files were found")
         return sources, used_chars, skipped_sensitive
@@ -502,16 +642,34 @@ class FilePipeline:
         from reportlab.lib.colors import HexColor
         from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
         from xml.sax.saxutils import escape
+
         buffer = io.BytesIO()
         styles = getSampleStyleSheet()
-        styles.add(ParagraphStyle(name="SentinelTitle", parent=styles["Title"], textColor=HexColor("#2563EB"), alignment=TA_CENTER, spaceAfter=18))
-        doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=50, leftMargin=50, topMargin=54, bottomMargin=54,
-                                title="Sentinel Report", author="Sentinel")
+        styles.add(
+            ParagraphStyle(
+                name="SentinelTitle",
+                parent=styles["Title"],
+                textColor=HexColor("#2563EB"),
+                alignment=TA_CENTER,
+                spaceAfter=18,
+            )
+        )
+        doc = SimpleDocTemplate(
+            buffer,
+            pagesize=A4,
+            rightMargin=50,
+            leftMargin=50,
+            topMargin=54,
+            bottomMargin=54,
+            title="Sentinel Report",
+            author="Sentinel",
+        )
         story = [Paragraph("Sentinel Report", styles["SentinelTitle"]), Spacer(1, 8)]
         for line in report.splitlines():
             stripped = line.strip()
             if not stripped:
-                story.append(Spacer(1, 8)); continue
+                story.append(Spacer(1, 8))
+                continue
             if stripped.startswith("### "):
                 story.append(Paragraph(escape(stripped[4:]), styles["Heading3"]))
             elif stripped.startswith("## "):
@@ -522,9 +680,14 @@ class FilePipeline:
                 story.append(Paragraph("• " + escape(stripped[2:]), styles["BodyText"]))
             else:
                 story.append(Paragraph(escape(stripped), styles["BodyText"]))
+
         def footer(canvas, document):
-            canvas.saveState(); canvas.setFont("Helvetica", 8); canvas.setFillColor(HexColor("#64748B"))
-            canvas.drawCentredString(A4[0] / 2, 25, f"Sentinel - Page {document.page}"); canvas.restoreState()
+            canvas.saveState()
+            canvas.setFont("Helvetica", 8)
+            canvas.setFillColor(HexColor("#64748B"))
+            canvas.drawCentredString(A4[0] / 2, 25, f"Sentinel - Page {document.page}")
+            canvas.restoreState()
+
         doc.build(story, onFirstPage=footer, onLaterPages=footer)
         return buffer.getvalue(), "application/pdf", "sentinel-report.pdf"
 
@@ -537,14 +700,24 @@ class FilePipeline:
             or any(marker in name for marker in SENSITIVE_REPORT_MARKERS)
         )
 
-    def generate_report(self, path: str, *, objective: str = "Create a concise executive report",
-                        recursive: bool = True, max_files: int = 25,
-                        max_chars: int = 120_000) -> Dict[str, Any]:
+    def generate_report(
+        self,
+        path: str,
+        *,
+        objective: str = "Create a concise executive report",
+        recursive: bool = True,
+        max_files: int = 25,
+        max_chars: int = 120_000,
+    ) -> Dict[str, Any]:
         from .model_router import TaskType
+
         if self._model_router is None:
             raise RuntimeError("Model router is not configured for report generation")
         sources, used_chars, skipped_sensitive = self._collect_report_sources(
-            path, recursive=recursive, max_files=max_files, max_chars=max_chars,
+            path,
+            recursive=recursive,
+            max_files=max_files,
+            max_chars=max_chars,
         )
         source_text = "\n\n".join(f"--- SOURCE: {s['name']} ---\n{s['text']}" for s in sources)
         prompt = (
@@ -556,14 +729,19 @@ class FilePipeline:
             [
                 {"role": "system", "content": MODEL_UNTRUSTED_CONTENT_POLICY},
                 {"role": "user", "content": prompt},
-            ], task_type=TaskType.ANALYSIS,
+            ],
+            task_type=TaskType.ANALYSIS,
             context={"source_count": len(sources), "source_chars": used_chars},
         )
         return {
-            "report": response.get("response", ""), "provider": response.get("provider"),
-            "model": response.get("model"), "usage": response.get("usage"),
+            "report": response.get("response", ""),
+            "provider": response.get("provider"),
+            "model": response.get("model"),
+            "usage": response.get("usage"),
             "sources": [{k: v for k, v in s.items() if k != "text"} for s in sources],
-            "source_count": len(sources), "source_chars": used_chars, "objective": objective,
+            "source_count": len(sources),
+            "source_chars": used_chars,
+            "objective": objective,
             "skipped_sensitive": skipped_sensitive,
         }
 
@@ -637,9 +815,23 @@ class FilePipeline:
         metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
         excluded_dirs = {
-            ".git", "__pycache__", "node_modules", "venv", ".venv",
-            "env", ".env", "dist", "build", ".svn", ".idea",
-            "vendor", "target", "bin", "obj", ".next", ".nuxt",
+            ".git",
+            "__pycache__",
+            "node_modules",
+            "venv",
+            ".venv",
+            "env",
+            ".env",
+            "dist",
+            "build",
+            ".svn",
+            ".idea",
+            "vendor",
+            "target",
+            "bin",
+            "obj",
+            ".next",
+            ".nuxt",
         }
         for fpath in sorted(path.rglob("*")):
             if not fpath.is_file():

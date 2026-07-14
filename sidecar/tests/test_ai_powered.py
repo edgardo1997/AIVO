@@ -30,13 +30,15 @@ class TestAIIntentEngine:
         router = MagicMock()
         router._key_map = {"openrouter": "sk-test"}
         router.chat.return_value = {
-            "response": json.dumps({
-                "action": "analyze",
-                "target": "system.health",
-                "confidence": 0.85,
-                "parameters": {},
-                "reason": "User wants system analysis",
-            }),
+            "response": json.dumps(
+                {
+                    "action": "analyze",
+                    "target": "system.health",
+                    "confidence": 0.85,
+                    "parameters": {},
+                    "reason": "User wants system analysis",
+                }
+            ),
             "provider": "openrouter",
         }
         engine = IntentEngine(model_router=router)
@@ -49,13 +51,15 @@ class TestAIIntentEngine:
         router = MagicMock()
         router._key_map = {"openrouter": "sk-test"}
         router.chat.return_value = {
-            "response": json.dumps({
-                "action": "query",
-                "target": "unknown",
-                "confidence": 0.3,
-                "parameters": {},
-                "reason": "Unclear",
-            }),
+            "response": json.dumps(
+                {
+                    "action": "query",
+                    "target": "unknown",
+                    "confidence": 0.3,
+                    "parameters": {},
+                    "reason": "Unclear",
+                }
+            ),
         }
         engine = IntentEngine(model_router=router)
         intent = engine.parse("show cpu")
@@ -83,12 +87,14 @@ class TestAIIntentEngine:
         router = MagicMock()
         router._key_map = {"openrouter": "sk-test"}
         router.chat.return_value = {
-            "response": json.dumps({
-                "action": "analyze",
-                "target": "system.health",
-                "confidence": 0.9,
-                "parameters": {},
-            }),
+            "response": json.dumps(
+                {
+                    "action": "analyze",
+                    "target": "system.health",
+                    "confidence": 0.9,
+                    "parameters": {},
+                }
+            ),
         }
         engine = IntentEngine(model_router=router)
         context = {"system_summary": {"cpu_percent": 95, "memory_percent": 50}}
@@ -100,11 +106,13 @@ class TestAIIntentEngine:
         router = MagicMock()
         router._key_map = {"openrouter": "sk-test"}
         router.chat.return_value = {
-            "response": json.dumps({
-                "action": "query",
-                "target": "unknown",
-                "confidence": 0.1,
-            }),
+            "response": json.dumps(
+                {
+                    "action": "query",
+                    "target": "unknown",
+                    "confidence": 0.1,
+                }
+            ),
         }
         engine = IntentEngine(model_router=router)
         intent = engine.parse("show cpu usage")
@@ -114,7 +122,9 @@ class TestAIIntentEngine:
 class TestAIDecisionEngine:
     def test_no_router_uses_rule_based(self):
         engine = DecisionEngine(get_permission_level=lambda: "admin")
-        plan = Plan(intent=None, steps=[PlanStep(id="s1", tool_id="system.cpu", description="check cpu")], risk_score=0.1)
+        plan = Plan(
+            intent=None, steps=[PlanStep(id="s1", tool_id="system.cpu", description="check cpu")], risk_score=0.1
+        )
         result = engine.evaluate(plan)
         assert result.decision == Decision.APPROVE
 
@@ -122,7 +132,9 @@ class TestAIDecisionEngine:
         router = MagicMock()
         router._key_map = {}
         engine = DecisionEngine(get_permission_level=lambda: "admin", model_router=router)
-        plan = Plan(intent=None, steps=[PlanStep(id="s1", tool_id="system.cpu", description="check cpu")], risk_score=0.1)
+        plan = Plan(
+            intent=None, steps=[PlanStep(id="s1", tool_id="system.cpu", description="check cpu")], risk_score=0.1
+        )
         result = engine.evaluate(plan)
         assert result.decision == Decision.APPROVE
 
@@ -130,14 +142,18 @@ class TestAIDecisionEngine:
         router = MagicMock()
         router._key_map = {"openrouter": "sk-test"}
         router.chat.return_value = {
-            "response": json.dumps({
-                "risk_modifier": -0.2,
-                "reason": "Read-only query, safe to execute",
-                "warnings": [],
-            }),
+            "response": json.dumps(
+                {
+                    "risk_modifier": -0.2,
+                    "reason": "Read-only query, safe to execute",
+                    "warnings": [],
+                }
+            ),
         }
         engine = DecisionEngine(get_permission_level=lambda: "confirm", model_router=router)
-        plan = Plan(intent=None, steps=[PlanStep(id="s1", tool_id="system.cpu", description="check cpu")], risk_score=0.5)
+        plan = Plan(
+            intent=None, steps=[PlanStep(id="s1", tool_id="system.cpu", description="check cpu")], risk_score=0.5
+        )
         result = engine.evaluate(plan)
         assert result.decision == Decision.APPROVE
 
@@ -145,16 +161,24 @@ class TestAIDecisionEngine:
         router = MagicMock()
         router._key_map = {"openrouter": "sk-test"}
         router.chat.return_value = {
-            "response": json.dumps({
-                "risk_modifier": 0.3,
-                "reason": "Extremely destructive operation",
-                "warnings": ["file deletion"],
-            }),
+            "response": json.dumps(
+                {
+                    "risk_modifier": 0.3,
+                    "reason": "Extremely destructive operation",
+                    "warnings": ["file deletion"],
+                }
+            ),
         }
         engine = DecisionEngine(get_permission_level=lambda: "confirm", model_router=router)
-        plan = Plan(intent=None, steps=[
-            PlanStep(id="s1", tool_id="filesystem.write", description="delete system files", estimated_impact="critical"),
-        ], risk_score=0.5)
+        plan = Plan(
+            intent=None,
+            steps=[
+                PlanStep(
+                    id="s1", tool_id="filesystem.write", description="delete system files", estimated_impact="critical"
+                ),
+            ],
+            risk_score=0.5,
+        )
         result = engine.evaluate(plan)
         assert result.decision == Decision.REJECT
 
@@ -163,7 +187,9 @@ class TestAIDecisionEngine:
         router._key_map = {"openrouter": "sk-test"}
         router.chat.side_effect = RuntimeError("API error")
         engine = DecisionEngine(get_permission_level=lambda: "confirm", model_router=router)
-        plan = Plan(intent=None, steps=[PlanStep(id="s1", tool_id="system.cpu", description="check cpu")], risk_score=0.1)
+        plan = Plan(
+            intent=None, steps=[PlanStep(id="s1", tool_id="system.cpu", description="check cpu")], risk_score=0.1
+        )
         result = engine.evaluate(plan)
         assert result.decision == Decision.APPROVE
 
@@ -171,7 +197,9 @@ class TestAIDecisionEngine:
         router = MagicMock()
         router._key_map = {"openrouter": "sk-test"}
         engine = DecisionEngine(get_permission_level=lambda: "admin", model_router=router)
-        plan = Plan(intent=None, steps=[PlanStep(id="s1", tool_id="system.cpu", description="check cpu")], risk_score=0.05)
+        plan = Plan(
+            intent=None, steps=[PlanStep(id="s1", tool_id="system.cpu", description="check cpu")], risk_score=0.05
+        )
         result = engine.evaluate(plan)
         router.chat.assert_not_called()
         assert result.decision == Decision.APPROVE
@@ -186,11 +214,13 @@ class TestAIDecisionEngine:
         router = MagicMock()
         router._key_map = {"openrouter": "sk-test"}
         router.chat.return_value = {
-            "response": json.dumps({
-                "action": "query",
-                "target": "system.cpu",
-                "confidence": 0.9,
-            }),
+            "response": json.dumps(
+                {
+                    "action": "query",
+                    "target": "system.cpu",
+                    "confidence": 0.9,
+                }
+            ),
         }
 
         intent_engine = IntentEngine(model_router=router)

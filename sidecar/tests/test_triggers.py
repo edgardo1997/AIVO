@@ -9,7 +9,14 @@ from fastapi.testclient import TestClient
 from main import app
 
 from modules import triggers as triggers_mod
-from sentinel.core.trigger import TriggerRule, TriggerCondition, TriggerAction, TriggerOperator, TriggerEngine, TriggerFireRecord
+from sentinel.core.trigger import (
+    TriggerRule,
+    TriggerCondition,
+    TriggerAction,
+    TriggerOperator,
+    TriggerEngine,
+    TriggerFireRecord,
+)
 
 client = TestClient(app)
 
@@ -18,7 +25,7 @@ def setup_module():
     """Ensure trigger module is wired for testing."""
     # The test conftest already initializes the app; triggers_mod should be
     # already wired by main.py. We just ensure the engine is clean for tests.
-    engine = triggers_mod.get_engine()
+    triggers_mod.get_engine()
     # Don't clear between tests - let the wrapper persist to DB. Instead,
     # individual tests use unique trigger IDs.
 
@@ -95,12 +102,15 @@ class TestTriggerCore:
 
     def test_evaluate_metrics_matches(self):
         engine = TriggerEngine()
-        engine.add_rule(TriggerRule(
-            id="high-cpu", name="High CPU",
-            conditions=[TriggerCondition(metric="cpu_percent", operator=TriggerOperator.GT, value=80)],
-            action=TriggerAction(tool_id="system.diagnostic"),
-            cooldown_seconds=1,
-        ))
+        engine.add_rule(
+            TriggerRule(
+                id="high-cpu",
+                name="High CPU",
+                conditions=[TriggerCondition(metric="cpu_percent", operator=TriggerOperator.GT, value=80)],
+                action=TriggerAction(tool_id="system.diagnostic"),
+                cooldown_seconds=1,
+            )
+        )
         fires = engine.evaluate({"cpu_percent": 95})
         assert len(fires) == 1
         assert fires[0].trigger_id == "high-cpu"
@@ -108,24 +118,30 @@ class TestTriggerCore:
 
     def test_evaluate_no_metric_skips(self):
         engine = TriggerEngine()
-        engine.add_rule(TriggerRule(
-            id="skip", name="Skip",
-            conditions=[TriggerCondition(metric="missing_metric", operator=TriggerOperator.GT, value=50)],
-            cooldown_seconds=1,
-        ))
+        engine.add_rule(
+            TriggerRule(
+                id="skip",
+                name="Skip",
+                conditions=[TriggerCondition(metric="missing_metric", operator=TriggerOperator.GT, value=50)],
+                cooldown_seconds=1,
+            )
+        )
         fires = engine.evaluate({"cpu_percent": 90})
         assert len(fires) == 0
 
     def test_evaluate_multiple_conditions(self):
         engine = TriggerEngine()
-        engine.add_rule(TriggerRule(
-            id="multi", name="Multi",
-            conditions=[
-                TriggerCondition(metric="cpu", operator=TriggerOperator.GT, value=80),
-                TriggerCondition(metric="mem", operator=TriggerOperator.GT, value=90),
-            ],
-            cooldown_seconds=1,
-        ))
+        engine.add_rule(
+            TriggerRule(
+                id="multi",
+                name="Multi",
+                conditions=[
+                    TriggerCondition(metric="cpu", operator=TriggerOperator.GT, value=80),
+                    TriggerCondition(metric="mem", operator=TriggerOperator.GT, value=90),
+                ],
+                cooldown_seconds=1,
+            )
+        )
         fires = engine.evaluate({"cpu": 85, "mem": 95})
         assert len(fires) == 1
         fires2 = engine.evaluate({"cpu": 85, "mem": 50})
@@ -133,11 +149,14 @@ class TestTriggerCore:
 
     def test_history_maintained(self):
         engine = TriggerEngine()
-        engine.add_rule(TriggerRule(
-            id="hist-test", name="History Test",
-            conditions=[TriggerCondition(metric="x", operator=TriggerOperator.GT, value=50)],
-            cooldown_seconds=1,
-        ))
+        engine.add_rule(
+            TriggerRule(
+                id="hist-test",
+                name="History Test",
+                conditions=[TriggerCondition(metric="x", operator=TriggerOperator.GT, value=50)],
+                cooldown_seconds=1,
+            )
+        )
         engine.evaluate({"x": 90})
         assert len(engine.get_history()) == 1
         record = engine.get_history()[0]
@@ -145,7 +164,8 @@ class TestTriggerCore:
 
     def test_roundtrip_dict(self):
         rule = TriggerRule(
-            id="rt", name="Roundtrip",
+            id="rt",
+            name="Roundtrip",
             conditions=[TriggerCondition(metric="cpu", operator=TriggerOperator.GT, value=90)],
             action=TriggerAction(tool_id="diagnostic", params={"level": "full"}),
             cooldown_seconds=300,
@@ -180,15 +200,20 @@ class TestTriggerCore:
 
     def test_action_execution(self):
         results = []
+
         async def mock_execute(tool_id, params):
             results.append((tool_id, params))
+
         engine = TriggerEngine(execute_fn=mock_execute)
-        engine.add_rule(TriggerRule(
-            id="action-test", name="Action Test",
-            conditions=[TriggerCondition(metric="cpu", operator=TriggerOperator.GT, value=50)],
-            action=TriggerAction(tool_id="test.tool", params={"key": "val"}),
-            cooldown_seconds=1,
-        ))
+        engine.add_rule(
+            TriggerRule(
+                id="action-test",
+                name="Action Test",
+                conditions=[TriggerCondition(metric="cpu", operator=TriggerOperator.GT, value=50)],
+                action=TriggerAction(tool_id="test.tool", params={"key": "val"}),
+                cooldown_seconds=1,
+            )
+        )
         engine.evaluate({"cpu": 90})
         # Action isn't awaited in evaluate since it uses create_task; check record
         history = engine.get_history()
@@ -204,99 +229,131 @@ class TestTriggerCore:
 
 class TestTriggerTools:
     def test_trigger_list_empty(self):
-        resp = client.post("/v1/execute", json={
-            "tool_id": "trigger.list", "params": {},
-        })
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "trigger.list",
+                "params": {},
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["success"] is True
         assert "triggers" in data["data"]
 
     def test_trigger_create_and_list(self):
-        resp = client.post("/v1/execute", json={
-            "tool_id": "trigger.create",
-            "params": {
-                "id": "test-trigger-tool",
-                "name": "Test Trigger",
-                "conditions": [{"metric": "cpu_percent", "operator": "gt", "value": 90}],
-                "action": {"tool_id": "system.diagnostic", "params": {}},
-                "cooldown_seconds": 60,
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "trigger.create",
+                "params": {
+                    "id": "test-trigger-tool",
+                    "name": "Test Trigger",
+                    "conditions": [{"metric": "cpu_percent", "operator": "gt", "value": 90}],
+                    "action": {"tool_id": "system.diagnostic", "params": {}},
+                    "cooldown_seconds": 60,
+                },
             },
-        })
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["success"] is True
         assert data["data"]["status"] == "created"
 
-        listed = client.post("/v1/execute", json={
-            "tool_id": "trigger.list", "params": {},
-        })
+        listed = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "trigger.list",
+                "params": {},
+            },
+        )
         assert listed.status_code == 200
         triggers = listed.json()["data"]["triggers"]
         ids = [t["id"] for t in triggers]
         assert "test-trigger-tool" in ids
 
     def test_trigger_create_duplicate_returns_error(self):
-        resp = client.post("/v1/execute", json={
-            "tool_id": "trigger.create",
-            "params": {
-                "id": "dup-trigger",
-                "conditions": [{"metric": "cpu", "operator": "gt", "value": 80}],
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "trigger.create",
+                "params": {
+                    "id": "dup-trigger",
+                    "conditions": [{"metric": "cpu", "operator": "gt", "value": 80}],
+                },
             },
-        })
+        )
         assert resp.status_code == 200
         # Second create should fail
-        resp2 = client.post("/v1/execute", json={
-            "tool_id": "trigger.create",
-            "params": {
-                "id": "dup-trigger",
-                "conditions": [{"metric": "cpu", "operator": "gt", "value": 80}],
+        resp2 = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "trigger.create",
+                "params": {
+                    "id": "dup-trigger",
+                    "conditions": [{"metric": "cpu", "operator": "gt", "value": 80}],
+                },
             },
-        })
+        )
         assert resp2.status_code == 200
         data2 = resp2.json()
         assert data2["success"] is False
 
     def test_trigger_delete(self):
-        client.post("/v1/execute", json={
-            "tool_id": "trigger.create",
-            "params": {
-                "id": "del-trigger-tool",
-                "conditions": [{"metric": "cpu", "operator": "gt", "value": 90}],
+        client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "trigger.create",
+                "params": {
+                    "id": "del-trigger-tool",
+                    "conditions": [{"metric": "cpu", "operator": "gt", "value": 90}],
+                },
             },
-        })
-        resp = client.post("/v1/execute", json={
-            "tool_id": "trigger.delete",
-            "params": {"id": "del-trigger-tool"},
-        })
+        )
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "trigger.delete",
+                "params": {"id": "del-trigger-tool"},
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["success"] is True
         assert data["data"]["status"] == "deleted"
 
     def test_trigger_history_empty(self):
-        resp = client.post("/v1/execute", json={
-            "tool_id": "trigger.history",
-            "params": {},
-        })
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "trigger.history",
+                "params": {},
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["success"] is True
         assert "history" in data["data"]
 
     def test_trigger_evaluate(self):
-        client.post("/v1/execute", json={
-            "tool_id": "trigger.create",
-            "params": {
-                "id": "eval-trigger",
-                "conditions": [{"metric": "cpu_percent", "operator": "gt", "value": 50}],
-                "cooldown_seconds": 1,
+        client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "trigger.create",
+                "params": {
+                    "id": "eval-trigger",
+                    "conditions": [{"metric": "cpu_percent", "operator": "gt", "value": 50}],
+                    "cooldown_seconds": 1,
+                },
             },
-        })
-        resp = client.post("/v1/execute", json={
-            "tool_id": "trigger.evaluate",
-            "params": {"metrics": {"cpu_percent": 90}},
-        })
+        )
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "trigger.evaluate",
+                "params": {"metrics": {"cpu_percent": 90}},
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["success"] is True
@@ -313,28 +370,37 @@ class TestTriggerTools:
         assert "trigger.evaluate" in tool_ids
 
     def test_trigger_create_missing_id_returns_error(self):
-        resp = client.post("/v1/execute", json={
-            "tool_id": "trigger.create",
-            "params": {"conditions": [{"metric": "cpu", "operator": "gt", "value": 80}]},
-        })
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "trigger.create",
+                "params": {"conditions": [{"metric": "cpu", "operator": "gt", "value": 80}]},
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["success"] is False
 
     def test_trigger_delete_unknown_returns_error(self):
-        resp = client.post("/v1/execute", json={
-            "tool_id": "trigger.delete",
-            "params": {"id": "does-not-exist"},
-        })
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "trigger.delete",
+                "params": {"id": "does-not-exist"},
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["success"] is False
 
     def test_trigger_evaluate_no_metrics_returns_error(self):
-        resp = client.post("/v1/execute", json={
-            "tool_id": "trigger.evaluate",
-            "params": {},
-        })
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "trigger.evaluate",
+                "params": {},
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["success"] is False
@@ -349,14 +415,17 @@ class TestTriggersAPI:
         assert "total" in data
 
     def test_create_via_api(self):
-        resp = client.post("/v1/triggers", json={
-            "id": "api-created-trigger",
-            "name": "API Created",
-            "description": "Created via REST API",
-            "conditions": [{"metric": "memory_percent", "operator": "gt", "value": 95}],
-            "action": {"tool_id": "system.diagnostic", "params": {"level": "memory"}},
-            "cooldown_seconds": 120,
-        })
+        resp = client.post(
+            "/v1/triggers",
+            json={
+                "id": "api-created-trigger",
+                "name": "API Created",
+                "description": "Created via REST API",
+                "conditions": [{"metric": "memory_percent", "operator": "gt", "value": 95}],
+                "action": {"tool_id": "system.diagnostic", "params": {"level": "memory"}},
+                "cooldown_seconds": 120,
+            },
+        )
         assert resp.status_code == 201
         data = resp.json()
         assert data["status"] == "created"
@@ -369,26 +438,38 @@ class TestTriggersAPI:
         assert trigger["conditions"][0]["metric"] == "memory_percent"
 
     def test_create_duplicate_via_api_returns_409(self):
-        client.post("/v1/triggers", json={
-            "id": "dup-api-trigger",
-            "conditions": [{"metric": "cpu", "operator": "gt", "value": 80}],
-        })
-        resp = client.post("/v1/triggers", json={
-            "id": "dup-api-trigger",
-            "conditions": [{"metric": "cpu", "operator": "gt", "value": 80}],
-        })
+        client.post(
+            "/v1/triggers",
+            json={
+                "id": "dup-api-trigger",
+                "conditions": [{"metric": "cpu", "operator": "gt", "value": 80}],
+            },
+        )
+        resp = client.post(
+            "/v1/triggers",
+            json={
+                "id": "dup-api-trigger",
+                "conditions": [{"metric": "cpu", "operator": "gt", "value": 80}],
+            },
+        )
         assert resp.status_code == 409
 
     def test_update_via_api(self):
-        client.post("/v1/triggers", json={
-            "id": "upd-api-trigger",
-            "conditions": [{"metric": "cpu", "operator": "gt", "value": 80}],
-        })
-        resp = client.patch("/v1/triggers/upd-api-trigger", json={
-            "name": "Updated Name",
-            "cooldown_seconds": 600,
-            "enabled": False,
-        })
+        client.post(
+            "/v1/triggers",
+            json={
+                "id": "upd-api-trigger",
+                "conditions": [{"metric": "cpu", "operator": "gt", "value": 80}],
+            },
+        )
+        resp = client.patch(
+            "/v1/triggers/upd-api-trigger",
+            json={
+                "name": "Updated Name",
+                "cooldown_seconds": 600,
+                "enabled": False,
+            },
+        )
         assert resp.status_code == 200
         fetched = client.get("/v1/triggers/upd-api-trigger")
         trigger = fetched.json()["trigger"]
@@ -397,10 +478,13 @@ class TestTriggersAPI:
         assert trigger["enabled"] is False
 
     def test_delete_via_api(self):
-        client.post("/v1/triggers", json={
-            "id": "del-api-trigger",
-            "conditions": [{"metric": "cpu", "operator": "gt", "value": 80}],
-        })
+        client.post(
+            "/v1/triggers",
+            json={
+                "id": "del-api-trigger",
+                "conditions": [{"metric": "cpu", "operator": "gt", "value": 80}],
+            },
+        )
         resp = client.delete("/v1/triggers/del-api-trigger")
         assert resp.status_code == 200
         fetched = client.get("/v1/triggers/del-api-trigger")
@@ -415,11 +499,14 @@ class TestTriggersAPI:
         assert resp.status_code == 404
 
     def test_history_via_api(self):
-        client.post("/v1/triggers", json={
-            "id": "hist-api-trigger",
-            "conditions": [{"metric": "disk_percent", "operator": "gt", "value": 95}],
-            "cooldown_seconds": 1,
-        })
+        client.post(
+            "/v1/triggers",
+            json={
+                "id": "hist-api-trigger",
+                "conditions": [{"metric": "disk_percent", "operator": "gt", "value": 95}],
+                "cooldown_seconds": 1,
+            },
+        )
         resp = client.get("/v1/triggers/hist-api-trigger/history?limit=10")
         assert resp.status_code == 200
         data = resp.json()

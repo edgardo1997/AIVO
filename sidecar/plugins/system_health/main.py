@@ -2,6 +2,7 @@ import psutil
 
 alerts_history = []
 
+
 def on_metrics(ctx):
     cpu = ctx.get("cpu_percent", 0)
     mem = ctx.get("memory_percent", 0)
@@ -13,6 +14,7 @@ def on_metrics(ctx):
     elif "coretemp" in temp:
         cpu_temp = f"{temp['coretemp'][0].current}°C"
     return {"cpu_temp": cpu_temp, "checks": {"cpu": cpu, "memory": mem, "disk": disk}}
+
 
 def on_schedule(ctx):
     cpu = psutil.cpu_percent(interval=0.2)

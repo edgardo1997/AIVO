@@ -102,9 +102,13 @@ class TestProcessPipeline:
 
 class TestDryRunProcess:
     def test_dry_run_returns_plan_without_execution(self):
-        resp = client.post("/api/sentinel/process", json={
-            "utterance": "analyze system health", "dry_run": True,
-        })
+        resp = client.post(
+            "/api/sentinel/process",
+            json={
+                "utterance": "analyze system health",
+                "dry_run": True,
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["simulated"] is True
@@ -115,9 +119,13 @@ class TestDryRunProcess:
         assert len(steps) >= 2
 
     def test_dry_run_still_shows_intent_and_plan(self):
-        resp = client.post("/api/sentinel/process", json={
-            "utterance": "cpu usage", "dry_run": True,
-        })
+        resp = client.post(
+            "/api/sentinel/process",
+            json={
+                "utterance": "cpu usage",
+                "dry_run": True,
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["simulated"] is True
@@ -125,9 +133,13 @@ class TestDryRunProcess:
         assert len(data["plan"]["steps"]) == 1
 
     def test_dry_run_no_state_mutation(self):
-        client.post("/api/sentinel/process", json={
-            "utterance": "analyze system health", "dry_run": True,
-        })
+        client.post(
+            "/api/sentinel/process",
+            json={
+                "utterance": "analyze system health",
+                "dry_run": True,
+            },
+        )
         last = client.get("/api/sentinel/last-execution")
         data = last.json()
         assert data["execution"] is None
@@ -135,9 +147,13 @@ class TestDryRunProcess:
 
 class TestExecuteEndpoint:
     def test_execute_system_cpu(self):
-        resp = client.post("/v1/execute", json={
-            "tool_id": "system.cpu", "params": {},
-        })
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "system.cpu",
+                "params": {},
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["success"] is True
@@ -145,17 +161,25 @@ class TestExecuteEndpoint:
         assert data["error"] is None
 
     def test_execute_system_info(self):
-        resp = client.post("/v1/execute", json={
-            "tool_id": "system.info", "params": {},
-        })
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "system.info",
+                "params": {},
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["success"] is True
 
     def test_execute_unknown_tool(self):
-        resp = client.post("/v1/execute", json={
-            "tool_id": "nonexistent.tool", "params": {},
-        })
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "nonexistent.tool",
+                "params": {},
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["success"] is False
@@ -165,24 +189,38 @@ class TestExecuteEndpoint:
         assert resp.status_code == 422
 
     def test_execute_extra_fields_rejected(self):
-        resp = client.post("/v1/execute", json={
-            "tool_id": "system.cpu", "params": {}, "invalid_field": True,
-        })
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "system.cpu",
+                "params": {},
+                "invalid_field": True,
+            },
+        )
         assert resp.status_code == 422
 
     def test_execute_returns_pipeline_info(self):
-        resp = client.post("/v1/execute", json={
-            "tool_id": "system.cpu", "params": {},
-        })
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "system.cpu",
+                "params": {},
+            },
+        )
         data = resp.json()
         assert "pipeline" in data
         assert "plan" in data["pipeline"]
         assert "decision" in data["pipeline"]
 
     def test_execute_dry_run_simulated(self):
-        resp = client.post("/v1/execute", json={
-            "tool_id": "system.cpu", "params": {}, "dry_run": True,
-        })
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "system.cpu",
+                "params": {},
+                "dry_run": True,
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["simulated"] is True
@@ -190,18 +228,26 @@ class TestExecuteEndpoint:
         assert tool_data.get("simulated") is True
 
     def test_execute_app_discovery_list(self):
-        resp = client.post("/v1/execute", json={
-            "tool_id": "app.discovery", "params": {"action": "list"},
-        })
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "app.discovery",
+                "params": {"action": "list"},
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["success"] is True
         assert "apps" in data["data"]
 
     def test_execute_app_discovery_capabilities(self):
-        resp = client.post("/v1/execute", json={
-            "tool_id": "app.discovery", "params": {"action": "capabilities"},
-        })
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "app.discovery",
+                "params": {"action": "capabilities"},
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["success"] is True
@@ -249,9 +295,12 @@ class TestGoalIntegration:
         assert "system_health_diagnosis" in goal_ids
 
     def test_goal_matches_endpoint(self):
-        resp = client.get("/api/sentinel/goals/matches", params={
-            "intent": "system.health",
-        })
+        resp = client.get(
+            "/api/sentinel/goals/matches",
+            params={
+                "intent": "system.health",
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert "matches" in data
@@ -260,15 +309,18 @@ class TestGoalIntegration:
 
     def test_create_and_delete_goal(self):
         perm_svc.set_level("admin")
-        new = client.post("/api/sentinel/goals", json={
-            "id": "test_e2e_goal",
-            "name": "E2E Test Goal",
-            "description": "Temporary goal for E2E testing",
-            "intent_targets": ["test.e2e"],
-            "possible_capabilities": ["system.cpu"],
-            "priority": 1,
-            "base_risk": "low",
-        })
+        new = client.post(
+            "/api/sentinel/goals",
+            json={
+                "id": "test_e2e_goal",
+                "name": "E2E Test Goal",
+                "description": "Temporary goal for E2E testing",
+                "intent_targets": ["test.e2e"],
+                "possible_capabilities": ["system.cpu"],
+                "priority": 1,
+                "base_risk": "low",
+            },
+        )
         assert new.status_code == 201, f"Create failed: {new.text}"
         new_data = new.json()
         assert new_data["goal_id"] == "test_e2e_goal"
@@ -285,20 +337,32 @@ class TestGoalIntegration:
 class TestSessionContinuity:
     def test_session_id_preserved_across_calls(self):
         session = "test-session-e2e"
-        r1 = client.post("/api/sentinel/process", json={
-            "utterance": "cpu usage", "session_id": session,
-        })
+        r1 = client.post(
+            "/api/sentinel/process",
+            json={
+                "utterance": "cpu usage",
+                "session_id": session,
+            },
+        )
         assert r1.status_code == 200
         last = client.get("/api/sentinel/last-execution")
         assert last.status_code == 200
 
     def test_different_sessions_isolated(self):
-        r1 = client.post("/api/sentinel/process", json={
-            "utterance": "cpu usage", "session_id": "session-a",
-        })
-        r2 = client.post("/api/sentinel/process", json={
-            "utterance": "show system info", "session_id": "session-b",
-        })
+        r1 = client.post(
+            "/api/sentinel/process",
+            json={
+                "utterance": "cpu usage",
+                "session_id": "session-a",
+            },
+        )
+        r2 = client.post(
+            "/api/sentinel/process",
+            json={
+                "utterance": "show system info",
+                "session_id": "session-b",
+            },
+        )
         assert r1.status_code == 200
         assert r2.status_code == 200
 
@@ -306,15 +370,22 @@ class TestSessionContinuity:
 class TestPermissions:
     def test_admin_can_execute_command(self):
         perm_svc.set_level("admin")
-        resp = client.post("/api/sentinel/process", json={
-            "utterance": "run command echo hello",
-        })
+        resp = client.post(
+            "/api/sentinel/process",
+            json={
+                "utterance": "run command echo hello",
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         if data.get("blocked"):
-            approve_resp = client.post("/api/sentinel/simulate/approve", json={
-                "action_id": data["action_id"], "approved": True,
-            })
+            approve_resp = client.post(
+                "/api/sentinel/simulate/approve",
+                json={
+                    "action_id": data["action_id"],
+                    "approved": True,
+                },
+            )
             assert approve_resp.status_code == 200
             data = approve_resp.json()
         assert data["tool_result"]["success"] is True
@@ -322,9 +393,13 @@ class TestPermissions:
 
     def test_executor_command_returns_output(self):
         perm_svc.set_level("admin")
-        resp = client.post("/v1/execute", json={
-            "tool_id": "executor.command", "params": {"command": "echo hello"},
-        })
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "executor.command",
+                "params": {"command": "echo hello"},
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["success"] is True
@@ -334,18 +409,24 @@ class TestPermissions:
 
 class TestRecoveryInPipeline:
     def test_process_pipeline_succeeds_without_errors(self):
-        resp = client.post("/api/sentinel/process", json={
-            "utterance": "analyze system health",
-        })
+        resp = client.post(
+            "/api/sentinel/process",
+            json={
+                "utterance": "analyze system health",
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["error"] is None
         assert data["tool_result"]["success"] is True
 
     def test_step_results_all_successful(self):
-        resp = client.post("/api/sentinel/process", json={
-            "utterance": "analyze system health",
-        })
+        resp = client.post(
+            "/api/sentinel/process",
+            json={
+                "utterance": "analyze system health",
+            },
+        )
         data = resp.json()
         step_results = data.get("step_results", [])
         for sr in step_results:
@@ -358,12 +439,13 @@ class TestRecoveryInPipeline:
             assert isinstance(cat, ErrorCategory)
 
     def test_retry_handler_uses_exponential_backoff(self):
-        handler = RetryHandler()
+        RetryHandler()
         policy = RecoveryPolicy(max_retries=3, retry_delay_ms=100, retry_backoff=2.0)
         delays = []
         for attempt in range(1, policy.max_retries + 1):
-            delay = min(policy.retry_delay_ms * (policy.retry_backoff ** (attempt - 1)),
-                        policy.retry_max_delay_ms) / 1000
+            delay = (
+                min(policy.retry_delay_ms * (policy.retry_backoff ** (attempt - 1)), policy.retry_max_delay_ms) / 1000
+            )
             delays.append(delay)
         assert len(delays) == 3
         for i in range(1, len(delays)):

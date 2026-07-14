@@ -1,4 +1,6 @@
-import os, sys
+import os
+import sys
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import json
@@ -31,6 +33,7 @@ class MockAgentRepo:
         for k, v in updates.items():
             if k == "status" and isinstance(v, str):
                 from sentinel.core.agent import AgentStatus
+
                 try:
                     v = AgentStatus(v)
                 except ValueError:
@@ -152,6 +155,7 @@ class TestAgentPersistence:
 class TestSeedAgents:
     def test_seed_agents_have_required_fields(self):
         from repositories.agent_repository import SEED_AGENTS
+
         assert len(SEED_AGENTS) >= 3
         for a in SEED_AGENTS:
             assert a.id is not None
@@ -161,11 +165,13 @@ class TestSeedAgents:
 
     def test_seed_agents_unique_ids(self):
         from repositories.agent_repository import SEED_AGENTS
+
         ids = [a.id for a in SEED_AGENTS]
         assert len(ids) == len(set(ids))
 
     def test_seed_agents_can_register(self):
         from repositories.agent_repository import SEED_AGENTS
+
         repo = MockAgentRepo()
         reg = AgentRegistry(repository=repo)
         for a in SEED_AGENTS:
@@ -181,12 +187,15 @@ class TestAgentRepository:
         mock = MagicMock()
         mock.list.return_value = list(self._store.values())
         mock.get.side_effect = lambda aid: self._store.get(aid)
+
         def mock_create(spec):
             if spec.id in self._store:
                 raise ValueError(f"Agent '{spec.id}' already exists")
             self._store[spec.id] = spec
             return spec
+
         mock.create.side_effect = mock_create
+
         def mock_update(aid, updates):
             if aid not in self._store:
                 return None
@@ -194,12 +203,16 @@ class TestAgentRepository:
             for k, v in updates.items():
                 setattr(spec, k, v)
             return spec
+
         mock.update.side_effect = mock_update
+
         def mock_delete(aid):
             return self._store.pop(aid, None) is not None
+
         mock.delete.side_effect = mock_delete
 
         from repositories.agent_repository import AgentRepository
+
         repo = AgentRepository.__new__(AgentRepository)
         repo._db = MagicMock()
         repo._db.fetchone.return_value = None
@@ -209,6 +222,7 @@ class TestAgentRepository:
 
     def test_create_and_get(self):
         from repositories.agent_repository import AgentRepository
+
         repo = MagicMock(spec=AgentRepository)
         a = AgentSpec(id="cr1", name="CR1", description="test")
         repo.create.return_value = a
@@ -218,6 +232,7 @@ class TestAgentRepository:
 
     def test_create_duplicate_raises(self):
         from repositories.agent_repository import AgentRepository
+
         repo = MagicMock(spec=AgentRepository)
         repo.create.side_effect = [None, ValueError("already exists")]
         repo.create(AgentSpec(id="dup", name="Dup", description="d"))
@@ -226,6 +241,7 @@ class TestAgentRepository:
 
     def test_list(self):
         from repositories.agent_repository import AgentRepository
+
         repo = MagicMock(spec=AgentRepository)
         repo.list.return_value = [
             AgentSpec(id="l1", name="L1", description="d"),
@@ -235,6 +251,7 @@ class TestAgentRepository:
 
     def test_update(self):
         from repositories.agent_repository import AgentRepository
+
         repo = MagicMock(spec=AgentRepository)
         a = AgentSpec(id="up1", name="Original")
         repo.update.return_value = AgentSpec(id="up1", name="Updated", description="new desc")
@@ -245,12 +262,14 @@ class TestAgentRepository:
 
     def test_update_nonexistent(self):
         from repositories.agent_repository import AgentRepository
+
         repo = MagicMock(spec=AgentRepository)
         repo.update.return_value = None
         assert repo.update("nonexistent", {"name": "X"}) is None
 
     def test_delete(self):
         from repositories.agent_repository import AgentRepository
+
         repo = MagicMock(spec=AgentRepository)
         repo.create.return_value = AgentSpec(id="del1", name="DEL1")
         repo.delete.side_effect = [True, False]
@@ -260,6 +279,7 @@ class TestAgentRepository:
 
     def test_count(self):
         from repositories.agent_repository import AgentRepository
+
         repo = MagicMock(spec=AgentRepository)
         repo.count.side_effect = [0, 2]
         assert repo.count() == 0
@@ -269,14 +289,17 @@ class TestAgentRepository:
 class TestAgentsAPI:
     def setup_method(self):
         from modules.sentinel_bridge import reset_bridge
+
         reset_bridge()
         from main import app
+
         app.state._test_mode = True
         app.state._test_secret = "valid-test-token"
 
     def _client(self):
         from fastapi.testclient import TestClient
         from main import app
+
         return TestClient(app, headers={"X-Test-Token": "valid-test-token"})
 
     def test_list_agents(self):
@@ -288,12 +311,15 @@ class TestAgentsAPI:
 
     def test_create_and_delete_agent(self):
         client = self._client()
-        resp = client.post("/v1/agents", json={
-            "agent_id": "test-api-agent",
-            "name": "Test API Agent",
-            "provider": "ollama",
-            "model": "llama3",
-        })
+        resp = client.post(
+            "/v1/agents",
+            json={
+                "agent_id": "test-api-agent",
+                "name": "Test API Agent",
+                "provider": "ollama",
+                "model": "llama3",
+            },
+        )
         assert resp.status_code == 201
         resp = client.delete("/v1/agents/test-api-agent")
         assert resp.status_code == 200

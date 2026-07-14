@@ -1,11 +1,18 @@
-import os, sys
+import os
+import sys
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from unittest.mock import MagicMock
 import pytest
 
 from sentinel.core.cost_tracker import (
-    CostTracker, CostRecord, CostSummary, BudgetConfig, BudgetAlert, MODEL_PRICING,
+    CostTracker,
+    CostRecord,
+    CostSummary,
+    BudgetConfig,
+    BudgetAlert,
+    MODEL_PRICING,
 )
 from sentinel.core.model_router import TaskType
 
@@ -43,6 +50,7 @@ class TestCostTrackerBasic:
         ct = CostTracker(db_path=str(tmp_path / "cost5.db"))
         ct.record_cost("ollama", "llama3", TaskType.QUICK, 10, 5)
         from datetime import datetime, timezone, timedelta
+
         future = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
         summaries = ct.get_cost_summary(since=future)
         assert len(summaries) == 0

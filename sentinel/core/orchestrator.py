@@ -189,7 +189,10 @@ class Orchestrator:
         self._rollback_manager = RollbackManager()
 
     async def process(
-        self, utterance: str, *, identity: Optional[dict] = None,
+        self,
+        utterance: str,
+        *,
+        identity: Optional[dict] = None,
         session_id: Optional[str] = None,
         dry_run: bool = False,
         skip_simulation: bool = False,
@@ -199,19 +202,32 @@ class Orchestrator:
         effective_timeout = timeout if timeout is not None else self._process_timeout
         if effective_timeout is not None and effective_timeout > 0:
             result = await asyncio.wait_for(
-                self._process_impl(utterance, identity=identity, session_id=session_id,
-                                   dry_run=dry_run, skip_simulation=skip_simulation,
-                                   override_plan=override_plan),
+                self._process_impl(
+                    utterance,
+                    identity=identity,
+                    session_id=session_id,
+                    dry_run=dry_run,
+                    skip_simulation=skip_simulation,
+                    override_plan=override_plan,
+                ),
                 timeout=effective_timeout,
             )
         else:
-            result = await self._process_impl(utterance, identity=identity, session_id=session_id,
-                                              dry_run=dry_run, skip_simulation=skip_simulation,
-                                              override_plan=override_plan)
+            result = await self._process_impl(
+                utterance,
+                identity=identity,
+                session_id=session_id,
+                dry_run=dry_run,
+                skip_simulation=skip_simulation,
+                override_plan=override_plan,
+            )
         return self._attach_advisory(result)
 
     async def _process_impl(
-        self, utterance: str, *, identity: Optional[dict] = None,
+        self,
+        utterance: str,
+        *,
+        identity: Optional[dict] = None,
         session_id: Optional[str] = None,
         dry_run: bool = False,
         skip_simulation: bool = False,
@@ -230,11 +246,20 @@ class Orchestrator:
                 if not dec.allowed:
                     logger.warning("Rate limit exceeded for global key (retry_after=%.0fs)", dec.retry_after)
                     return ExecutionResult(
-                        plan=ExecutionPlan(intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=utterance),
-                                           plan=Plan(steps=[], intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=utterance), description=""),
-                                           tool_id="", tool_params={}, task_type=TaskType.QUICK),
+                        plan=ExecutionPlan(
+                            intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=utterance),
+                            plan=Plan(
+                                steps=[],
+                                intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=utterance),
+                                description="",
+                            ),
+                            tool_id="",
+                            tool_params={},
+                            task_type=TaskType.QUICK,
+                        ),
                         error=f"Rate limit exceeded. Retry after {dec.retry_after}s",
-                        rate_limited=True, retry_after=dec.retry_after,
+                        rate_limited=True,
+                        retry_after=dec.retry_after,
                     )
                 if session_id:
                     session_limit = DEFAULT_LIMITS.get("session", 20)
@@ -242,11 +267,22 @@ class Orchestrator:
                     if not dec.allowed:
                         logger.warning("Rate limit exceeded for session %s", session_id)
                         return ExecutionResult(
-                            plan=ExecutionPlan(intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=utterance),
-                                               plan=Plan(steps=[], intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=utterance), description=""),
-                                               tool_id="", tool_params={}, task_type=TaskType.QUICK),
+                            plan=ExecutionPlan(
+                                intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=utterance),
+                                plan=Plan(
+                                    steps=[],
+                                    intent=Intent(
+                                        action="", target="", parameters={}, confidence=0.0, raw_input=utterance
+                                    ),
+                                    description="",
+                                ),
+                                tool_id="",
+                                tool_params={},
+                                task_type=TaskType.QUICK,
+                            ),
                             error=f"Session rate limit exceeded. Retry after {dec.retry_after}s",
-                            rate_limited=True, retry_after=dec.retry_after,
+                            rate_limited=True,
+                            retry_after=dec.retry_after,
                         )
             except Exception as e:
                 logger.warning("Rate limiter check failed: %s", e)
@@ -325,7 +361,10 @@ class Orchestrator:
             intent = self._intent_engine.parse(utterance, context)
             logger.info(
                 "Parsed intent: %s -> %s/%s (conf=%.2f)",
-                utterance, intent.action, intent.target, intent.confidence,
+                utterance,
+                intent.action,
+                intent.target,
+                intent.confidence,
             )
 
             cached_plan = self._plan_cache.get(intent) if self._plan_cache else None
@@ -376,8 +415,11 @@ class Orchestrator:
         if decision and decision.decision == Decision.REJECT:
             logger.warning("Execution REJECTED by decision engine: %s", decision.reason)
             result = ExecutionResult(
-                plan=exec_plan, decision=decision, simulated=True,
-                blocked=False, error=f"Execution rejected: {decision.reason}",
+                plan=exec_plan,
+                decision=decision,
+                simulated=True,
+                blocked=False,
+                error=f"Execution rejected: {decision.reason}",
             )
             self._store_memory(execution_id, start, utterance, intent, plan, decision, context, result)
             return result
@@ -408,8 +450,11 @@ class Orchestrator:
             sim_summary = simulation_result.summary if simulation_result else decision.reason
             logger.warning("Execution BLOCKED: %s (action_id=%s)", reason, action_id)
             result = ExecutionResult(
-                plan=exec_plan, decision=decision, simulated=True,
-                blocked=True, action_id=action_id,
+                plan=exec_plan,
+                decision=decision,
+                simulated=True,
+                blocked=True,
+                action_id=action_id,
                 simulation_summary=sim_summary,
                 error=f"Execution blocked: {reason}",
             )
@@ -432,7 +477,9 @@ class Orchestrator:
                 tool_result = self._merge_tool_result(tool_result, s_result)
                 executed.append((step, s_result))
                 if not s_result.success and not dry_run:
-                    rollback_actions.extend(asdict(action) for action in await self._rollback_completed(executed[:-1], context))
+                    rollback_actions.extend(
+                        asdict(action) for action in await self._rollback_completed(executed[:-1], context)
+                    )
                     break
             else:
                 tasks = [self._execute_single_step(s, intent, context, dry_run=dry_run) for s in level]
@@ -440,10 +487,14 @@ class Orchestrator:
                 all_ok = True
                 for step, res in zip(level, results):
                     if isinstance(res, Exception):
-                        step_results.append(StepResult(
-                            step_id=step.id, tool_id=step.tool_id,
-                            success=False, error=str(res),
-                        ))
+                        step_results.append(
+                            StepResult(
+                                step_id=step.id,
+                                tool_id=step.tool_id,
+                                success=False,
+                                error=str(res),
+                            )
+                        )
                         executed.append((step, step_results[-1]))
                         all_ok = False
                         if not tool_result:
@@ -456,21 +507,31 @@ class Orchestrator:
                             all_ok = False
                 if not all_ok and not dry_run:
                     completed = [(s, r) for s, r in executed if r.success]
-                    rollback_actions.extend(asdict(action) for action in await self._rollback_completed(completed, context))
+                    rollback_actions.extend(
+                        asdict(action) for action in await self._rollback_completed(completed, context)
+                    )
                     break
 
         executed_ids = {step_result.step_id for step_result in step_results}
         if not dry_run and any(not item.success for item in step_results):
             for step in plan.steps:
                 if step.id not in executed_ids:
-                    step_results.append(StepResult(step_id=step.id, tool_id=step.tool_id, success=False,
-                                                   error="Skipped because a dependency failed", status="skipped"))
+                    step_results.append(
+                        StepResult(
+                            step_id=step.id,
+                            tool_id=step.tool_id,
+                            success=False,
+                            error="Skipped because a dependency failed",
+                            status="skipped",
+                        )
+                    )
 
         if tool_result:
             tool_result.duration_ms = sum(s.duration_ms or 0 for s in step_results if s.duration_ms)
 
         result = ExecutionResult(
-            plan=exec_plan, decision=decision,
+            plan=exec_plan,
+            decision=decision,
             tool_result=tool_result,
             error=(tool_result.error if tool_result and not tool_result.success else None),
             step_results=step_results,
@@ -507,19 +568,25 @@ class Orchestrator:
 
         raw_input = utterance or f"execute {tool_id}"
         intent = Intent(
-            action="execute", target=tool_id,
-            parameters=params, confidence=1.0,
+            action="execute",
+            target=tool_id,
+            parameters=params,
+            confidence=1.0,
             raw_input=raw_input,
         )
         plan = self._planner.plan(intent, context)
         if not plan.steps or any(step.tool_id != tool_id for step in plan.steps):
             plan = Plan(
                 intent=intent,
-                steps=[PlanStep(
-                    id=f"{tool_id}_0", tool_id=tool_id,
-                    description=f"Execute {tool_id}",
-                    params=dict(params), estimated_impact="critical",
-                )],
+                steps=[
+                    PlanStep(
+                        id=f"{tool_id}_0",
+                        tool_id=tool_id,
+                        description=f"Execute {tool_id}",
+                        params=dict(params),
+                        estimated_impact="critical",
+                    )
+                ],
                 risk_score=1.0,
                 description=f"Structured execution of unregistered capability {tool_id}",
             )
@@ -558,7 +625,9 @@ class Orchestrator:
                 tool_result = self._merge_tool_result(tool_result, s_result)
                 executed.append((step, s_result))
                 if not s_result.success and not dry_run:
-                    rollback_actions.extend(asdict(action) for action in await self._rollback_completed(executed[:-1], context))
+                    rollback_actions.extend(
+                        asdict(action) for action in await self._rollback_completed(executed[:-1], context)
+                    )
                     break
             else:
                 tasks = [self._execute_single_step(s, intent, context, dry_run=dry_run) for s in level]
@@ -566,10 +635,14 @@ class Orchestrator:
                 all_ok = True
                 for step, res in zip(level, results):
                     if isinstance(res, Exception):
-                        step_results.append(StepResult(
-                            step_id=step.id, tool_id=step.tool_id,
-                            success=False, error=str(res),
-                        ))
+                        step_results.append(
+                            StepResult(
+                                step_id=step.id,
+                                tool_id=step.tool_id,
+                                success=False,
+                                error=str(res),
+                            )
+                        )
                         executed.append((step, step_results[-1]))
                         all_ok = False
                     else:
@@ -580,18 +653,28 @@ class Orchestrator:
                             all_ok = False
                 if not all_ok and not dry_run:
                     completed = [(s, r) for s, r in executed if r.success]
-                    rollback_actions.extend(asdict(action) for action in await self._rollback_completed(completed, context))
+                    rollback_actions.extend(
+                        asdict(action) for action in await self._rollback_completed(completed, context)
+                    )
                     break
 
         executed_ids = {step_result.step_id for step_result in step_results}
         if not dry_run and any(not item.success for item in step_results):
             for step in plan.steps:
                 if step.id not in executed_ids:
-                    step_results.append(StepResult(step_id=step.id, tool_id=step.tool_id, success=False,
-                                                   error="Skipped because a dependency failed", status="skipped"))
+                    step_results.append(
+                        StepResult(
+                            step_id=step.id,
+                            tool_id=step.tool_id,
+                            success=False,
+                            error="Skipped because a dependency failed",
+                            status="skipped",
+                        )
+                    )
 
         result = ExecutionResult(
-            plan=exec_plan, decision=decision,
+            plan=exec_plan,
+            decision=decision,
             tool_result=tool_result,
             error=(tool_result.error if tool_result and not tool_result.success else None),
             step_results=step_results,
@@ -662,7 +745,7 @@ class Orchestrator:
                 logger.warning("Failed to store execution record: %s", e)
         if self._audit_service:
             try:
-                tool_id = (plan.steps[0].tool_id if plan.steps else "")
+                tool_id = plan.steps[0].tool_id if plan.steps else ""
                 identity_data = context.get("identity", {})
                 intent_data = asdict(intent) if intent else None
                 decision_data = asdict(decision) if decision else None
@@ -690,9 +773,7 @@ class Orchestrator:
             except Exception as e:
                 logger.warning("Failed to log pipeline audit: %s", e)
 
-    def _build_exec_plan(
-        self, intent: Intent, plan: Plan, context: Dict[str, Any]
-    ) -> ExecutionPlan:
+    def _build_exec_plan(self, intent: Intent, plan: Plan, context: Dict[str, Any]) -> ExecutionPlan:
         tool_id = INTENT_TO_TOOL.get(intent.target, "system.info")
         task_type = INTENT_TO_TASK.get(intent.action, TaskType.QUICK)
 
@@ -713,7 +794,10 @@ class Orchestrator:
         )
 
     async def _execute_single_step(
-        self, step: PlanStep, intent: Intent, context: Dict[str, Any],
+        self,
+        step: PlanStep,
+        intent: Intent,
+        context: Dict[str, Any],
         dry_run: bool = False,
     ) -> StepResult:
         step_context = context
@@ -723,11 +807,16 @@ class Orchestrator:
 
         if dry_run:
             return StepResult(
-                step_id=step.id, tool_id=step.tool_id, success=True,
-                data={"simulated": True, "tool_id": step.tool_id,
-                      "params": dict(step.params),
-                      "description": step.description,
-                      "model_decision": step_context.get("model_decision")},
+                step_id=step.id,
+                tool_id=step.tool_id,
+                success=True,
+                data={
+                    "simulated": True,
+                    "tool_id": step.tool_id,
+                    "params": dict(step.params),
+                    "description": step.description,
+                    "model_decision": step_context.get("model_decision"),
+                },
             )
         step_params = dict(step.params)
         if step.tool_id == "executor.command":
@@ -741,6 +830,7 @@ class Orchestrator:
             step_params.setdefault("path", intent.parameters.get("path", ""))
 
         attempted_tools: List[str] = []
+
         async def _do_execute(tool_id: Optional[str] = None):
             attempted_tools.append(tool_id or step.tool_id)
             return await self._tool_gateway.execute(
@@ -752,7 +842,9 @@ class Orchestrator:
         policy = step.recovery_policy or RecoveryPolicy.default_for(step.tool_id)
         try:
             s_result = await self._retry_handler.execute(
-                lambda: _do_execute(step.tool_id), policy, tool_id=step.tool_id,
+                lambda: _do_execute(step.tool_id),
+                policy,
+                tool_id=step.tool_id,
             )
         except RetryExhaustedError as e:
             s_result = ToolResult.fail(error=str(e), tool_id=step.tool_id)
@@ -764,7 +856,10 @@ class Orchestrator:
                     fallback_fns.append(lambda tid=fb_tid: _do_execute(tid))
             if fallback_fns:
                 s_result = await self._fallback_handler.execute(
-                    s_result, fallback_fns, policy, tool_id=step.tool_id,
+                    s_result,
+                    fallback_fns,
+                    policy,
+                    tool_id=step.tool_id,
                 )
 
         if step.model_decision and self._feedback:
@@ -818,14 +913,20 @@ class Orchestrator:
                 if alert:
                     logger.warning(
                         "Performance regression: %s/%s %s (%.0fms vs baseline %.0fms, +%.0f%%)",
-                        alert.provider_id, alert.model, alert.tool_id,
-                        alert.current_avg, alert.baseline_avg, alert.deviation_pct,
+                        alert.provider_id,
+                        alert.model,
+                        alert.tool_id,
+                        alert.current_avg,
+                        alert.baseline_avg,
+                        alert.deviation_pct,
                     )
             except Exception as e:
                 logger.warning("Failed to record performance: %s", e)
 
-        recovery_strategy = "fallback" if s_result.tool_id and s_result.tool_id != step.tool_id else (
-            "retry" if len(attempted_tools) > 1 else "none"
+        recovery_strategy = (
+            "fallback"
+            if s_result.tool_id and s_result.tool_id != step.tool_id
+            else ("retry" if len(attempted_tools) > 1 else "none")
         )
         return StepResult(
             step_id=step.id,
@@ -844,12 +945,15 @@ class Orchestrator:
 
     @staticmethod
     def _merge_tool_result(
-        current: Optional[ToolResult], step_result: StepResult,
+        current: Optional[ToolResult],
+        step_result: StepResult,
     ) -> ToolResult:
         if current is None:
             return ToolResult(
-                success=step_result.success, data=step_result.data,
-                error=step_result.error, tool_id=step_result.tool_id,
+                success=step_result.success,
+                data=step_result.data,
+                error=step_result.error,
+                tool_id=step_result.tool_id,
                 duration_ms=step_result.duration_ms,
                 requires_confirmation=step_result.requires_confirmation,
                 policy_result=step_result.policy_result,
@@ -857,7 +961,8 @@ class Orchestrator:
             )
         if not current.success or not step_result.success:
             return ToolResult(
-                success=False, error=current.error or step_result.error,
+                success=False,
+                error=current.error or step_result.error,
                 tool_id=current.tool_id,
                 duration_ms=(current.duration_ms or 0) + (step_result.duration_ms or 0),
                 requires_confirmation=current.requires_confirmation or step_result.requires_confirmation,
@@ -865,7 +970,8 @@ class Orchestrator:
                 quality_result=step_result.quality_result or current.quality_result,
             )
         return ToolResult(
-            success=True, data=step_result.data or current.data,
+            success=True,
+            data=step_result.data or current.data,
             tool_id=current.tool_id,
             duration_ms=(current.duration_ms or 0) + (step_result.duration_ms or 0),
             requires_confirmation=step_result.requires_confirmation,
@@ -927,6 +1033,7 @@ class Orchestrator:
     ) -> List[Any]:
         async def _exec(tool_id: str, params: Dict[str, Any]):
             return await self._tool_gateway.execute(tool_id, params, context)
+
         return await self._rollback_manager.rollback(completed, _exec)
 
     async def approve_with_modifications(
@@ -939,9 +1046,15 @@ class Orchestrator:
             return ExecutionResult(
                 plan=ExecutionPlan(
                     intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=""),
-                    plan=Plan(intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=""),
-                              steps=[], risk_score=0.0, description=""),
-                    tool_id="", tool_params={}, task_type=TaskType.QUICK,
+                    plan=Plan(
+                        intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=""),
+                        steps=[],
+                        risk_score=0.0,
+                        description="",
+                    ),
+                    tool_id="",
+                    tool_params={},
+                    task_type=TaskType.QUICK,
                 ),
                 error="No memory backend available for approval",
             )
@@ -950,9 +1063,15 @@ class Orchestrator:
             return ExecutionResult(
                 plan=ExecutionPlan(
                     intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=""),
-                    plan=Plan(intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=""),
-                              steps=[], risk_score=0.0, description=""),
-                    tool_id="", tool_params={}, task_type=TaskType.QUICK,
+                    plan=Plan(
+                        intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=""),
+                        steps=[],
+                        risk_score=0.0,
+                        description="",
+                    ),
+                    tool_id="",
+                    tool_params={},
+                    task_type=TaskType.QUICK,
                 ),
                 error=f"Pending action '{action_id}' not found or expired",
             )
@@ -961,8 +1080,11 @@ class Orchestrator:
             empty_intent = Intent(action="", target="", parameters={}, confidence=0.0, raw_input="")
             return ExecutionResult(
                 plan=ExecutionPlan(
-                    intent=empty_intent, plan=Plan(intent=empty_intent, steps=[]),
-                    tool_id="", tool_params={}, task_type=TaskType.QUICK,
+                    intent=empty_intent,
+                    plan=Plan(intent=empty_intent, steps=[]),
+                    tool_id="",
+                    tool_params={},
+                    task_type=TaskType.QUICK,
                 ),
                 error="Approval identity does not match the user who requested the action",
             )
@@ -972,9 +1094,15 @@ class Orchestrator:
             return ExecutionResult(
                 plan=ExecutionPlan(
                     intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=""),
-                    plan=Plan(intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=""),
-                              steps=[], risk_score=0.0, description=""),
-                    tool_id="", tool_params={}, task_type=TaskType.QUICK,
+                    plan=Plan(
+                        intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=""),
+                        steps=[],
+                        risk_score=0.0,
+                        description="",
+                    ),
+                    tool_id="",
+                    tool_params={},
+                    task_type=TaskType.QUICK,
                 ),
                 error="Modified plan has no steps",
             )
@@ -990,18 +1118,20 @@ class Orchestrator:
 
         new_steps = []
         for i, s in enumerate(modified_steps):
-            new_steps.append(PlanStep(
-                id=f"step_{i}",
-                tool_id=s.get("tool_id", ""),
-                params=s.get("params", {}),
-                description=s.get("description", ""),
-                is_reversible=s.get("is_reversible", False),
-                rollback_tool_id=s.get("rollback_tool_id"),
-                rollback_params=s.get("rollback_params"),
-                estimated_impact=s.get("estimated_impact", "low"),
-                estimated_duration_ms=s.get("estimated_duration_ms"),
-                depends_on=s.get("depends_on", []),
-            ))
+            new_steps.append(
+                PlanStep(
+                    id=f"step_{i}",
+                    tool_id=s.get("tool_id", ""),
+                    params=s.get("params", {}),
+                    description=s.get("description", ""),
+                    is_reversible=s.get("is_reversible", False),
+                    rollback_tool_id=s.get("rollback_tool_id"),
+                    rollback_params=s.get("rollback_params"),
+                    estimated_impact=s.get("estimated_impact", "low"),
+                    estimated_duration_ms=s.get("estimated_duration_ms"),
+                    depends_on=s.get("depends_on", []),
+                )
+            )
 
         plan = Plan(
             intent=intent,
@@ -1022,16 +1152,24 @@ class Orchestrator:
         )
 
     async def approve_execution(
-        self, action_id: str, approved: bool,
+        self,
+        action_id: str,
+        approved: bool,
         approver_identity: Optional[Dict[str, Any]] = None,
     ) -> ExecutionResult:
         if not self._memory:
             return ExecutionResult(
                 plan=ExecutionPlan(
                     intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=""),
-                    plan=Plan(intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=""),
-                              steps=[], risk_score=0.0, description=""),
-                    tool_id="", tool_params={}, task_type=TaskType.QUICK,
+                    plan=Plan(
+                        intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=""),
+                        steps=[],
+                        risk_score=0.0,
+                        description="",
+                    ),
+                    tool_id="",
+                    tool_params={},
+                    task_type=TaskType.QUICK,
                 ),
                 error="No memory backend available for approval",
             )
@@ -1040,9 +1178,15 @@ class Orchestrator:
             return ExecutionResult(
                 plan=ExecutionPlan(
                     intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=""),
-                    plan=Plan(intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=""),
-                              steps=[], risk_score=0.0, description=""),
-                    tool_id="", tool_params={}, task_type=TaskType.QUICK,
+                    plan=Plan(
+                        intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=""),
+                        steps=[],
+                        risk_score=0.0,
+                        description="",
+                    ),
+                    tool_id="",
+                    tool_params={},
+                    task_type=TaskType.QUICK,
                 ),
                 error=f"Pending action '{action_id}' not found or expired",
             )
@@ -1051,8 +1195,11 @@ class Orchestrator:
             empty_intent = Intent(action="", target="", parameters={}, confidence=0.0, raw_input="")
             return ExecutionResult(
                 plan=ExecutionPlan(
-                    intent=empty_intent, plan=Plan(intent=empty_intent, steps=[]),
-                    tool_id="", tool_params={}, task_type=TaskType.QUICK,
+                    intent=empty_intent,
+                    plan=Plan(intent=empty_intent, steps=[]),
+                    tool_id="",
+                    tool_params={},
+                    task_type=TaskType.QUICK,
                 ),
                 error="Approval identity does not match the user who requested the action",
             )
@@ -1061,9 +1208,15 @@ class Orchestrator:
             return ExecutionResult(
                 plan=ExecutionPlan(
                     intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=""),
-                    plan=Plan(intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=""),
-                              steps=[], risk_score=0.0, description=""),
-                    tool_id="", tool_params={}, task_type=TaskType.QUICK,
+                    plan=Plan(
+                        intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=""),
+                        steps=[],
+                        risk_score=0.0,
+                        description="",
+                    ),
+                    tool_id="",
+                    tool_params={},
+                    task_type=TaskType.QUICK,
                 ),
                 error=f"Execution rejected by user: {record.reason}",
             )
@@ -1087,7 +1240,7 @@ class Orchestrator:
 
     @property
     def capability_registry(self):
-        return getattr(self._tool_gateway, '_capability_registry', None)
+        return getattr(self._tool_gateway, "_capability_registry", None)
 
     def get_capabilities(self) -> Dict[str, Any]:
         registry = self.capability_registry
@@ -1097,8 +1250,7 @@ class Orchestrator:
         return {
             "intents": self._intent_engine.list_supported_targets(),
             "tools": [
-                {"id": s.id, "name": s.name, "description": s.description}
-                for s in self._tool_gateway.list_specs()
+                {"id": s.id, "name": s.name, "description": s.description} for s in self._tool_gateway.list_specs()
             ],
             "capabilities": capabilities_list,
             "capabilities_count": len(capabilities_list),
@@ -1131,12 +1283,14 @@ class Orchestrator:
         return self._multi_agent
 
     async def process_multi_agent(
-        self, utterance: str, *,
+        self,
+        utterance: str,
+        *,
         identity: Optional[dict] = None,
         session_id: Optional[str] = None,
     ) -> ExecutionResult:
         execution_id = uuid.uuid4().hex[:12]
-        start = datetime.now(timezone.utc)
+        datetime.now(timezone.utc)
         context: Dict[str, Any] = {"execution_id": execution_id, "session_id": session_id}
         if identity is not None:
             context["identity"] = identity
@@ -1145,8 +1299,14 @@ class Orchestrator:
             return ExecutionResult(
                 plan=ExecutionPlan(
                     intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=utterance),
-                    plan=Plan(steps=[], intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=utterance), description=""),
-                    tool_id="", tool_params={}, task_type=TaskType.QUICK,
+                    plan=Plan(
+                        steps=[],
+                        intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=utterance),
+                        description="",
+                    ),
+                    tool_id="",
+                    tool_params={},
+                    task_type=TaskType.QUICK,
                 ),
                 error="Multi-agent orchestrator not configured",
             )
@@ -1158,21 +1318,28 @@ class Orchestrator:
                     return ExecutionResult(
                         plan=ExecutionPlan(
                             intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=utterance),
-                            plan=Plan(steps=[], intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=utterance), description=""),
-                            tool_id="", tool_params={}, task_type=TaskType.QUICK,
+                            plan=Plan(
+                                steps=[],
+                                intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=utterance),
+                                description="",
+                            ),
+                            tool_id="",
+                            tool_params={},
+                            task_type=TaskType.QUICK,
                         ),
                         error="Rate limit exceeded",
-                        rate_limited=True, retry_after=dec.retry_after,
+                        rate_limited=True,
+                        retry_after=dec.retry_after,
                     )
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Multi-agent rate-limit check failed: %s", exc)
 
         if self._context_engine:
             try:
                 sys_ctx = await self._context_engine.collect(include_processes=False)
                 context["system"] = sys_ctx.to_dict()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Multi-agent context collection failed: %s", exc)
 
         try:
             ma_result = await self._multi_agent.execute(utterance, context)
@@ -1180,21 +1347,36 @@ class Orchestrator:
             error = ma_result.error
             step_results = [
                 StepResult(
-                    step_id=r.sub_task_id, tool_id=r.agent_id or "multi_agent",
-                    success=r.success, data=r.data,
-                    error=r.error, duration_ms=r.duration_ms,
+                    step_id=r.sub_task_id,
+                    tool_id=r.agent_id or "multi_agent",
+                    success=r.success,
+                    data=r.data,
+                    error=r.error,
+                    duration_ms=r.duration_ms,
                 )
                 for r in ma_result.sub_task_results
             ]
             return ExecutionResult(
                 plan=ExecutionPlan(
-                    intent=Intent(action="delegate", target="multi_agent", parameters={}, confidence=1.0, raw_input=utterance),
-                    plan=Plan(steps=[], intent=Intent(action="delegate", target="multi_agent", parameters={}, confidence=1.0, raw_input=utterance), description="Multi-agent execution"),
-                    tool_id="multi_agent", tool_params={}, task_type=TaskType.REASONING,
+                    intent=Intent(
+                        action="delegate", target="multi_agent", parameters={}, confidence=1.0, raw_input=utterance
+                    ),
+                    plan=Plan(
+                        steps=[],
+                        intent=Intent(
+                            action="delegate", target="multi_agent", parameters={}, confidence=1.0, raw_input=utterance
+                        ),
+                        description="Multi-agent execution",
+                    ),
+                    tool_id="multi_agent",
+                    tool_params={},
+                    task_type=TaskType.REASONING,
                 ),
                 tool_result=ToolResult(
-                    success=ma_result.success, data={"output": output},
-                    error=error, tool_id="multi_agent",
+                    success=ma_result.success,
+                    data={"output": output},
+                    error=error,
+                    tool_id="multi_agent",
                 ),
                 error=error,
                 step_results=step_results,
@@ -1204,8 +1386,14 @@ class Orchestrator:
             return ExecutionResult(
                 plan=ExecutionPlan(
                     intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=utterance),
-                    plan=Plan(steps=[], intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=utterance), description=""),
-                    tool_id="", tool_params={}, task_type=TaskType.QUICK,
+                    plan=Plan(
+                        steps=[],
+                        intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=utterance),
+                        description="",
+                    ),
+                    tool_id="",
+                    tool_params={},
+                    task_type=TaskType.QUICK,
                 ),
                 error=f"Multi-agent execution error: {e}",
             )
@@ -1220,8 +1408,9 @@ class Orchestrator:
 
     def _on_network_transition(self, online: bool) -> None:
         if online and self._offline_queue:
-            log.info("Network restored — processing offline queue")
+            logger.info("Network restored — processing offline queue")
             import asyncio
+
             asyncio.create_task(self._process_offline_queue())
 
     async def _process_offline_queue(self) -> Dict[str, Any]:
@@ -1229,15 +1418,17 @@ class Orchestrator:
             return {"synced": 0, "failed": 0}
         stats = await self._offline_queue.process_queue(self._sync_offline_item)
         if stats["synced"] > 0:
-            log.info("Offline queue: %s", stats)
+            logger.info("Offline queue: %s", stats)
         return stats
 
     def _sync_offline_item(self, item: QueueItem) -> bool:
-        log.info("Syncing offline item %s (%s)", item.id, item.operation_type)
+        logger.info("Syncing offline item %s (%s)", item.id, item.operation_type)
         return True
 
     async def process_offline(
-        self, utterance: str, *,
+        self,
+        utterance: str,
+        *,
         identity: Optional[dict] = None,
         session_id: Optional[str] = None,
     ) -> ExecutionResult:
@@ -1245,8 +1436,14 @@ class Orchestrator:
             return ExecutionResult(
                 plan=ExecutionPlan(
                     intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=utterance),
-                    plan=Plan(steps=[], intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=utterance), description=""),
-                    tool_id="", tool_params={}, task_type=TaskType.QUICK,
+                    plan=Plan(
+                        steps=[],
+                        intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=utterance),
+                        description="",
+                    ),
+                    tool_id="",
+                    tool_params={},
+                    task_type=TaskType.QUICK,
                 ),
                 error="Offline queue not configured",
             )
@@ -1259,11 +1456,18 @@ class Orchestrator:
         return ExecutionResult(
             plan=ExecutionPlan(
                 intent=Intent(action="queue", target="offline", parameters={}, confidence=1.0, raw_input=utterance),
-                plan=Plan(steps=[], intent=Intent(action="queue", target="offline", parameters={}, confidence=1.0, raw_input=utterance), description="Queued for offline processing"),
-                tool_id="offline", tool_params={}, task_type=TaskType.QUICK,
+                plan=Plan(
+                    steps=[],
+                    intent=Intent(action="queue", target="offline", parameters={}, confidence=1.0, raw_input=utterance),
+                    description="Queued for offline processing",
+                ),
+                tool_id="offline",
+                tool_params={},
+                task_type=TaskType.QUICK,
             ),
             tool_result=ToolResult(
-                success=True, data={"queued": True, "item_id": item.id},
+                success=True,
+                data={"queued": True, "item_id": item.id},
                 tool_id="offline",
             ),
             action_id=item.id,
@@ -1294,5 +1498,5 @@ class Orchestrator:
         return self._alert_manager
 
     def check_alerts(self) -> Dict[str, Any]:
-        count = self._alert_manager.check_all()
+        self._alert_manager.check_all()
         return self._alert_manager.to_dict()

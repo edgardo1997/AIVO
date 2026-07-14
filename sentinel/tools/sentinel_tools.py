@@ -30,6 +30,8 @@ class SentinelProcessTool(Tool):
             utterance = params["utterance"]
             identity = context.get("identity", {})
             result = await orch.process(utterance, identity=identity)
-            return ToolResult.ok(data=result.to_dict() if hasattr(result, 'to_dict') else result, tool_id="sentinel.process")
+            return ToolResult.ok(
+                data=result.to_dict() if hasattr(result, "to_dict") else result, tool_id="sentinel.process"
+            )
         except Exception as e:
             return ToolResult.fail(error=str(e), tool_id="sentinel.process")

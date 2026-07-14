@@ -1,8 +1,11 @@
 import pytest
 import threading
 from sentinel.core.capability_registry import (
-    Capability, CapabilityRegistry, RiskLevel,
-    capability_from_spec, _VALID_IMPACTS,
+    Capability,
+    CapabilityRegistry,
+    RiskLevel,
+    capability_from_spec,
+    _VALID_IMPACTS,
 )
 
 
@@ -47,14 +50,34 @@ class TestRegistration:
 
     def test_list_all(self, registry):
         caps = [
-            Capability(id="a", name="A", description="", category="cat1",
-                       risk_level=RiskLevel.LOW, requires_confirmation=False,
-                       permissions=[], parameters={}, result_type="json",
-                       tags=[], version="1.0", timeout_seconds=10),
-            Capability(id="b", name="B", description="", category="cat2",
-                       risk_level=RiskLevel.HIGH, requires_confirmation=True,
-                       permissions=[], parameters={}, result_type="text",
-                       tags=[], version="1.0", timeout_seconds=20),
+            Capability(
+                id="a",
+                name="A",
+                description="",
+                category="cat1",
+                risk_level=RiskLevel.LOW,
+                requires_confirmation=False,
+                permissions=[],
+                parameters={},
+                result_type="json",
+                tags=[],
+                version="1.0",
+                timeout_seconds=10,
+            ),
+            Capability(
+                id="b",
+                name="B",
+                description="",
+                category="cat2",
+                risk_level=RiskLevel.HIGH,
+                requires_confirmation=True,
+                permissions=[],
+                parameters={},
+                result_type="text",
+                tags=[],
+                version="1.0",
+                timeout_seconds=20,
+            ),
         ]
         for c in caps:
             registry.register(c)
@@ -76,26 +99,62 @@ class TestSearch:
     @pytest.fixture(autouse=True)
     def setup_caps(self, registry):
         caps = [
-            Capability(id="fs.read", name="Read File", description="",
-                       category="filesystem", risk_level=RiskLevel.LOW,
-                       requires_confirmation=False, permissions=["fs.read"],
-                       parameters={}, result_type="text", tags=["read", "file"],
-                       version="1.0", timeout_seconds=30),
-            Capability(id="fs.write", name="Write File", description="",
-                       category="filesystem", risk_level=RiskLevel.MEDIUM,
-                       requires_confirmation=False, permissions=["fs.write"],
-                       parameters={}, result_type="status", tags=["write", "file", "modify"],
-                       version="1.0", timeout_seconds=30),
-            Capability(id="exec.command", name="Execute Command", description="",
-                       category="executor", risk_level=RiskLevel.HIGH,
-                       requires_confirmation=True, permissions=["exec.command"],
-                       parameters={}, result_type="text", tags=["execute", "command", "shell"],
-                       version="1.0", timeout_seconds=60),
-            Capability(id="exec.kill", name="Kill Process", description="",
-                       category="executor", risk_level=RiskLevel.CRITICAL,
-                       requires_confirmation=True, permissions=["exec.kill"],
-                       parameters={}, result_type="status", tags=["execute", "process", "modify"],
-                       version="1.0", timeout_seconds=10),
+            Capability(
+                id="fs.read",
+                name="Read File",
+                description="",
+                category="filesystem",
+                risk_level=RiskLevel.LOW,
+                requires_confirmation=False,
+                permissions=["fs.read"],
+                parameters={},
+                result_type="text",
+                tags=["read", "file"],
+                version="1.0",
+                timeout_seconds=30,
+            ),
+            Capability(
+                id="fs.write",
+                name="Write File",
+                description="",
+                category="filesystem",
+                risk_level=RiskLevel.MEDIUM,
+                requires_confirmation=False,
+                permissions=["fs.write"],
+                parameters={},
+                result_type="status",
+                tags=["write", "file", "modify"],
+                version="1.0",
+                timeout_seconds=30,
+            ),
+            Capability(
+                id="exec.command",
+                name="Execute Command",
+                description="",
+                category="executor",
+                risk_level=RiskLevel.HIGH,
+                requires_confirmation=True,
+                permissions=["exec.command"],
+                parameters={},
+                result_type="text",
+                tags=["execute", "command", "shell"],
+                version="1.0",
+                timeout_seconds=60,
+            ),
+            Capability(
+                id="exec.kill",
+                name="Kill Process",
+                description="",
+                category="executor",
+                risk_level=RiskLevel.CRITICAL,
+                requires_confirmation=True,
+                permissions=["exec.kill"],
+                parameters={},
+                result_type="status",
+                tags=["execute", "process", "modify"],
+                version="1.0",
+                timeout_seconds=10,
+            ),
         ]
         for c in caps:
             registry.register(c)
@@ -157,14 +216,34 @@ class TestTags:
     @pytest.fixture(autouse=True)
     def setup_tags(self, registry):
         caps = [
-            Capability(id="a", name="A", description="", category="cat",
-                       risk_level=RiskLevel.LOW, requires_confirmation=False,
-                       permissions=[], parameters={}, result_type="json",
-                       tags=["alpha", "common"], version="1.0", timeout_seconds=10),
-            Capability(id="b", name="B", description="", category="cat",
-                       risk_level=RiskLevel.LOW, requires_confirmation=False,
-                       permissions=[], parameters={}, result_type="json",
-                       tags=["beta", "common"], version="1.0", timeout_seconds=10),
+            Capability(
+                id="a",
+                name="A",
+                description="",
+                category="cat",
+                risk_level=RiskLevel.LOW,
+                requires_confirmation=False,
+                permissions=[],
+                parameters={},
+                result_type="json",
+                tags=["alpha", "common"],
+                version="1.0",
+                timeout_seconds=10,
+            ),
+            Capability(
+                id="b",
+                name="B",
+                description="",
+                category="cat",
+                risk_level=RiskLevel.LOW,
+                requires_confirmation=False,
+                permissions=[],
+                parameters={},
+                result_type="json",
+                tags=["beta", "common"],
+                version="1.0",
+                timeout_seconds=10,
+            ),
         ]
         for c in caps:
             registry.register(c)
@@ -206,11 +285,18 @@ class TestThreadSafety:
         def worker(ident):
             try:
                 cap = Capability(
-                    id=f"thread.{ident}", name=f"Thread {ident}",
-                    description="", category="thread",
-                    risk_level=RiskLevel.LOW, requires_confirmation=False,
-                    permissions=[], parameters={}, result_type="json",
-                    tags=[], version="1.0", timeout_seconds=10,
+                    id=f"thread.{ident}",
+                    name=f"Thread {ident}",
+                    description="",
+                    category="thread",
+                    risk_level=RiskLevel.LOW,
+                    requires_confirmation=False,
+                    permissions=[],
+                    parameters={},
+                    result_type="json",
+                    tags=[],
+                    version="1.0",
+                    timeout_seconds=10,
                 )
                 registry.register(cap)
             except Exception as e:
@@ -230,22 +316,36 @@ class TestThreadSafety:
 
         for i in range(10):
             cap = Capability(
-                id=f"pre.{i}", name=f"Pre {i}",
-                description="", category="pre",
-                risk_level=RiskLevel.LOW, requires_confirmation=False,
-                permissions=[], parameters={}, result_type="json",
-                tags=[], version="1.0", timeout_seconds=10,
+                id=f"pre.{i}",
+                name=f"Pre {i}",
+                description="",
+                category="pre",
+                risk_level=RiskLevel.LOW,
+                requires_confirmation=False,
+                permissions=[],
+                parameters={},
+                result_type="json",
+                tags=[],
+                version="1.0",
+                timeout_seconds=10,
             )
             registry.register(cap)
 
         def writer(ident):
             try:
                 cap = Capability(
-                    id=f"dyn.{ident}", name=f"Dyn {ident}",
-                    description="", category="dyn",
-                    risk_level=RiskLevel.LOW, requires_confirmation=False,
-                    permissions=[], parameters={}, result_type="json",
-                    tags=[], version="1.0", timeout_seconds=10,
+                    id=f"dyn.{ident}",
+                    name=f"Dyn {ident}",
+                    description="",
+                    category="dyn",
+                    risk_level=RiskLevel.LOW,
+                    requires_confirmation=False,
+                    permissions=[],
+                    parameters={},
+                    result_type="json",
+                    tags=[],
+                    version="1.0",
+                    timeout_seconds=10,
                 )
                 registry.register(cap)
             except Exception as e:
@@ -346,9 +446,14 @@ class TestFromSpec:
         ]
         for spec_id, expected_risk, expected_result in specs:
             cap = capability_from_spec(
-                spec_id=spec_id, name=spec_id, description="",
-                version="0.1.0", parameters={}, permissions=[],
-                timeout_seconds=10, category="test",
+                spec_id=spec_id,
+                name=spec_id,
+                description="",
+                version="0.1.0",
+                parameters={},
+                permissions=[],
+                timeout_seconds=10,
+                category="test",
             )
             assert cap.risk_level == expected_risk, f"{spec_id} risk mismatch"
             assert cap.result_type == expected_result, f"{spec_id} result_type mismatch"
@@ -357,12 +462,14 @@ class TestFromSpec:
 class TestBackwardCompatibility:
     def test_existing_gateway_still_works(self):
         from sentinel.core.tool_gateway import ToolGateway
+
         gw = ToolGateway()
         assert gw.list_specs() == []
         assert gw.list_active() == []
 
     def test_registry_optional(self):
         from sentinel.core.tool_gateway import ToolGateway
+
         gw = ToolGateway()
         gw.set_capability_registry(None)
         assert gw._capability_registry is None
@@ -371,57 +478,92 @@ class TestBackwardCompatibility:
 class TestNewFieldsDefaults:
     def test_estimated_impact_defaulted_from_risk(self):
         cap = capability_from_spec(
-            spec_id="executor.command", name="Exec", description="",
-            version="0.1.0", parameters={}, permissions=[],
-            timeout_seconds=10, category="executor",
+            spec_id="executor.command",
+            name="Exec",
+            description="",
+            version="0.1.0",
+            parameters={},
+            permissions=[],
+            timeout_seconds=10,
+            category="executor",
         )
         assert cap.estimated_impact == "high"
 
     def test_estimated_impact_low_risk(self):
         cap = capability_from_spec(
-            spec_id="system.cpu", name="CPU", description="",
-            version="0.1.0", parameters={}, permissions=[],
-            timeout_seconds=10, category="system",
+            spec_id="system.cpu",
+            name="CPU",
+            description="",
+            version="0.1.0",
+            parameters={},
+            permissions=[],
+            timeout_seconds=10,
+            category="system",
         )
         assert cap.estimated_impact == "low"
 
     def test_reversible_defaulted_true_for_low_risk(self):
         cap = capability_from_spec(
-            spec_id="system.info", name="Info", description="",
-            version="0.1.0", parameters={}, permissions=[],
-            timeout_seconds=10, category="system",
+            spec_id="system.info",
+            name="Info",
+            description="",
+            version="0.1.0",
+            parameters={},
+            permissions=[],
+            timeout_seconds=10,
+            category="system",
         )
         assert cap.reversible is True
 
     def test_reversible_defaulted_false_for_high_risk(self):
         cap = capability_from_spec(
-            spec_id="executor.command", name="Exec", description="",
-            version="0.1.0", parameters={}, permissions=[],
-            timeout_seconds=10, category="executor",
+            spec_id="executor.command",
+            name="Exec",
+            description="",
+            version="0.1.0",
+            parameters={},
+            permissions=[],
+            timeout_seconds=10,
+            category="executor",
         )
         assert cap.reversible is False
 
     def test_rollback_available_defaults_false(self):
         cap = capability_from_spec(
-            spec_id="test.tool", name="Test", description="",
-            version="0.1.0", parameters={}, permissions=[],
-            timeout_seconds=10, category="test",
+            spec_id="test.tool",
+            name="Test",
+            description="",
+            version="0.1.0",
+            parameters={},
+            permissions=[],
+            timeout_seconds=10,
+            category="test",
         )
         assert cap.rollback_available is False
 
     def test_default_parameters_defaults_empty(self):
         cap = capability_from_spec(
-            spec_id="test.tool", name="Test", description="",
-            version="0.1.0", parameters={}, permissions=[],
-            timeout_seconds=10, category="test",
+            spec_id="test.tool",
+            name="Test",
+            description="",
+            version="0.1.0",
+            parameters={},
+            permissions=[],
+            timeout_seconds=10,
+            category="test",
         )
         assert cap.default_parameters == {}
 
     def test_required_permission_level_defaults_none(self):
         cap = capability_from_spec(
-            spec_id="test.tool", name="Test", description="",
-            version="0.1.0", parameters={}, permissions=[],
-            timeout_seconds=10, category="test",
+            spec_id="test.tool",
+            name="Test",
+            description="",
+            version="0.1.0",
+            parameters={},
+            permissions=[],
+            timeout_seconds=10,
+            category="test",
         )
         assert cap.required_permission_level is None
 
@@ -429,54 +571,84 @@ class TestNewFieldsDefaults:
 class TestNewFieldsExplicit:
     def test_explicit_estimated_impact(self):
         cap = capability_from_spec(
-            spec_id="test.tool", name="Test", description="",
-            version="0.1.0", parameters={}, permissions=[],
-            timeout_seconds=10, category="test",
+            spec_id="test.tool",
+            name="Test",
+            description="",
+            version="0.1.0",
+            parameters={},
+            permissions=[],
+            timeout_seconds=10,
+            category="test",
             estimated_impact="critical",
         )
         assert cap.estimated_impact == "critical"
 
     def test_explicit_reversible_true(self):
         cap = capability_from_spec(
-            spec_id="executor.command", name="Exec", description="",
-            version="0.1.0", parameters={}, permissions=[],
-            timeout_seconds=10, category="executor",
+            spec_id="executor.command",
+            name="Exec",
+            description="",
+            version="0.1.0",
+            parameters={},
+            permissions=[],
+            timeout_seconds=10,
+            category="executor",
             reversible=True,
         )
         assert cap.reversible is True
 
     def test_explicit_reversible_false(self):
         cap = capability_from_spec(
-            spec_id="system.cpu", name="CPU", description="",
-            version="0.1.0", parameters={}, permissions=[],
-            timeout_seconds=10, category="system",
+            spec_id="system.cpu",
+            name="CPU",
+            description="",
+            version="0.1.0",
+            parameters={},
+            permissions=[],
+            timeout_seconds=10,
+            category="system",
             reversible=False,
         )
         assert cap.reversible is False
 
     def test_explicit_rollback_available(self):
         cap = capability_from_spec(
-            spec_id="test.tool", name="Test", description="",
-            version="0.1.0", parameters={}, permissions=[],
-            timeout_seconds=10, category="test",
+            spec_id="test.tool",
+            name="Test",
+            description="",
+            version="0.1.0",
+            parameters={},
+            permissions=[],
+            timeout_seconds=10,
+            category="test",
             rollback_available=True,
         )
         assert cap.rollback_available is True
 
     def test_explicit_default_parameters(self):
         cap = capability_from_spec(
-            spec_id="test.tool", name="Test", description="",
-            version="0.1.0", parameters={}, permissions=[],
-            timeout_seconds=10, category="test",
+            spec_id="test.tool",
+            name="Test",
+            description="",
+            version="0.1.0",
+            parameters={},
+            permissions=[],
+            timeout_seconds=10,
+            category="test",
             default_parameters={"limit": 10},
         )
         assert cap.default_parameters == {"limit": 10}
 
     def test_explicit_required_permission_level(self):
         cap = capability_from_spec(
-            spec_id="test.tool", name="Test", description="",
-            version="0.1.0", parameters={}, permissions=[],
-            timeout_seconds=10, category="test",
+            spec_id="test.tool",
+            name="Test",
+            description="",
+            version="0.1.0",
+            parameters={},
+            permissions=[],
+            timeout_seconds=10,
+            category="test",
             required_permission_level="admin",
         )
         assert cap.required_permission_level == "admin"
@@ -486,18 +658,28 @@ class TestNewFieldsValidation:
     def test_invalid_estimated_impact_raises(self):
         with pytest.raises(ValueError, match="estimated_impact"):
             capability_from_spec(
-                spec_id="test.tool", name="Test", description="",
-                version="0.1.0", parameters={}, permissions=[],
-                timeout_seconds=10, category="test",
+                spec_id="test.tool",
+                name="Test",
+                description="",
+                version="0.1.0",
+                parameters={},
+                permissions=[],
+                timeout_seconds=10,
+                category="test",
                 estimated_impact="invalid",
             )
 
     def test_valid_impacts_all_accepted(self):
         for impact in _VALID_IMPACTS:
             cap = capability_from_spec(
-                spec_id="test.tool", name="Test", description="",
-                version="0.1.0", parameters={}, permissions=[],
-                timeout_seconds=10, category="test",
+                spec_id="test.tool",
+                name="Test",
+                description="",
+                version="0.1.0",
+                parameters={},
+                permissions=[],
+                timeout_seconds=10,
+                category="test",
                 estimated_impact=impact,
             )
             assert cap.estimated_impact == impact
@@ -506,9 +688,14 @@ class TestNewFieldsValidation:
 class TestNewFieldsSerialization:
     def test_to_dict_includes_new_fields(self):
         cap = capability_from_spec(
-            spec_id="system.cpu", name="CPU", description="CPU info",
-            version="0.1.0", parameters={}, permissions=["system.read"],
-            timeout_seconds=10, category="system",
+            spec_id="system.cpu",
+            name="CPU",
+            description="CPU info",
+            version="0.1.0",
+            parameters={},
+            permissions=["system.read"],
+            timeout_seconds=10,
+            category="system",
         )
         d = cap.to_dict()
         assert d["estimated_impact"] == "low"
@@ -519,11 +706,18 @@ class TestNewFieldsSerialization:
 
     def test_from_dict_restores_new_fields(self):
         cap = capability_from_spec(
-            spec_id="test.tool", name="Test", description="",
-            version="0.1.0", parameters={}, permissions=[],
-            timeout_seconds=10, category="test",
-            estimated_impact="high", reversible=True,
-            rollback_available=True, default_parameters={"x": 1},
+            spec_id="test.tool",
+            name="Test",
+            description="",
+            version="0.1.0",
+            parameters={},
+            permissions=[],
+            timeout_seconds=10,
+            category="test",
+            estimated_impact="high",
+            reversible=True,
+            rollback_available=True,
+            default_parameters={"x": 1},
             required_permission_level="admin",
         )
         d = cap.to_dict()
@@ -536,11 +730,18 @@ class TestNewFieldsSerialization:
 
     def test_old_dict_without_new_fields_roundtrips(self):
         old_dict = {
-            "id": "test.tool", "name": "Test", "description": "",
-            "category": "test", "risk_level": "low",
-            "requires_confirmation": False, "permissions": [],
-            "parameters": {}, "result_type": "json", "tags": [],
-            "version": "0.1.0", "timeout_seconds": 10,
+            "id": "test.tool",
+            "name": "Test",
+            "description": "",
+            "category": "test",
+            "risk_level": "low",
+            "requires_confirmation": False,
+            "permissions": [],
+            "parameters": {},
+            "result_type": "json",
+            "tags": [],
+            "version": "0.1.0",
+            "timeout_seconds": 10,
         }
         cap = Capability.from_dict(old_dict)
         assert cap.estimated_impact is None
@@ -558,10 +759,16 @@ class TestNewFieldsThreadSafety:
         def worker(ident):
             try:
                 cap = capability_from_spec(
-                    spec_id=f"new.{ident}", name=f"Worker {ident}",
-                    description="", version="0.1.0", parameters={},
-                    permissions=[], timeout_seconds=10, category="test",
-                    estimated_impact="low", reversible=True,
+                    spec_id=f"new.{ident}",
+                    name=f"Worker {ident}",
+                    description="",
+                    version="0.1.0",
+                    parameters={},
+                    permissions=[],
+                    timeout_seconds=10,
+                    category="test",
+                    estimated_impact="low",
+                    reversible=True,
                 )
                 registry.register(cap)
             except Exception as e:
@@ -585,11 +792,18 @@ class TestNewFieldsThreadSafety:
 class TestDirectCapabilityCreation:
     def test_direct_creation_without_new_fields(self):
         cap = Capability(
-            id="old.tool", name="Old", description="",
-            category="test", risk_level=RiskLevel.LOW,
-            requires_confirmation=False, permissions=[],
-            parameters={}, result_type="json", tags=[],
-            version="0.1.0", timeout_seconds=10,
+            id="old.tool",
+            name="Old",
+            description="",
+            category="test",
+            risk_level=RiskLevel.LOW,
+            requires_confirmation=False,
+            permissions=[],
+            parameters={},
+            result_type="json",
+            tags=[],
+            version="0.1.0",
+            timeout_seconds=10,
         )
         assert cap.estimated_impact is None
         assert cap.reversible is None
@@ -599,13 +813,22 @@ class TestDirectCapabilityCreation:
 
     def test_direct_creation_with_new_fields(self):
         cap = Capability(
-            id="new.tool", name="New", description="",
-            category="test", risk_level=RiskLevel.HIGH,
-            requires_confirmation=True, permissions=[],
-            parameters={}, result_type="text", tags=[],
-            version="0.1.0", timeout_seconds=10,
-            estimated_impact="high", reversible=False,
-            rollback_available=False, default_parameters={"k": "v"},
+            id="new.tool",
+            name="New",
+            description="",
+            category="test",
+            risk_level=RiskLevel.HIGH,
+            requires_confirmation=True,
+            permissions=[],
+            parameters={},
+            result_type="text",
+            tags=[],
+            version="0.1.0",
+            timeout_seconds=10,
+            estimated_impact="high",
+            reversible=False,
+            rollback_available=False,
+            default_parameters={"k": "v"},
             required_permission_level="admin",
         )
         assert cap.estimated_impact == "high"

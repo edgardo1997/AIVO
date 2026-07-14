@@ -76,7 +76,9 @@ class PluginLoadTool(Tool):
         try:
             result = self._svc.load(params["plugin_id"])
             if result is None:
-                return ToolResult.fail(error=f"Plugin '{params['plugin_id']}' not found or has no loadable code", tool_id="plugins.load")
+                return ToolResult.fail(
+                    error=f"Plugin '{params['plugin_id']}' not found or has no loadable code", tool_id="plugins.load"
+                )
             return ToolResult.ok(data=result, tool_id="plugins.load")
         except Exception as e:
             return ToolResult.fail(error=str(e), tool_id="plugins.load")

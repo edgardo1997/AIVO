@@ -53,6 +53,7 @@ class NetworkMonitor:
     async def check(self) -> bool:
         """Probe endpoints to determine connectivity."""
         import httpx
+
         for url in self._check_urls:
             try:
                 async with httpx.AsyncClient(timeout=self._timeout) as client:
@@ -61,7 +62,8 @@ class NetworkMonitor:
                         self._online = True
                         self._last_check = time.monotonic()
                         return True
-            except Exception:
+            except Exception as exc:
+                log.debug("Connectivity probe failed for %s: %s", url, exc)
                 continue
         self._online = False
         self._last_check = time.monotonic()

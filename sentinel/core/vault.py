@@ -1,12 +1,16 @@
 import json
+import logging
 import os
 import time
 from pathlib import Path
 from dataclasses import dataclass, field, asdict
 from typing import Optional
 
+logger = logging.getLogger(__name__)
+
 try:
     from cryptography.fernet import Fernet
+
     HAS_CRYPTO = True
 except ImportError:
     HAS_CRYPTO = False
@@ -64,10 +68,12 @@ class VaultManager:
                 return
             except Exception:
                 raise RuntimeError("SENTINEL_VAULT_KEY is invalid")
-        key_path = Path(os.environ.get(
-            "SENTINEL_VAULT_KEY_FILE",
-            os.path.join(os.environ.get("LOCALAPPDATA", str(Path.home())), "Sentinel", "vault.key"),
-        )).expanduser()
+        key_path = Path(
+            os.environ.get(
+                "SENTINEL_VAULT_KEY_FILE",
+                os.path.join(os.environ.get("LOCALAPPDATA", str(Path.home())), "Sentinel", "vault.key"),
+            )
+        ).expanduser()
         if key_path.exists():
             try:
                 self._fernet = Fernet(key_path.read_bytes().strip())
@@ -135,10 +141,12 @@ class VaultManager:
                 reencrypted.append(entry)
         for entry in reencrypted:
             self._save_entry(entry)
-        key_path = Path(os.environ.get(
-            "SENTINEL_VAULT_KEY_FILE",
-            os.path.join(os.environ.get("LOCALAPPDATA", str(Path.home())), "Sentinel", "vault.key"),
-        )).expanduser()
+        key_path = Path(
+            os.environ.get(
+                "SENTINEL_VAULT_KEY_FILE",
+                os.path.join(os.environ.get("LOCALAPPDATA", str(Path.home())), "Sentinel", "vault.key"),
+            )
+        ).expanduser()
         tmp_path = key_path.with_suffix(".tmp")
         tmp_path.write_bytes(new_key)
         os.chmod(tmp_path, 0o600)
@@ -181,9 +189,7 @@ class VaultManager:
     def get_entry(self, vault_id: str) -> Optional[VaultEntry]:
         if not self._db:
             return None
-        row = self._db.fetchone(
-            "SELECT * FROM vault_entries WHERE id = ?", (vault_id,)
-        )
+        row = self._db.fetchone("SELECT * FROM vault_entries WHERE id = ?", (vault_id,))
         if not row:
             return None
         return VaultEntry(
@@ -215,9 +221,16 @@ class VaultManager:
             """INSERT INTO vault_entries (id, name, category, encrypted_value, rotatable, rotation_days, last_rotated, notes, created_at, updated_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
-                entry.id, entry.name, entry.category, encrypted,
-                1 if entry.rotatable else 0, entry.rotation_days,
-                entry.last_rotated, entry.notes, now, now,
+                entry.id,
+                entry.name,
+                entry.category,
+                encrypted,
+                1 if entry.rotatable else 0,
+                entry.rotation_days,
+                entry.last_rotated,
+                entry.notes,
+                now,
+                now,
             ),
         )
         self._db.commit()
@@ -233,18 +246,23 @@ class VaultManager:
         fields = []
         params: list = []
         if "name" in updates:
-            fields.append("name = ?"); params.append(updates["name"])
+            fields.append("name = ?")
+            params.append(updates["name"])
         if "category" in updates:
-            fields.append("category = ?"); params.append(updates["category"])
+            fields.append("category = ?")
+            params.append(updates["category"])
         if "value" in updates and updates["value"] is not None:
             fields.append("encrypted_value = ?")
             params.append(self._encrypt(updates["value"]))
         if "rotatable" in updates:
-            fields.append("rotatable = ?"); params.append(1 if updates["rotatable"] else 0)
+            fields.append("rotatable = ?")
+            params.append(1 if updates["rotatable"] else 0)
         if "rotation_days" in updates:
-            fields.append("rotation_days = ?"); params.append(updates["rotation_days"])
+            fields.append("rotation_days = ?")
+            params.append(updates["rotation_days"])
         if "notes" in updates:
-            fields.append("notes = ?"); params.append(updates["notes"])
+            fields.append("notes = ?")
+            params.append(updates["notes"])
         fields.append("updated_at = ?")
         params.append(time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
         params.append(vault_id)
@@ -310,12 +328,15 @@ class VaultManager:
                 (vault_id, limit),
             )
         else:
-            rows = self._db.fetchall(
-                "SELECT * FROM vault_audit ORDER BY id DESC LIMIT ?", (limit,)
-            )
+            rows = self._db.fetchall("SELECT * FROM vault_audit ORDER BY id DESC LIMIT ?", (limit,))
         return [
-            VaultAuditEntry(id=r["id"], vault_id=r["vault_id"], action=r["action"],
-                            timestamp=r["timestamp"], details=r.get("details", ""))
+            VaultAuditEntry(
+                id=r["id"],
+                vault_id=r["vault_id"],
+                action=r["action"],
+                timestamp=r["timestamp"],
+                details=r.get("details", ""),
+            )
             for r in rows
         ]
 
@@ -328,5 +349,5 @@ class VaultManager:
                 (vault_id, action, details),
             )
             self._db.commit()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Vault audit write failed for %s: %s", vault_id, exc)

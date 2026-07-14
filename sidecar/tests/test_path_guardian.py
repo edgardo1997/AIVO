@@ -9,15 +9,22 @@ from modules.auth import IdentityContext
 from modules.security.interfaces import ValidationResult, PathSecurityError
 from modules.security.path_guardian import PathGuardian
 from modules.security.path_policy import (
-    get_allowed_paths, get_blocked_paths, is_sensitive_filename,
-    path_matches_blocked, path_is_within_allowed,
+    get_allowed_paths,
+    get_blocked_paths,
+    is_sensitive_filename,
+    path_matches_blocked,
+    path_is_within_allowed,
 )
 
 guardian = PathGuardian()
 auth = IdentityContext(
-    user_id="test", username="", role="user",
-    permissions=frozenset(), authentication_method="test",
-    is_authenticated=True, is_local=True,
+    user_id="test",
+    username="",
+    role="user",
+    permissions=frozenset(),
+    authentication_method="test",
+    is_authenticated=True,
+    is_local=True,
 )
 
 
@@ -96,15 +103,11 @@ class TestPathTraversal:
         assert not result.allowed
 
     def test_dotdot_embedded(self):
-        result = guardian.validate_read(
-            "C:\\Users\\test\\Documents\\..\\..\\Windows\\System32", auth
-        )
+        result = guardian.validate_read("C:\\Users\\test\\Documents\\..\\..\\Windows\\System32", auth)
         assert not result.allowed
 
     def test_forward_slash_traversal(self):
-        result = guardian.validate_read(
-            "C:/Users/test/../../../Windows/System32/cmd.exe", auth
-        )
+        result = guardian.validate_read("C:/Users/test/../../../Windows/System32/cmd.exe", auth)
         assert not result.allowed
 
 
@@ -179,13 +182,9 @@ class TestEdgeCases:
 
 class TestFullIntegration:
     def test_deny_temp_read_ssh(self):
-        result = guardian.validate_read(
-            os.path.expandvars("%USERPROFILE%\\.ssh\\config"), auth
-        )
+        result = guardian.validate_read(os.path.expandvars("%USERPROFILE%\\.ssh\\config"), auth)
         assert not result.allowed
 
     def test_deny_credentials_read(self):
-        result = guardian.validate_read(
-            os.path.expandvars("%USERPROFILE%\\.aws\\credentials"), auth
-        )
+        result = guardian.validate_read(os.path.expandvars("%USERPROFILE%\\.aws\\credentials"), auth)
         assert not result.allowed

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import random
+import secrets
 import threading
 import time
 from dataclasses import dataclass, field
@@ -10,7 +10,10 @@ from typing import Any, Callable, Dict, List, Optional, Set
 
 from sentinel.core.circuit_breaker import CircuitBreaker
 from sentinel.core.recovery import (
-    ErrorCategory, ErrorClassifier, RecoveryPolicy, RetryExhaustedError,
+    ErrorCategory,
+    ErrorClassifier,
+    RecoveryPolicy,
+    RetryExhaustedError,
 )
 from sentinel.core.tool import ToolResult
 
@@ -98,22 +101,27 @@ class EnhancedRetryHandler:
                 category = self._classifier.classify(last_error, tool_id)
                 if category != ErrorCategory.TRANSIENT or "transient" not in policy.retry_on:
                     return result
-                logger.info("Retry %d/%d for %s after transient error: %s",
-                            attempt, policy.max_retries, tool_id, last_error)
+                logger.info(
+                    "Retry %d/%d for %s after transient error: %s", attempt, policy.max_retries, tool_id, last_error
+                )
             except Exception as e:
                 last_error = str(e)
                 category = self._classifier.classify(last_error, tool_id)
                 if category != ErrorCategory.TRANSIENT or "transient" not in policy.retry_on:
                     raise
-                logger.info("Retry %d/%d for %s after transient exception: %s",
-                            attempt, policy.max_retries, tool_id, last_error)
+                logger.info(
+                    "Retry %d/%d for %s after transient exception: %s", attempt, policy.max_retries, tool_id, last_error
+                )
             if attempt < policy.max_retries:
-                delay = min(
-                    policy.retry_delay_ms * (policy.retry_backoff ** (attempt - 1)),
-                    policy.retry_max_delay_ms,
-                ) / 1000
+                delay = (
+                    min(
+                        policy.retry_delay_ms * (policy.retry_backoff ** (attempt - 1)),
+                        policy.retry_max_delay_ms,
+                    )
+                    / 1000
+                )
                 if jitter > 0:
-                    delay += random.uniform(0, delay * jitter)
+                    delay += secrets.SystemRandom().uniform(0, delay * jitter)
                 await asyncio.sleep(delay)
         raise RetryExhaustedError(tool_id, policy.max_retries, last_error)
 
@@ -156,6 +164,7 @@ class HealthChecker:
     def check_system_health(self) -> Dict[str, Any]:
         import os
         import psutil
+
         return {
             "cpu_percent": psutil.cpu_percent(interval=0.1),
             "memory_percent": psutil.virtual_memory().percent,
@@ -256,10 +265,7 @@ class HardeningService:
         return {
             "system": self._health_checker.check_system_health(),
             "tools": {
-                s["provider_id"]: {"healthy": s["state"] != "open", **s}
-                for s in self._circuit_breaker.get_all_states()
+                s["provider_id"]: {"healthy": s["state"] != "open", **s} for s in self._circuit_breaker.get_all_states()
             },
-            "stats": {
-                k: v for k, v in self._stats.items()
-            },
+            "stats": {k: v for k, v in self._stats.items()},
         }

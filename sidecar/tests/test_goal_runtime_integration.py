@@ -10,7 +10,9 @@ from main import app
 from sentinel.core.planner import Planner
 from sentinel.core.intent import Intent
 from sentinel.core.goals import (
-    GoalRegistry, GoalDefinition, Goal,
+    GoalRegistry,
+    GoalDefinition,
+    Goal,
     create_default_goal_registry,
 )
 from sentinel.core.capability_registry import RiskLevel
@@ -130,30 +132,45 @@ class TestPlannerWithGoalRegistry:
 class TestMultiGoalPriority:
     def test_highest_priority_wins(self):
         registry = GoalRegistry()
-        registry.register(GoalDefinition(
-            id="low_prio", name="Low", description="",
-            related_intents=["system.health"],
-            possible_capabilities=["system.cpu"],
-            priority=1, base_risk=RiskLevel.LOW,
-        ))
-        registry.register(GoalDefinition(
-            id="high_prio", name="High", description="",
-            related_intents=["system.health"],
-            possible_capabilities=["system.info"],
-            priority=10, base_risk=RiskLevel.HIGH,
-        ))
+        registry.register(
+            GoalDefinition(
+                id="low_prio",
+                name="Low",
+                description="",
+                related_intents=["system.health"],
+                possible_capabilities=["system.cpu"],
+                priority=1,
+                base_risk=RiskLevel.LOW,
+            )
+        )
+        registry.register(
+            GoalDefinition(
+                id="high_prio",
+                name="High",
+                description="",
+                related_intents=["system.health"],
+                possible_capabilities=["system.info"],
+                priority=10,
+                base_risk=RiskLevel.HIGH,
+            )
+        )
         planner = Planner(goal_registry=registry)
         plan = planner.plan(Intent(action="query", target="system.health"))
         assert plan.goal.id == "high_prio"
 
     def test_multiple_goals_same_intent(self):
         registry = create_default_goal_registry()
-        registry.register(GoalDefinition(
-            id="extra_goal", name="Extra", description="",
-            related_intents=["system.health"],
-            possible_capabilities=["system.info"],
-            priority=5, base_risk=RiskLevel.MEDIUM,
-        ))
+        registry.register(
+            GoalDefinition(
+                id="extra_goal",
+                name="Extra",
+                description="",
+                related_intents=["system.health"],
+                possible_capabilities=["system.info"],
+                priority=5,
+                base_risk=RiskLevel.MEDIUM,
+            )
+        )
         planner = Planner(goal_registry=registry)
         plan = planner.plan(Intent(action="query", target="system.health"))
         assert plan.goal is not None
@@ -161,9 +178,7 @@ class TestMultiGoalPriority:
 
 class TestGoalApiResponse:
     def test_api_returns_goal_for_health(self):
-        resp = client.post("/api/sentinel/process", json={
-            "utterance": "analyze system health"
-        })
+        resp = client.post("/api/sentinel/process", json={"utterance": "analyze system health"})
         assert resp.status_code == 200
         data = resp.json()
         assert data.get("goal") is not None
@@ -171,9 +186,7 @@ class TestGoalApiResponse:
         assert data["goal"]["priority"] == 8
 
     def test_api_goal_has_capabilities(self):
-        resp = client.post("/api/sentinel/process", json={
-            "utterance": "analyze system health"
-        })
+        resp = client.post("/api/sentinel/process", json={"utterance": "analyze system health"})
         assert resp.status_code == 200
         data = resp.json()
         caps = data["goal"]["possible_capabilities"]
@@ -181,43 +194,33 @@ class TestGoalApiResponse:
         assert "system.processes" in caps
 
     def test_api_goal_for_cpu_matches_performance_tuning(self):
-        resp = client.post("/api/sentinel/process", json={
-            "utterance": "cpu usage"
-        })
+        resp = client.post("/api/sentinel/process", json={"utterance": "cpu usage"})
         assert resp.status_code == 200
         data = resp.json()
         assert data.get("goal") is not None
         assert data["goal"]["id"] == "performance_tuning"
 
     def test_api_goal_for_disk_matches_cleanup(self):
-        resp = client.post("/api/sentinel/process", json={
-            "utterance": "disk usage"
-        })
+        resp = client.post("/api/sentinel/process", json={"utterance": "disk usage"})
         assert resp.status_code == 200
         data = resp.json()
         assert data.get("goal") is not None
         assert data["goal"]["id"] == "disk_space_cleanup"
 
     def test_api_no_goal_for_uptime(self):
-        resp = client.post("/api/sentinel/process", json={
-            "utterance": "system uptime"
-        })
+        resp = client.post("/api/sentinel/process", json={"utterance": "system uptime"})
         assert resp.status_code == 200
         data = resp.json()
         assert data.get("goal") is None
 
     def test_api_no_goal_for_info(self):
-        resp = client.post("/api/sentinel/process", json={
-            "utterance": "show system info"
-        })
+        resp = client.post("/api/sentinel/process", json={"utterance": "show system info"})
         assert resp.status_code == 200
         data = resp.json()
         assert data.get("goal") is None
 
     def test_api_goal_does_not_break_steps(self):
-        resp = client.post("/api/sentinel/process", json={
-            "utterance": "analyze system health"
-        })
+        resp = client.post("/api/sentinel/process", json={"utterance": "analyze system health"})
         assert resp.status_code == 200
         data = resp.json()
         assert len(data["plan"]["steps"]) >= 2
@@ -240,12 +243,14 @@ class TestGoalApiResponse:
 class TestInitSentinelOrchestrator:
     def test_old_call_without_goal_registry_works(self):
         from modules import get_gateway, init_sentinel_orchestrator
+
         gw = get_gateway()
         orch = init_sentinel_orchestrator(gw)
         assert orch is not None
 
     def test_with_goal_registry_attaches_goals(self):
         from modules import get_gateway, init_sentinel_orchestrator
+
         registry = create_default_goal_registry()
         gw = get_gateway()
         orch = init_sentinel_orchestrator(gw, goal_registry=registry)
@@ -267,12 +272,17 @@ class TestFuzzyGoalMatching:
 
     def test_search_exact_takes_precedence(self):
         registry = GoalRegistry()
-        registry.register(GoalDefinition(
-            id="test", name="Test", description="",
-            related_intents=["custom.intent"],
-            possible_capabilities=[],
-            priority=0, base_risk=RiskLevel.LOW,
-        ))
+        registry.register(
+            GoalDefinition(
+                id="test",
+                name="Test",
+                description="",
+                related_intents=["custom.intent"],
+                possible_capabilities=[],
+                priority=0,
+                base_risk=RiskLevel.LOW,
+            )
+        )
         exact = registry.find_by_intent("custom.intent")
         fuzzy = registry.search_by_intent("custom.intent")
         assert len(exact) == 1
@@ -303,12 +313,17 @@ class TestFuzzyGoalMatching:
 
     def test_planner_fuzzy_fallback_on_close_match(self):
         registry = GoalRegistry()
-        registry.register(GoalDefinition(
-            id="disk_goal", name="Disk Goal", description="",
-            related_intents=["system.disk"],
-            possible_capabilities=["system.info"],
-            priority=5, base_risk=RiskLevel.LOW,
-        ))
+        registry.register(
+            GoalDefinition(
+                id="disk_goal",
+                name="Disk Goal",
+                description="",
+                related_intents=["system.disk"],
+                possible_capabilities=["system.info"],
+                priority=5,
+                base_risk=RiskLevel.LOW,
+            )
+        )
         planner = Planner(goal_registry=registry)
         plan = planner.plan(Intent(action="query", target="disk"))
         assert plan.goal is not None
@@ -340,8 +355,7 @@ class TestGoalsEndpoint:
         resp = client.get("/api/sentinel/goals")
         data = resp.json()
         ids = [g["id"] for g in data["goals"]]
-        for expected in ["system_health_diagnosis", "disk_space_cleanup",
-                         "network_diagnosis", "performance_tuning"]:
+        for expected in ["system_health_diagnosis", "disk_space_cleanup", "network_diagnosis", "performance_tuning"]:
             assert expected in ids, f"Missing goal: {expected}"
 
     def test_get_goals_has_metadata(self):
@@ -360,6 +374,7 @@ class TestGoalsEndpoint:
 class TestGoalRegistrySingleton:
     def test_get_goal_registry_returns_registry(self):
         from modules.sentinel_bridge import get_goal_registry
+
         registry = get_goal_registry()
         assert registry is not None
         assert registry.count() >= 4
@@ -367,8 +382,8 @@ class TestGoalRegistrySingleton:
 
     def test_get_goal_registry_has_default_goals(self):
         from modules.sentinel_bridge import get_goal_registry
+
         registry = get_goal_registry()
-        for gid in ["system_health_diagnosis", "disk_space_cleanup",
-                     "network_diagnosis", "performance_tuning"]:
+        for gid in ["system_health_diagnosis", "disk_space_cleanup", "network_diagnosis", "performance_tuning"]:
             goal = registry.get(gid)
             assert goal is not None, f"Missing {gid}"

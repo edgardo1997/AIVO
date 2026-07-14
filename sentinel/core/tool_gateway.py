@@ -53,18 +53,23 @@ class ToolGateway:
             grant = self._confirmation_broker.consume(action_id, identity.get("user_id", ""), approved)
         except PermissionError as exc:
             if self._audit_service:
-                self._audit_service.log_action("confirmation_denied", action_id, "denied", identity.get("user_id", "unknown"))
+                self._audit_service.log_action(
+                    "confirmation_denied", action_id, "denied", identity.get("user_id", "unknown")
+                )
             return ToolResult.fail(str(exc))
         if grant is None:
             if self._audit_service:
-                self._audit_service.log_action("confirmation_rejected_or_expired", action_id, "denied", identity.get("user_id", "unknown"))
+                self._audit_service.log_action(
+                    "confirmation_rejected_or_expired", action_id, "denied", identity.get("user_id", "unknown")
+                )
             return ToolResult.fail("Confirmation expired, rejected, or already consumed")
         if self._audit_service:
-            self._audit_service.log_action("confirmation_approved", f"{action_id}:{grant.tool_id}", "authorized", grant.user_id)
+            self._audit_service.log_action(
+                "confirmation_approved", f"{action_id}:{grant.tool_id}", "authorized", grant.user_id
+            )
         context = dict(grant.context)
         context["identity"] = identity
-        context["_confirmation_grant"] = {"action_id": action_id, "tool_id": grant.tool_id,
-                                           "user_id": grant.user_id}
+        context["_confirmation_grant"] = {"action_id": action_id, "tool_id": grant.tool_id, "user_id": grant.user_id}
         return await self.execute(grant.tool_id, grant.params, context)
 
     def set_policy_engine(self, engine: PolicyEngine) -> None:
@@ -73,7 +78,7 @@ class ToolGateway:
     def set_context_engine(self, engine: ContextEngine) -> None:
         self._context_engine = engine
 
-    def set_capability_registry(self, registry: 'CapabilityRegistry') -> None:
+    def set_capability_registry(self, registry: "CapabilityRegistry") -> None:
         self._capability_registry = registry
 
     def set_audit_service(self, service: Any) -> None:
@@ -88,9 +93,7 @@ class ToolGateway:
     def register(self, tool: Tool) -> None:
         spec = tool.spec()
         if spec.status == ToolStatus.ACTIVE and not spec.required_permissions:
-            raise ValueError(
-                f"Active tool '{spec.id}' must declare at least one required permission"
-            )
+            raise ValueError(f"Active tool '{spec.id}' must declare at least one required permission")
         if spec.id in self._tools:
             raise ValueError(f"Tool '{spec.id}' already registered")
         self._tools[spec.id] = tool
@@ -100,6 +103,7 @@ class ToolGateway:
 
     def _register_capability(self, spec: ToolSpec) -> None:
         from .capability_registry import capability_from_spec
+
         cap = capability_from_spec(
             spec_id=spec.id,
             name=spec.name,
@@ -139,11 +143,7 @@ class ToolGateway:
         if hasattr(identity, "to_dict"):
             identity = identity.to_dict()
             ctx["identity"] = identity
-        if (
-            not isinstance(identity, dict)
-            or not identity.get("is_authenticated")
-            or not identity.get("user_id")
-        ):
+        if not isinstance(identity, dict) or not identity.get("is_authenticated") or not identity.get("user_id"):
             result = ToolResult.fail(
                 error="Identity required: authenticated user_id is missing",
                 tool_id=tool_id,
@@ -221,7 +221,12 @@ class ToolGateway:
                 if self._confirmation_broker is not None:
                     action_id = self._confirmation_broker.request(tool_id, params, ctx, policy_result.reason)
                 if self._audit_service:
-                    self._audit_service.log_action("confirmation_pending", f"{action_id}:{tool_id}", "pending_confirmation", identity.get("user_id", "unknown"))
+                    self._audit_service.log_action(
+                        "confirmation_pending",
+                        f"{action_id}:{tool_id}",
+                        "pending_confirmation",
+                        identity.get("user_id", "unknown"),
+                    )
                 result = ToolResult.needs_confirm(
                     reason=policy_result.reason,
                     tool_id=tool_id,
@@ -259,9 +264,15 @@ class ToolGateway:
                 result.policy_result = policy_data
                 return result
 
-        span_id = self._observability.start(
-            tool_id, ctx.get("execution_id", ""), ctx.get("parent_span_id", ""),
-        ) if self._observability is not None else None
+        span_id = (
+            self._observability.start(
+                tool_id,
+                ctx.get("execution_id", ""),
+                ctx.get("parent_span_id", ""),
+            )
+            if self._observability is not None
+            else None
+        )
 
         if self._hardening is not None:
             cb = self._hardening.circuit_breaker
@@ -276,7 +287,11 @@ class ToolGateway:
 
         start = time.monotonic()
         try:
-            timeout = spec.timeout_seconds or self._hardening.config.get_timeout(tool_id) if self._hardening else spec.timeout_seconds or 30
+            timeout = (
+                spec.timeout_seconds or self._hardening.config.get_timeout(tool_id)
+                if self._hardening
+                else spec.timeout_seconds or 30
+            )
             result = await asyncio.wait_for(tool.execute(params, ctx), timeout=timeout)
             elapsed = (time.monotonic() - start) * 1000
             result.tool_id = tool_id
@@ -292,7 +307,9 @@ class ToolGateway:
 
             logger.info(
                 "Tool %s finished in %.0fms (success=%s)",
-                tool_id, elapsed, result.success,
+                tool_id,
+                elapsed,
+                result.success,
             )
             quality = self._quality_gate.scan(result)
             quality_data = asdict(quality)
@@ -300,13 +317,13 @@ class ToolGateway:
                 logger.warning("QualityGate blocked output for %s: %s", tool_id, quality.issues)
                 blocked = ToolResult.fail(
                     error=f"Output blocked by quality gate: {'; '.join(quality.issues)}",
-                    tool_id=tool_id, duration_ms=elapsed,
+                    tool_id=tool_id,
+                    duration_ms=elapsed,
                 )
                 blocked.policy_result = policy_data
                 blocked.quality_result = quality_data
                 if span_id:
-                    self._observability.finish(span_id, False, "quality", quality_data,
-                                               blocked.policy_decision)
+                    self._observability.finish(span_id, False, "quality", quality_data, blocked.policy_decision)
                 return blocked
             if quality.redacted:
                 logger.info("QualityGate redacted output for %s", tool_id)
@@ -316,8 +333,7 @@ class ToolGateway:
                 category = None
                 if not result.success and self._hardening is not None:
                     category = ErrorClassifier.classify(result.error or "", tool_id).value
-                self._observability.finish(span_id, result.success, category, quality_data,
-                                           result.policy_decision)
+                self._observability.finish(span_id, result.success, category, quality_data, result.policy_decision)
             return result
         except asyncio.TimeoutError:
             elapsed = (time.monotonic() - start) * 1000

@@ -99,7 +99,11 @@ class ProfilePreferenceTool(Tool):
             parameters={
                 "type": "object",
                 "properties": {
-                    "action": {"type": "string", "enum": ["get", "set", "delete", "list"], "description": "Action to perform"},
+                    "action": {
+                        "type": "string",
+                        "enum": ["get", "set", "delete", "list"],
+                        "description": "Action to perform",
+                    },
                     "user_id": {"type": "string", "description": "User ID (defaults to context user)"},
                     "key": {"type": "string", "description": "Preference key (required for get/set/delete)"},
                     "value": {"description": "Preference value (required for set)"},

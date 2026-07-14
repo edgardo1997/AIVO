@@ -1,4 +1,6 @@
-import os, sys
+import os
+import sys
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from unittest.mock import MagicMock, patch
@@ -88,11 +90,13 @@ class TestPerformanceTracker:
 class TestPerformanceAPI:
     def setup_method(self):
         from modules.sentinel_bridge import reset_bridge
+
         reset_bridge()
 
     def test_baselines_endpoint(self):
         from fastapi.testclient import TestClient
         from main import app
+
         client = TestClient(app)
         resp = client.get("/api/sentinel/performance/baselines")
         assert resp.status_code == 200
@@ -102,6 +106,7 @@ class TestPerformanceAPI:
     def test_alerts_endpoint(self):
         from fastapi.testclient import TestClient
         from main import app
+
         client = TestClient(app)
         resp = client.get("/api/sentinel/performance/alerts")
         assert resp.status_code == 200
@@ -111,11 +116,9 @@ class TestPerformanceAPI:
     def test_alerts_filter_by_severity(self):
         from fastapi.testclient import TestClient
         from main import app
+
         client = TestClient(app)
         resp = client.get("/api/sentinel/performance/alerts?severity=critical")
         assert resp.status_code == 200
         data = resp.json()
         assert "alerts" in data
-
-
-

@@ -36,10 +36,13 @@ class TestSimulationBlocking:
     def test_blocking_pending_action_stored(self):
         orch = get_orchestrator()
         import asyncio
-        result = asyncio.run(orch.process(
-            "run command rm -rf /",
-            identity=TEST_IDENTITY,
-        ))
+
+        result = asyncio.run(
+            orch.process(
+                "run command rm -rf /",
+                identity=TEST_IDENTITY,
+            )
+        )
         assert result.blocked is True
         assert result.action_id is not None
         memory = orch._memory
@@ -51,14 +54,18 @@ class TestSimulationBlocking:
     def test_approve_execution_runs_and_succeeds(self):
         orch = get_orchestrator()
         import asyncio
-        result = asyncio.run(orch.process(
-            "run command echo hello_approved",
-            identity=TEST_IDENTITY,
-        ))
+
+        result = asyncio.run(
+            orch.process(
+                "run command echo hello_approved",
+                identity=TEST_IDENTITY,
+            )
+        )
         assert result.blocked is True
         action_id = result.action_id
 
         from modules.permissions import _svc as perm_svc
+
         perm_svc.set_level("admin")
         approved = asyncio.run(orch.approve_execution(action_id, approved=True))
         perm_svc.set_level("confirm")
@@ -70,10 +77,13 @@ class TestSimulationBlocking:
     def test_reject_execution_returns_error(self):
         orch = get_orchestrator()
         import asyncio
-        result = asyncio.run(orch.process(
-            "run command echo should_reject",
-            identity=TEST_IDENTITY,
-        ))
+
+        result = asyncio.run(
+            orch.process(
+                "run command echo should_reject",
+                identity=TEST_IDENTITY,
+            )
+        )
         assert result.blocked is True
         action_id = result.action_id
 
@@ -85,6 +95,7 @@ class TestSimulationBlocking:
     def test_approve_unknown_action_returns_error(self):
         orch = get_orchestrator()
         import asyncio
+
         result = asyncio.run(orch.approve_execution("nonexistent_action", approved=True))
         assert result.error is not None
         assert "not found" in result.error.lower()
@@ -109,6 +120,7 @@ class TestSimulationBlocking:
 
     def test_approve_then_execute_via_api(self):
         from modules.permissions import _svc as perm_svc
+
         perm_svc.set_level("admin")
 
         resp = client.post("/api/sentinel/process", json={"utterance": "run command echo api_approve"})
@@ -116,9 +128,13 @@ class TestSimulationBlocking:
         data = resp.json()
         action_id = data["action_id"]
 
-        approve_resp = client.post("/api/sentinel/simulate/approve", json={
-            "action_id": action_id, "approved": True,
-        })
+        approve_resp = client.post(
+            "/api/sentinel/simulate/approve",
+            json={
+                "action_id": action_id,
+                "approved": True,
+            },
+        )
         perm_svc.set_level("confirm")
         assert approve_resp.status_code == 200
         approve_data = approve_resp.json()
@@ -128,6 +144,7 @@ class TestSimulationBlocking:
 
     def test_modify_and_approve_sends_modified_steps(self):
         from modules.permissions import _svc as perm_svc
+
         perm_svc.set_level("admin")
 
         resp = client.post("/api/sentinel/process", json={"utterance": "run command echo test_modified"})
@@ -140,10 +157,13 @@ class TestSimulationBlocking:
         steps = plan_data.get("steps", [])
         assert len(steps) > 0
 
-        modify_resp = client.post("/api/sentinel/simulate/modify-and-approve", json={
-            "action_id": action_id,
-            "steps": steps,
-        })
+        modify_resp = client.post(
+            "/api/sentinel/simulate/modify-and-approve",
+            json={
+                "action_id": action_id,
+                "steps": steps,
+            },
+        )
         perm_svc.set_level("confirm")
         assert modify_resp.status_code == 200
         modify_data = modify_resp.json()
@@ -160,17 +180,23 @@ class TestSimulationBlocking:
         data = resp.json()
         action_id = data["action_id"]
 
-        modify_resp = client.post("/api/sentinel/simulate/modify-and-approve", json={
-            "action_id": action_id,
-            "steps": [],
-        })
+        modify_resp = client.post(
+            "/api/sentinel/simulate/modify-and-approve",
+            json={
+                "action_id": action_id,
+                "steps": [],
+            },
+        )
         modify_data = modify_resp.json() if modify_resp.status_code == 200 else modify_resp.json()
         assert modify_data.get("error") is not None or modify_data.get("detail") is not None
 
     def test_modify_and_approve_missing_action_id(self):
-        modify_resp = client.post("/api/sentinel/simulate/modify-and-approve", json={
-            "steps": [{"tool_id": "system.info"}],
-        })
+        modify_resp = client.post(
+            "/api/sentinel/simulate/modify-and-approve",
+            json={
+                "steps": [{"tool_id": "system.info"}],
+            },
+        )
         assert modify_resp.status_code == 400
 
     def test_modify_and_approve_missing_steps(self):
@@ -179,18 +205,24 @@ class TestSimulationBlocking:
         data = resp.json()
         action_id = data["action_id"]
 
-        modify_resp = client.post("/api/sentinel/simulate/modify-and-approve", json={
-            "action_id": action_id,
-        })
+        modify_resp = client.post(
+            "/api/sentinel/simulate/modify-and-approve",
+            json={
+                "action_id": action_id,
+            },
+        )
         modify_data = modify_resp.json()
         assert modify_data.get("error") is not None
         assert "steps" in modify_data["error"].lower()
 
     def test_modify_and_approve_nonexistent_action(self):
-        modify_resp = client.post("/api/sentinel/simulate/modify-and-approve", json={
-            "action_id": "nonexistent",
-            "steps": [{"tool_id": "system.info"}],
-        })
+        modify_resp = client.post(
+            "/api/sentinel/simulate/modify-and-approve",
+            json={
+                "action_id": "nonexistent",
+                "steps": [{"tool_id": "system.info"}],
+            },
+        )
         assert modify_resp.status_code == 200
         modify_data = modify_resp.json()
         assert modify_data["error"] is not None
@@ -198,6 +230,7 @@ class TestSimulationBlocking:
 
     def test_chat_pipeline_trace_includes_blocked(self):
         from modules.permissions import _svc as perm_svc
+
         perm_svc.set_level("admin")
         resp = client.post("/api/sentinel/chat", json={"message": "delete everything"})
         perm_svc.set_level("confirm")

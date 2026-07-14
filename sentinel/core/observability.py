@@ -31,22 +31,28 @@ class ObservabilityService:
         return span_id
 
     def finish(
-        self, span_id: str, success: bool, error_category: Optional[str] = None,
-        quality: Optional[Dict[str, Any]] = None, policy_decision: Optional[str] = None,
+        self,
+        span_id: str,
+        success: bool,
+        error_category: Optional[str] = None,
+        quality: Optional[Dict[str, Any]] = None,
+        policy_decision: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         with self._lock:
             span = self._active.pop(span_id, None)
             if span is None:
                 return None
             started = span.pop("_started_monotonic")
-            span.update({
-                "finished_at": datetime.now(timezone.utc).isoformat(),
-                "duration_ms": round((time.monotonic() - started) * 1000, 2),
-                "success": bool(success),
-                "error_category": error_category,
-                "policy_decision": policy_decision,
-                "quality": quality or {"passed": True, "redacted": False, "issues": []},
-            })
+            span.update(
+                {
+                    "finished_at": datetime.now(timezone.utc).isoformat(),
+                    "duration_ms": round((time.monotonic() - started) * 1000, 2),
+                    "success": bool(success),
+                    "error_category": error_category,
+                    "policy_decision": policy_decision,
+                    "quality": quality or {"passed": True, "redacted": False, "issues": []},
+                }
+            )
             self._traces.append(span)
             return dict(span)
 
@@ -55,7 +61,7 @@ class ObservabilityService:
             rows = list(reversed(self._traces))
         if tool_id:
             rows = [row for row in rows if row["tool_id"] == tool_id]
-        return [dict(row) for row in rows[:max(1, min(limit, 500))]]
+        return [dict(row) for row in rows[: max(1, min(limit, 500))]]
 
     def summary(self) -> Dict[str, Any]:
         with self._lock:
@@ -78,9 +84,12 @@ class ObservabilityService:
             "total_executions": total,
             "active_spans": active,
             "success_rate": round(((total - failures) / total * 100), 2) if total else 100.0,
-            "latency_ms": {"average": round(mean(durations), 2) if durations else 0.0,
-                           "p50": percentile(0.50), "p95": percentile(0.95),
-                           "maximum": round(max(durations), 2) if durations else 0.0},
+            "latency_ms": {
+                "average": round(mean(durations), 2) if durations else 0.0,
+                "p50": percentile(0.50),
+                "p95": percentile(0.95),
+                "maximum": round(max(durations), 2) if durations else 0.0,
+            },
             "quality": {"blocked": quality_blocks, "redacted": redactions},
             "errors_by_category": dict(categories),
         }

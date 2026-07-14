@@ -14,12 +14,19 @@ def status(provider_id: str, available: bool, reason: str):
 
 def test_remote_provider_without_key_is_never_selected():
     remote = ProviderSpec(
-        id="openrouter", name="OpenRouter", task_types=[TaskType.QUICK],
-        requires_key=True, priority=100,
+        id="openrouter",
+        name="OpenRouter",
+        task_types=[TaskType.QUICK],
+        requires_key=True,
+        priority=100,
     )
     local = ProviderSpec(
-        id="ollama", name="Ollama", task_types=[TaskType.QUICK],
-        requires_key=False, is_local=True, priority=10,
+        id="ollama",
+        name="Ollama",
+        task_types=[TaskType.QUICK],
+        requires_key=False,
+        is_local=True,
+        priority=10,
     )
     router = ModelRouter(
         providers=[remote, local],
@@ -34,8 +41,11 @@ def test_remote_provider_without_key_is_never_selected():
 
 def test_ollama_must_be_reachable_before_selection():
     local = ProviderSpec(
-        id="ollama", name="Ollama", task_types=[TaskType.QUICK],
-        requires_key=False, is_local=True,
+        id="ollama",
+        name="Ollama",
+        task_types=[TaskType.QUICK],
+        requires_key=False,
+        is_local=True,
     )
     router = ModelRouter(
         providers=[local],
@@ -48,12 +58,19 @@ def test_ollama_must_be_reachable_before_selection():
 
 def test_configured_remote_is_explicit_fallback_when_local_is_down():
     local = ProviderSpec(
-        id="ollama", name="Ollama", task_types=[TaskType.QUICK],
-        requires_key=False, is_local=True, priority=100,
+        id="ollama",
+        name="Ollama",
+        task_types=[TaskType.QUICK],
+        requires_key=False,
+        is_local=True,
+        priority=100,
     )
     remote = ProviderSpec(
-        id="openrouter", name="OpenRouter", task_types=[TaskType.QUICK],
-        requires_key=True, priority=10,
+        id="openrouter",
+        name="OpenRouter",
+        task_types=[TaskType.QUICK],
+        requires_key=True,
+        priority=10,
     )
     router = ModelRouter(
         providers=[local, remote],
@@ -69,8 +86,11 @@ def test_configured_remote_is_explicit_fallback_when_local_is_down():
 
 def test_decision_reason_and_history_are_auditable():
     remote = ProviderSpec(
-        id="openrouter", name="OpenRouter", task_types=[TaskType.REASONING],
-        requires_key=True, default_model="model-a",
+        id="openrouter",
+        name="OpenRouter",
+        task_types=[TaskType.REASONING],
+        requires_key=True,
+        default_model="model-a",
     )
     router = ModelRouter(providers=[remote])
     router.set_api_key("openrouter", "test-key")
@@ -85,8 +105,11 @@ def test_decision_reason_and_history_are_auditable():
 
 def test_manual_ollama_call_refuses_unreachable_service():
     local = ProviderSpec(
-        id="ollama", name="Ollama", task_types=[TaskType.QUICK],
-        requires_key=False, is_local=True,
+        id="ollama",
+        name="Ollama",
+        task_types=[TaskType.QUICK],
+        requires_key=False,
+        is_local=True,
     )
     router = ModelRouter(
         providers=[local],

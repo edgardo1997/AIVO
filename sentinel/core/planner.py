@@ -66,8 +66,14 @@ STEP_DEFINITIONS: Dict[str, List[PlanStep]] = {
         PlanStep(id="cpu", tool_id="system.cpu", description="Get CPU usage", estimated_impact="low"),
         PlanStep(id="mem", tool_id="system.info", description="Get memory usage", estimated_impact="low"),
         PlanStep(id="disk", tool_id="system.info", description="Get disk usage", estimated_impact="low"),
-        PlanStep(id="procs", tool_id="system.processes", description="Get top processes", params={"limit": 5},
-                 estimated_impact="low", depends_on=["mem", "disk"]),
+        PlanStep(
+            id="procs",
+            tool_id="system.processes",
+            description="Get top processes",
+            params={"limit": 5},
+            estimated_impact="low",
+            depends_on=["mem", "disk"],
+        ),
     ],
     "system.uptime": [
         PlanStep(id="sys", tool_id="system.info", description="Get uptime info", estimated_impact="low"),
@@ -79,45 +85,83 @@ STEP_DEFINITIONS: Dict[str, List[PlanStep]] = {
         PlanStep(id="cfg", tool_id="system.info", description="AI configuration", estimated_impact="low"),
     ],
     "executor.command": [
-        PlanStep(id="exec", tool_id="executor.command", description="Execute command",
-                 estimated_impact="medium", is_reversible=False),
+        PlanStep(
+            id="exec",
+            tool_id="executor.command",
+            description="Execute command",
+            estimated_impact="medium",
+            is_reversible=False,
+        ),
     ],
     "executor.launch": [
-        PlanStep(id="check", tool_id="system.processes", description="Check if already running",
-                 params={"limit": 5}, estimated_impact="low"),
-        PlanStep(id="launch", tool_id="executor.launch", description="Launch process",
-                 estimated_impact="medium", is_reversible=True,
-                 rollback_tool_id="executor.kill", depends_on=["check"]),
+        PlanStep(
+            id="check",
+            tool_id="system.processes",
+            description="Check if already running",
+            params={"limit": 5},
+            estimated_impact="low",
+        ),
+        PlanStep(
+            id="launch",
+            tool_id="executor.launch",
+            description="Launch process",
+            estimated_impact="medium",
+            is_reversible=True,
+            rollback_tool_id="executor.kill",
+            depends_on=["check"],
+        ),
     ],
     "executor.kill": [
-        PlanStep(id="find", tool_id="system.processes", description="Find process by name",
-                 estimated_impact="low"),
-        PlanStep(id="kill", tool_id="executor.kill", description="Kill process",
-                 estimated_impact="medium", is_reversible=True,
-                 rollback_tool_id="executor.restart", depends_on=["find"]),
+        PlanStep(id="find", tool_id="system.processes", description="Find process by name", estimated_impact="low"),
+        PlanStep(
+            id="kill",
+            tool_id="executor.kill",
+            description="Kill process",
+            estimated_impact="medium",
+            is_reversible=True,
+            rollback_tool_id="executor.restart",
+            depends_on=["find"],
+        ),
     ],
     "filesystem.search": [
-        PlanStep(id="locate", tool_id="filesystem.search", description="Search files matching pattern",
-                 estimated_impact="low"),
+        PlanStep(
+            id="locate",
+            tool_id="filesystem.search",
+            description="Search files matching pattern",
+            estimated_impact="low",
+        ),
     ],
     "filesystem.write": [
-        PlanStep(id="write", tool_id="filesystem.write", description="Write content to file",
-                 estimated_impact="high", is_reversible=True,
-                 rollback_tool_id="filesystem.undo_write"),
+        PlanStep(
+            id="write",
+            tool_id="filesystem.write",
+            description="Write content to file",
+            estimated_impact="high",
+            is_reversible=True,
+            rollback_tool_id="filesystem.undo_write",
+        ),
     ],
     "filesystem.delete": [
-        PlanStep(id="del", tool_id="filesystem.delete", description="Delete file (movable to temp)",
-                 estimated_impact="high", is_reversible=True,
-                 rollback_tool_id="filesystem.restore"),
+        PlanStep(
+            id="del",
+            tool_id="filesystem.delete",
+            description="Delete file (movable to temp)",
+            estimated_impact="high",
+            is_reversible=True,
+            rollback_tool_id="filesystem.restore",
+        ),
     ],
 }
 
 
 class Planner:
-    def __init__(self, step_definitions: Optional[Dict[str, List[PlanStep]]] = None,
-                 capability_registry: Optional[CapabilityRegistry] = None,
-                 goal_registry: Optional[GoalRegistry] = None,
-                 scorer_config: Optional[GoalScorerConfig] = None):
+    def __init__(
+        self,
+        step_definitions: Optional[Dict[str, List[PlanStep]]] = None,
+        capability_registry: Optional[CapabilityRegistry] = None,
+        goal_registry: Optional[GoalRegistry] = None,
+        scorer_config: Optional[GoalScorerConfig] = None,
+    ):
         self._definitions = step_definitions or STEP_DEFINITIONS
         self._capability_registry = capability_registry
         self._goal_registry = goal_registry
@@ -131,7 +175,11 @@ class Planner:
             RiskLevel.CRITICAL: "critical",
         }
         has_rollback = cap.id in ROLLBACK_MAP
-        is_reversible = True if has_rollback else (cap.reversible if cap.reversible is not None else cap.risk_level in (RiskLevel.LOW, RiskLevel.MEDIUM))
+        is_reversible = (
+            True
+            if has_rollback
+            else (cap.reversible if cap.reversible is not None else cap.risk_level in (RiskLevel.LOW, RiskLevel.MEDIUM))
+        )
         rollback_tool_id = None
         rollback_params = None
         if has_rollback:
@@ -176,8 +224,9 @@ class Planner:
 
         if not steps_def:
             steps_def = [
-                PlanStep(id="default", tool_id="system.info", description=f"Process {target}",
-                         estimated_impact="medium"),
+                PlanStep(
+                    id="default", tool_id="system.info", description=f"Process {target}", estimated_impact="medium"
+                ),
             ]
 
         steps = []
@@ -283,5 +332,5 @@ class Planner:
                 rev = " [reversible]" if step.is_reversible else " [irreversible]"
                 dep = f" after {step.depends_on}" if step.depends_on else ""
                 parallel = " [parallel]" if len(level) > 1 else ""
-                lines.append(f"  {i+1}.{step.id}. {step.tool_id}: {step.description}{rev}{dep}{parallel}")
+                lines.append(f"  {i + 1}.{step.id}. {step.tool_id}: {step.description}{rev}{dep}{parallel}")
         return "\n".join(lines)

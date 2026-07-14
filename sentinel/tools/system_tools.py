@@ -125,15 +125,17 @@ class DiskInfoTool(Tool):
         for p in psutil.disk_partitions():
             try:
                 usage = psutil.disk_usage(p.mountpoint)
-                partitions.append({
-                    "device": p.device,
-                    "mountpoint": p.mountpoint,
-                    "fstype": p.fstype,
-                    "total": usage.total,
-                    "used": usage.used,
-                    "free": usage.free,
-                    "percent": usage.percent,
-                })
+                partitions.append(
+                    {
+                        "device": p.device,
+                        "mountpoint": p.mountpoint,
+                        "fstype": p.fstype,
+                        "total": usage.total,
+                        "used": usage.used,
+                        "free": usage.free,
+                        "percent": usage.percent,
+                    }
+                )
             except (PermissionError, OSError):
                 pass
         io = psutil.disk_io_counters()
@@ -162,13 +164,15 @@ class NetworkInfoTool(Tool):
         io = psutil.net_io_counters()
         connections = []
         for conn in psutil.net_connections()[:50]:
-            connections.append({
-                "fd": conn.fd,
-                "type": str(conn.type),
-                "laddr": f"{conn.laddr.ip}:{conn.laddr.port}" if conn.laddr else "",
-                "raddr": f"{conn.raddr.ip}:{conn.raddr.port}" if conn.raddr else "",
-                "status": conn.status,
-            })
+            connections.append(
+                {
+                    "fd": conn.fd,
+                    "type": str(conn.type),
+                    "laddr": f"{conn.laddr.ip}:{conn.laddr.port}" if conn.laddr else "",
+                    "raddr": f"{conn.raddr.ip}:{conn.raddr.port}" if conn.raddr else "",
+                    "status": conn.status,
+                }
+            )
         data = {
             "bytes_sent": io.bytes_sent,
             "bytes_recv": io.bytes_recv,
@@ -234,22 +238,29 @@ class GpuInfoTool(Tool):
         gpus = []
         try:
             out = subprocess.check_output(
-                ["nvidia-smi", "--query-gpu=index,name,utilization.gpu,memory.total,memory.used,memory.free,temperature.gpu",
-                 "--format=csv,noheader,nounits"],
-                timeout=5, text=True, stderr=subprocess.DEVNULL,
+                [
+                    "nvidia-smi",
+                    "--query-gpu=index,name,utilization.gpu,memory.total,memory.used,memory.free,temperature.gpu",
+                    "--format=csv,noheader,nounits",
+                ],
+                timeout=5,
+                text=True,
+                stderr=subprocess.DEVNULL,
             )
             for line in out.strip().splitlines():
                 parts = [p.strip() for p in line.split(",")]
                 if len(parts) >= 7:
-                    gpus.append({
-                        "index": int(parts[0]),
-                        "name": parts[1],
-                        "gpu_util_percent": float(parts[2]),
-                        "memory_total_mb": float(parts[3]),
-                        "memory_used_mb": float(parts[4]),
-                        "memory_free_mb": float(parts[5]),
-                        "temperature_c": float(parts[6]),
-                    })
+                    gpus.append(
+                        {
+                            "index": int(parts[0]),
+                            "name": parts[1],
+                            "gpu_util_percent": float(parts[2]),
+                            "memory_total_mb": float(parts[3]),
+                            "memory_used_mb": float(parts[4]),
+                            "memory_free_mb": float(parts[5]),
+                            "temperature_c": float(parts[6]),
+                        }
+                    )
         except (FileNotFoundError, subprocess.TimeoutExpired, subprocess.CalledProcessError, ValueError):
             pass
 
@@ -257,16 +268,20 @@ class GpuInfoTool(Tool):
             try:
                 out = subprocess.check_output(
                     ["wmic", "path", "win32_VideoController", "get", "name,adapterram,driverversion", "/format:csv"],
-                    timeout=5, text=True, stderr=subprocess.DEVNULL,
+                    timeout=5,
+                    text=True,
+                    stderr=subprocess.DEVNULL,
                 )
                 for line in out.strip().splitlines()[1:]:
                     parts = [p.strip() for p in line.split(",")]
                     if len(parts) >= 3 and parts[1]:
                         ram_bytes = int(parts[2]) if parts[2].isdigit() else 0
-                        gpus.append({
-                            "name": parts[1],
-                            "memory_total_mb": ram_bytes // (1024 * 1024) if ram_bytes else 0,
-                        })
+                        gpus.append(
+                            {
+                                "name": parts[1],
+                                "memory_total_mb": ram_bytes // (1024 * 1024) if ram_bytes else 0,
+                            }
+                        )
             except (FileNotFoundError, subprocess.TimeoutExpired, subprocess.CalledProcessError, ValueError):
                 pass
 

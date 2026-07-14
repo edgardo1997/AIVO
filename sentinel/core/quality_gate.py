@@ -4,7 +4,8 @@ import logging
 
 from .tool import ToolResult
 from ..policies.output_policies import (
-    SENSITIVE_PATTERNS, MAX_OUTPUT_SIZE_BYTES,
+    SENSITIVE_PATTERNS,
+    MAX_OUTPUT_SIZE_BYTES,
     MAX_OUTPUT_LINES,
 )
 
@@ -37,16 +38,12 @@ class QualityGate:
 
         text_size = len(text.encode("utf-8"))
         if text_size > MAX_OUTPUT_SIZE_BYTES:
-            issues.append(
-                f"Output size {text_size} exceeds limit {MAX_OUTPUT_SIZE_BYTES}"
-            )
+            issues.append(f"Output size {text_size} exceeds limit {MAX_OUTPUT_SIZE_BYTES}")
             return QualityResult(passed=False, issues=issues)
 
         line_count = text.count("\n")
         if line_count > MAX_OUTPUT_LINES:
-            issues.append(
-                f"Output line count {line_count} exceeds limit {MAX_OUTPUT_LINES}"
-            )
+            issues.append(f"Output line count {line_count} exceeds limit {MAX_OUTPUT_LINES}")
             return QualityResult(passed=False, issues=issues)
 
         redacted_text = text
@@ -55,7 +52,8 @@ class QualityGate:
             if matches:
                 logger.info(
                     "QualityGate redacted %d match(es) for pattern %s",
-                    len(matches), pattern.pattern[:40],
+                    len(matches),
+                    pattern.pattern[:40],
                 )
                 redacted_text = pattern.sub("<REDACTED>", redacted_text)
                 redacted = True
@@ -63,7 +61,9 @@ class QualityGate:
         if redacted:
             redacted_data = self._restore_structure(data, text, redacted_text)
             return QualityResult(
-                passed=True, redacted=True, redacted_data=redacted_data,
+                passed=True,
+                redacted=True,
+                redacted_data=redacted_data,
                 issues=["Sensitive data redacted"],
             )
 
@@ -89,7 +89,10 @@ class QualityGate:
         return str(data) if data is not None else None
 
     def _restore_structure(
-        self, original: Any, old_text: str, new_text: str,
+        self,
+        original: Any,
+        old_text: str,
+        new_text: str,
     ) -> Any:
         if isinstance(original, str):
             return new_text
@@ -102,8 +105,5 @@ class QualityGate:
                         break
             return result
         if isinstance(original, list):
-            return [
-                item.replace(old_text, new_text) if isinstance(item, str) else item
-                for item in original
-            ]
+            return [item.replace(old_text, new_text) if isinstance(item, str) else item for item in original]
         return original

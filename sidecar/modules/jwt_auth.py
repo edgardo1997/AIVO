@@ -101,9 +101,7 @@ def token_to_identity(token: str) -> Optional[IdentityContext]:
     )
 
 
-def authenticate_user(
-    user_id: str, password: str = ""
-) -> Tuple[Optional[str], Optional[str]]:
+def authenticate_user(user_id: str, password: str = "") -> Tuple[Optional[str], Optional[str]]:
     """Simple local auth — returns (access_token, refresh_token) or (None, None).
 
     In production, replace with a proper user store + password hash (bcrypt/argon2).

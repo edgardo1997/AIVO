@@ -8,8 +8,12 @@ from fastapi.testclient import TestClient
 from main import app
 
 from sentinel.core.goals import (
-    GoalRegistry, GoalDefinition, GoalScorer, GoalScorerConfig,
-    GoalMatchResult, ScoredGoal,
+    GoalRegistry,
+    GoalDefinition,
+    GoalScorer,
+    GoalScorerConfig,
+    GoalMatchResult,
+    ScoredGoal,
     create_default_goal_registry,
 )
 from sentinel.core.planner import Planner, Plan
@@ -19,8 +23,9 @@ from sentinel.core.capability_registry import RiskLevel
 client = TestClient(app)
 
 
-def make_goal(gid: str, intents: list = None, caps: list = None,
-              priority: int = 0, risk: RiskLevel = RiskLevel.LOW) -> GoalDefinition:
+def make_goal(
+    gid: str, intents: list = None, caps: list = None, priority: int = 0, risk: RiskLevel = RiskLevel.LOW
+) -> GoalDefinition:
     return GoalDefinition(
         id=gid,
         name=gid.replace("_", " ").title(),
@@ -67,8 +72,7 @@ class TestGoalMatchResult:
 
     def test_keyword_match(self):
         registry = GoalRegistry()
-        registry.register(make_goal("perf_tune", intents=[], caps=[],
-                                    priority=0, risk=RiskLevel.LOW))
+        registry.register(make_goal("perf_tune", intents=[], caps=[], priority=0, risk=RiskLevel.LOW))
         candidates = registry.find_candidates("tune")
         kw_matches = [c for c in candidates if c.match_type == "keyword"]
         assert len(kw_matches) >= 1
@@ -107,8 +111,7 @@ class TestGoalScorer:
         perf = [s for s in ranked if s.result.goal.id == "perf"]
         health = [s for s in ranked if s.result.goal.id == "health"]
         if perf and health:
-            assert perf[0].score > health[0].score, \
-                "Performance should outrank health when CPU is high"
+            assert perf[0].score > health[0].score, "Performance should outrank health when CPU is high"
 
     def test_high_disk_context_favors_disk_cleanup(self):
         registry = create_default_goal_registry()
@@ -163,8 +166,7 @@ class TestGoalMatchesApi:
         assert top["match_type"] == "exact"
 
     def test_api_with_context_bonus(self):
-        resp = client.get("/api/sentinel/goals/matches",
-                          params={"intent": "cpu", "cpu": 95, "memory": 90})
+        resp = client.get("/api/sentinel/goals/matches", params={"intent": "cpu", "cpu": 95, "memory": 90})
         assert resp.status_code == 200
         data = resp.json()
         assert data["context"]["cpu_percent"] == 95
@@ -173,15 +175,13 @@ class TestGoalMatchesApi:
         assert len(scores) >= 1
 
     def test_api_no_matches(self):
-        resp = client.get("/api/sentinel/goals/matches",
-                          params={"intent": "nonexistent_intent_xyz"})
+        resp = client.get("/api/sentinel/goals/matches", params={"intent": "nonexistent_intent_xyz"})
         assert resp.status_code == 200
         data = resp.json()
         assert data["matches"] == []
 
     def test_api_explains_reasons(self):
-        resp = client.get("/api/sentinel/goals/matches",
-                          params={"intent": "disk", "disk": 95})
+        resp = client.get("/api/sentinel/goals/matches", params={"intent": "disk", "disk": 95})
         data = resp.json()
         assert len(data["matches"]) >= 1
         reasons = data["matches"][0].get("reasons", [])
@@ -247,7 +247,9 @@ class TestGoalScorerConfigInjection:
 class TestContextBonusRules:
     def test_context_bonus_zero_without_rules(self):
         g = GoalDefinition(
-            id="no_rules", name="No Rules", description="",
+            id="no_rules",
+            name="No Rules",
+            description="",
             related_intents=["system.test"],
             possible_capabilities=[],
             context_rules={},
@@ -258,7 +260,9 @@ class TestContextBonusRules:
 
     def test_context_bonus_applies_cpu_rule(self):
         g = GoalDefinition(
-            id="cpu_rule", name="CPU Rule", description="",
+            id="cpu_rule",
+            name="CPU Rule",
+            description="",
             related_intents=["system.test"],
             possible_capabilities=[],
             context_rules={"cpu_high": 0.5},
@@ -269,7 +273,9 @@ class TestContextBonusRules:
 
     def test_context_bonus_applies_multiple_rules(self):
         g = GoalDefinition(
-            id="multi_rule", name="Multi Rule", description="",
+            id="multi_rule",
+            name="Multi Rule",
+            description="",
             related_intents=["system.test"],
             possible_capabilities=[],
             context_rules={"cpu_high": 0.3, "mem_high": 0.4, "disk_high": 0.5},
@@ -280,7 +286,9 @@ class TestContextBonusRules:
 
     def test_context_bonus_capped_at_one(self):
         g = GoalDefinition(
-            id="cap_rule", name="Cap Rule", description="",
+            id="cap_rule",
+            name="Cap Rule",
+            description="",
             related_intents=["system.test"],
             possible_capabilities=[],
             context_rules={"cpu_high": 1.0, "mem_high": 1.0, "disk_high": 1.0},
@@ -291,7 +299,9 @@ class TestContextBonusRules:
 
     def test_context_bonus_no_context_defaults_fifty(self):
         g = GoalDefinition(
-            id="no_ctx", name="No Ctx", description="",
+            id="no_ctx",
+            name="No Ctx",
+            description="",
             related_intents=["system.test"],
             possible_capabilities=[],
             context_rules={"cpu_high": 1.0},
@@ -302,7 +312,9 @@ class TestContextBonusRules:
 
     def test_context_bonus_custom_goal_competes_equally(self):
         g = GoalDefinition(
-            id="custom_goal", name="Custom", description="",
+            id="custom_goal",
+            name="Custom",
+            description="",
             related_intents=["system.test"],
             possible_capabilities=[],
             context_rules={"disk_high": 1.0},

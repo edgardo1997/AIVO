@@ -36,10 +36,13 @@ class AgentListTool(Tool):
             agents = [a for a in registry.list_all() if a.status.value == status_filter]
         else:
             agents = registry.list_all()
-        return ToolResult.ok(data={
-            "agents": [a.to_dict() for a in agents],
-            "total": len(agents),
-        }, tool_id="agent.list")
+        return ToolResult.ok(
+            data={
+                "agents": [a.to_dict() for a in agents],
+                "total": len(agents),
+            },
+            tool_id="agent.list",
+        )
 
 
 class AgentCreateTool(Tool):
@@ -59,11 +62,13 @@ class AgentCreateTool(Tool):
                     "provider": {"type": "string", "description": "AI provider (e.g. ollama, openrouter)"},
                     "model": {"type": "string", "description": "Model identifier"},
                     "capabilities": {
-                        "type": "array", "items": {"type": "string"},
+                        "type": "array",
+                        "items": {"type": "string"},
                         "description": "List of capability IDs this agent can handle",
                     },
                     "allowed_tools": {
-                        "type": "array", "items": {"type": "string"},
+                        "type": "array",
+                        "items": {"type": "string"},
                         "description": "Tool IDs this agent is allowed to use",
                     },
                     "system_prompt": {"type": "string", "description": "System prompt for the agent"},
@@ -176,7 +181,11 @@ class AgentDelegateTool(Tool):
             return ToolResult.err(f"Agent '{agent.id}' is disabled", tool_id="agent.delegate")
         logger.info(
             "Delegating task to agent '%s' (provider=%s, model=%s, strategy=%s): %s",
-            agent.id, agent.provider, agent.model, strategy, task[:100],
+            agent.id,
+            agent.provider,
+            agent.model,
+            strategy,
+            task[:100],
         )
         result = registry.execute_agent(agent.id, task, task_context)
         if result.get("error"):

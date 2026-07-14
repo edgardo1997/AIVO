@@ -5,6 +5,7 @@ import time
 
 log = logging.getLogger("sentinel.monitor_service")
 
+
 class MonitorService:
     def get_system_info(self) -> dict:
         uname = platform.uname()
@@ -45,15 +46,17 @@ class MonitorService:
         for p in psutil.disk_partitions():
             try:
                 usage = psutil.disk_usage(p.mountpoint)
-                partitions.append({
-                    "device": p.device,
-                    "mountpoint": p.mountpoint,
-                    "fstype": p.fstype,
-                    "total": usage.total,
-                    "used": usage.used,
-                    "free": usage.free,
-                    "percent": usage.percent,
-                })
+                partitions.append(
+                    {
+                        "device": p.device,
+                        "mountpoint": p.mountpoint,
+                        "fstype": p.fstype,
+                        "total": usage.total,
+                        "used": usage.used,
+                        "free": usage.free,
+                        "percent": usage.percent,
+                    }
+                )
             except PermissionError:
                 log.debug("Permission denied accessing disk mount: %s", p.mountpoint)
             except Exception as e:
@@ -69,13 +72,15 @@ class MonitorService:
         io = psutil.net_io_counters()
         connections = []
         for conn in psutil.net_connections()[:50]:
-            connections.append({
-                "fd": conn.fd,
-                "type": str(conn.type),
-                "laddr": f"{conn.laddr.ip}:{conn.laddr.port}" if conn.laddr else "",
-                "raddr": f"{conn.raddr.ip}:{conn.raddr.port}" if conn.raddr else "",
-                "status": conn.status,
-            })
+            connections.append(
+                {
+                    "fd": conn.fd,
+                    "type": str(conn.type),
+                    "laddr": f"{conn.laddr.ip}:{conn.laddr.port}" if conn.laddr else "",
+                    "raddr": f"{conn.raddr.ip}:{conn.raddr.port}" if conn.raddr else "",
+                    "status": conn.status,
+                }
+            )
         return {
             "bytes_sent": io.bytes_sent,
             "bytes_recv": io.bytes_recv,
@@ -99,6 +104,7 @@ class MonitorService:
     def get_gpu(self) -> list | dict:
         try:
             import GPUtil
+
             gpus = GPUtil.getGPUs()
             return [
                 {

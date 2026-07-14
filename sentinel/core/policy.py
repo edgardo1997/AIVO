@@ -20,12 +20,10 @@ class PolicyResult:
 
 class Policy(ABC):
     @abstractmethod
-    def policy_id(self) -> str:
-        ...
+    def policy_id(self) -> str: ...
 
     @abstractmethod
-    def description(self) -> str:
-        ...
+    def description(self) -> str: ...
 
     @abstractmethod
     async def evaluate(
@@ -33,5 +31,4 @@ class Policy(ABC):
         tool_id: str,
         params: Dict[str, Any],
         context: Dict[str, Any],
-    ) -> PolicyResult:
-        ...
+    ) -> PolicyResult: ...

@@ -29,13 +29,22 @@ class ConfirmationBroker:
             raise ValueError("Authenticated user is required for confirmation")
         action_id = uuid.uuid4().hex
         safe_context = {"identity": identity, "execution_id": context.get("execution_id")}
-        self._memory.store_pending_action(PendingActionRecord(
-            action_id=action_id, tool_id=tool_id,
-            params={"kind": "tool_confirmation", "tool_id": tool_id, "params": dict(params),
-                    "context": safe_context, "user_id": user_id},
-            reason=reason, created_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-            ttl_seconds=self._ttl_seconds,
-        ))
+        self._memory.store_pending_action(
+            PendingActionRecord(
+                action_id=action_id,
+                tool_id=tool_id,
+                params={
+                    "kind": "tool_confirmation",
+                    "tool_id": tool_id,
+                    "params": dict(params),
+                    "context": safe_context,
+                    "user_id": user_id,
+                },
+                reason=reason,
+                created_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                ttl_seconds=self._ttl_seconds,
+            )
+        )
         return action_id
 
     def consume(self, action_id: str, user_id: str, approved: bool) -> Optional[ConfirmationGrant]:
@@ -51,5 +60,10 @@ class ConfirmationBroker:
         self._memory.remove_pending_action(action_id)
         if not approved:
             return None
-        return ConfirmationGrant(action_id, record.params["tool_id"], dict(record.params["params"]),
-                                 dict(record.params.get("context") or {}), user_id)
+        return ConfirmationGrant(
+            action_id,
+            record.params["tool_id"],
+            dict(record.params["params"]),
+            dict(record.params.get("context") or {}),
+            user_id,
+        )

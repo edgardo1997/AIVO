@@ -22,7 +22,7 @@ class PolicyEngine:
         if pid in self._policies:
             raise ValueError(f"Policy '{pid}' already registered")
         self._policies[pid] = policy
-        for perm in (permissions or []):
+        for perm in permissions or []:
             self._permission_map.setdefault(perm, []).append(pid)
         logger.info("Policy registered: %s for permissions %s", pid, permissions or ["*"])
 
@@ -57,7 +57,9 @@ class PolicyEngine:
         if not policies:
             logger.warning(
                 "No policies for permissions %s (tool=%s), defaulting to %s",
-                required_permissions, tool_id, self._default_effect.value,
+                required_permissions,
+                tool_id,
+                self._default_effect.value,
             )
             return PolicyResult(
                 effect=self._default_effect,
@@ -68,23 +70,19 @@ class PolicyEngine:
 
         evaluation_context = dict(context)
         evaluation_context["required_permissions"] = list(required_permissions)
-        evaluated = [
-            await policy.evaluate(tool_id, params, evaluation_context)
-            for policy in policies
-        ]
+        evaluated = [await policy.evaluate(tool_id, params, evaluation_context) for policy in policies]
 
         for result in evaluated:
             if result.effect == PolicyEffect.DENY:
                 logger.info(
                     "Policy %s -> DENY for tool %s: %s",
-                    result.policy_id, tool_id, result.reason,
+                    result.policy_id,
+                    tool_id,
+                    result.reason,
                 )
                 return result
 
-        confirm_results = [
-            result for result in evaluated
-            if result.effect == PolicyEffect.REQUIRE_CONFIRM
-        ]
+        confirm_results = [result for result in evaluated if result.effect == PolicyEffect.REQUIRE_CONFIRM]
 
         if confirm_results:
             combined = PolicyResult(

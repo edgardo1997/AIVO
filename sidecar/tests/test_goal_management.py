@@ -9,17 +9,27 @@ from fastapi.testclient import TestClient
 from main import app
 
 from sentinel.core.goals import (
-    GoalRegistry, GoalDefinition, GoalAuditEntry, GoalScorerConfig,
-    GoalScorer, GoalMatchResult, create_default_goal_registry,
+    GoalRegistry,
+    GoalDefinition,
+    GoalAuditEntry,
+    GoalScorerConfig,
+    GoalScorer,
+    GoalMatchResult,
+    create_default_goal_registry,
 )
 from sentinel.core.capability_registry import RiskLevel
 
 client = TestClient(app)
 
 
-def make_goal(gid: str, intents: list = None, caps: list = None,
-              priority: int = 0, risk: RiskLevel = RiskLevel.LOW,
-              keywords: list = None) -> GoalDefinition:
+def make_goal(
+    gid: str,
+    intents: list = None,
+    caps: list = None,
+    priority: int = 0,
+    risk: RiskLevel = RiskLevel.LOW,
+    keywords: list = None,
+) -> GoalDefinition:
     return GoalDefinition(
         id=gid,
         name=gid.replace("_", " ").title(),
@@ -184,70 +194,93 @@ class TestGoalScorerConfig:
 class TestGoalManagementApi:
     def setup_method(self):
         from modules.permissions import _svc as perm_svc
+
         perm_svc.set_level("admin")
 
     def test_post_goal_registers(self):
-        resp = client.post("/api/sentinel/goals", json={
-            "id": "custom_test",
-            "name": "Custom Test",
-            "intent_targets": ["system.custom"],
-            "possible_capabilities": ["system.info"],
-            "priority": 3,
-        })
+        resp = client.post(
+            "/api/sentinel/goals",
+            json={
+                "id": "custom_test",
+                "name": "Custom Test",
+                "intent_targets": ["system.custom"],
+                "possible_capabilities": ["system.info"],
+                "priority": 3,
+            },
+        )
         assert resp.status_code == 201
         assert resp.json()["goal_id"] == "custom_test"
 
     def test_post_goal_duplicate(self):
-        resp = client.post("/api/sentinel/goals", json={
-            "id": "system_health_diagnosis",
-            "intent_targets": ["system.health"],
-            "possible_capabilities": ["system.info"],
-        })
+        resp = client.post(
+            "/api/sentinel/goals",
+            json={
+                "id": "system_health_diagnosis",
+                "intent_targets": ["system.health"],
+                "possible_capabilities": ["system.info"],
+            },
+        )
         assert resp.status_code == 409
 
     def test_post_goal_missing_id(self):
-        resp = client.post("/api/sentinel/goals", json={
-            "intent_targets": ["system.test"],
-            "possible_capabilities": ["system.info"],
-        })
+        resp = client.post(
+            "/api/sentinel/goals",
+            json={
+                "intent_targets": ["system.test"],
+                "possible_capabilities": ["system.info"],
+            },
+        )
         assert resp.status_code == 400
 
     def test_post_goal_empty_intents(self):
-        resp = client.post("/api/sentinel/goals", json={
-            "id": "bad_goal",
-            "intent_targets": [],
-            "possible_capabilities": ["system.info"],
-        })
+        resp = client.post(
+            "/api/sentinel/goals",
+            json={
+                "id": "bad_goal",
+                "intent_targets": [],
+                "possible_capabilities": ["system.info"],
+            },
+        )
         assert resp.status_code == 400
 
     def test_post_goal_invalid_priority(self):
-        resp = client.post("/api/sentinel/goals", json={
-            "id": "bad_prio",
-            "intent_targets": ["system.test"],
-            "possible_capabilities": ["system.info"],
-            "priority": 15,
-        })
+        resp = client.post(
+            "/api/sentinel/goals",
+            json={
+                "id": "bad_prio",
+                "intent_targets": ["system.test"],
+                "possible_capabilities": ["system.info"],
+                "priority": 15,
+            },
+        )
         assert resp.status_code == 400
 
     def test_post_goal_with_keywords(self):
-        resp = client.post("/api/sentinel/goals", json={
-            "id": "kw_goal",
-            "intent_targets": ["system.test"],
-            "possible_capabilities": ["system.info"],
-            "keywords": ["monitor", "check"],
-        })
+        resp = client.post(
+            "/api/sentinel/goals",
+            json={
+                "id": "kw_goal",
+                "intent_targets": ["system.test"],
+                "possible_capabilities": ["system.info"],
+                "keywords": ["monitor", "check"],
+            },
+        )
         assert resp.status_code == 201
         from modules.sentinel_bridge import get_goal_registry
+
         goal = get_goal_registry().get("kw_goal")
         assert goal is not None
         assert "monitor" in goal.keywords
 
     def test_delete_goal(self):
-        resp = client.post("/api/sentinel/goals", json={
-            "id": "delete_me",
-            "intent_targets": ["system.test"],
-            "possible_capabilities": ["system.info"],
-        })
+        resp = client.post(
+            "/api/sentinel/goals",
+            json={
+                "id": "delete_me",
+                "intent_targets": ["system.test"],
+                "possible_capabilities": ["system.info"],
+            },
+        )
         assert resp.status_code == 201
         resp = client.delete("/api/sentinel/goals/delete_me")
         assert resp.status_code == 200
@@ -258,19 +291,26 @@ class TestGoalManagementApi:
         assert resp.status_code == 404
 
     def test_patch_goal(self):
-        resp = client.post("/api/sentinel/goals", json={
-            "id": "patch_me",
-            "intent_targets": ["system.test"],
-            "possible_capabilities": ["system.info"],
-            "priority": 1,
-        })
+        resp = client.post(
+            "/api/sentinel/goals",
+            json={
+                "id": "patch_me",
+                "intent_targets": ["system.test"],
+                "possible_capabilities": ["system.info"],
+                "priority": 1,
+            },
+        )
         assert resp.status_code == 201
-        resp = client.patch("/api/sentinel/goals/patch_me", json={
-            "priority": 8,
-            "name": "Patched Goal",
-        })
+        resp = client.patch(
+            "/api/sentinel/goals/patch_me",
+            json={
+                "priority": 8,
+                "name": "Patched Goal",
+            },
+        )
         assert resp.status_code == 200
         from modules.sentinel_bridge import get_goal_registry
+
         goal = get_goal_registry().get("patch_me")
         assert goal.priority == 8
         assert goal.name == "Patched Goal"
@@ -280,11 +320,14 @@ class TestGoalManagementApi:
         assert resp.status_code == 404
 
     def test_patch_invalid_priority(self):
-        resp = client.post("/api/sentinel/goals", json={
-            "id": "bad_patch",
-            "intent_targets": ["system.test"],
-            "possible_capabilities": ["system.info"],
-        })
+        resp = client.post(
+            "/api/sentinel/goals",
+            json={
+                "id": "bad_patch",
+                "intent_targets": ["system.test"],
+                "possible_capabilities": ["system.info"],
+            },
+        )
         assert resp.status_code == 201
         resp = client.patch("/api/sentinel/goals/bad_patch", json={"priority": 42})
         assert resp.status_code == 400
@@ -293,11 +336,11 @@ class TestGoalManagementApi:
 class TestGoalManagementVerbose:
     def setup_method(self):
         from modules.permissions import _svc as perm_svc
+
         perm_svc.set_level("admin")
 
     def test_verbose_returns_breakdown(self):
-        resp = client.get("/api/sentinel/goals/matches",
-                          params={"intent": "system.health", "verbose": True})
+        resp = client.get("/api/sentinel/goals/matches", params={"intent": "system.health", "verbose": True})
         assert resp.status_code == 200
         data = resp.json()
         assert len(data["matches"]) >= 1
@@ -308,8 +351,7 @@ class TestGoalManagementVerbose:
         assert "context_score" in m["breakdown"]
 
     def test_non_verbose_no_breakdown(self):
-        resp = client.get("/api/sentinel/goals/matches",
-                          params={"intent": "system.health"})
+        resp = client.get("/api/sentinel/goals/matches", params={"intent": "system.health"})
         data = resp.json()
         assert "breakdown" not in data["matches"][0]
 
@@ -321,36 +363,39 @@ class TestGoalManagementVerbose:
         assert isinstance(data["audit_log"], list)
 
     def test_audit_log_contains_api_operations(self):
-        resp = client.post("/api/sentinel/goals", json={
-            "id": "audit_test_g",
-            "intent_targets": ["system.test"],
-            "possible_capabilities": ["system.info"],
-        })
+        resp = client.post(
+            "/api/sentinel/goals",
+            json={
+                "id": "audit_test_g",
+                "intent_targets": ["system.test"],
+                "possible_capabilities": ["system.info"],
+            },
+        )
         assert resp.status_code == 201
         resp = client.get("/api/sentinel/goals/audit")
-        entries = [e for e in resp.json()["audit_log"]
-                   if e["goal_id"] == "audit_test_g" and e["source"] == "api"]
+        entries = [e for e in resp.json()["audit_log"] if e["goal_id"] == "audit_test_g" and e["source"] == "api"]
         assert len(entries) >= 1
         assert entries[0]["operation"] == "REGISTER"
 
     def test_delete_appears_in_audit(self):
-        resp = client.post("/api/sentinel/goals", json={
-            "id": "audit_del",
-            "intent_targets": ["system.test"],
-            "possible_capabilities": ["system.info"],
-        })
+        resp = client.post(
+            "/api/sentinel/goals",
+            json={
+                "id": "audit_del",
+                "intent_targets": ["system.test"],
+                "possible_capabilities": ["system.info"],
+            },
+        )
         assert resp.status_code == 201
         client.delete("/api/sentinel/goals/audit_del")
         resp = client.get("/api/sentinel/goals/audit")
-        dels = [e for e in resp.json()["audit_log"]
-                if e["goal_id"] == "audit_del" and e["operation"] == "DELETE"]
+        dels = [e for e in resp.json()["audit_log"] if e["goal_id"] == "audit_del" and e["operation"] == "DELETE"]
         assert len(dels) == 1
 
 
 class TestBackwardCompatNoRegression:
     def test_existing_goals_still_match(self):
-        resp = client.get("/api/sentinel/goals/matches",
-                          params={"intent": "system.health"})
+        resp = client.get("/api/sentinel/goals/matches", params={"intent": "system.health"})
         data = resp.json()
         assert len(data["matches"]) >= 1
         assert data["matches"][0]["goal"] == "system_health_diagnosis"
@@ -358,6 +403,7 @@ class TestBackwardCompatNoRegression:
     def test_planner_still_works(self):
         from sentinel.core.planner import Planner
         from sentinel.core.intent import Intent
+
         registry = create_default_goal_registry()
         planner = Planner(goal_registry=registry)
         plan = planner.plan(Intent(action="query", target="system.health"))
@@ -372,6 +418,7 @@ class TestBackwardCompatNoRegression:
 
     def test_goal_scorer_defaults_not_broken(self):
         from sentinel.core.goals import GoalScorerConfig
+
         cfg = GoalScorerConfig()
         assert cfg.confidence_weight == 0.6
         assert cfg.priority_weight == 0.2
@@ -382,6 +429,7 @@ class TestGoalAdminAuth:
     def test_require_admin_raises_when_not_admin(self):
         from modules.sentinel_bridge import _require_admin
         import unittest.mock as mock
+
         with mock.patch("modules.permissions._svc") as mock_svc:
             mock_svc.repo.load.return_value = {"level": "confirm"}
             with pytest.raises(HTTPException, match="Admin level required"):
@@ -390,6 +438,7 @@ class TestGoalAdminAuth:
     def test_require_admin_passes_when_admin(self):
         from modules.sentinel_bridge import _require_admin
         import unittest.mock as mock
+
         with mock.patch("modules.permissions._svc") as mock_svc:
             mock_svc.repo.load.return_value = {"level": "admin"}
             _require_admin()
@@ -397,6 +446,7 @@ class TestGoalAdminAuth:
     def test_require_admin_raises_on_view_level(self):
         from modules.sentinel_bridge import _require_admin
         import unittest.mock as mock
+
         with mock.patch("modules.permissions._svc") as mock_svc:
             mock_svc.repo.load.return_value = {"level": "view"}
             with pytest.raises(HTTPException, match="Admin level required"):
@@ -406,16 +456,19 @@ class TestGoalAdminAuth:
 class TestGoalCapabilityValidation:
     def test_validate_valid_capabilities(self):
         from modules.sentinel_bridge import _validate_capabilities
+
         invalid = _validate_capabilities(["system.info", "system.cpu"])
         assert invalid == []
 
     def test_validate_unknown_capability(self):
         from modules.sentinel_bridge import _validate_capabilities
+
         invalid = _validate_capabilities(["nonexistent.cap"])
         assert "nonexistent.cap" in invalid
 
     def test_validate_mixed_known_and_unknown(self):
         from modules.sentinel_bridge import _validate_capabilities
+
         invalid = _validate_capabilities(["system.info", "bogus.cap", "system.cpu", "fake.tool"])
         assert "bogus.cap" in invalid
         assert "fake.tool" in invalid
@@ -425,8 +478,11 @@ class TestGoalCapabilityValidation:
 class TestGoalDefinitionContextRulesBridge:
     def test_goal_to_dict_includes_context_rules(self):
         from sentinel.core.goals import GoalDefinition, RiskLevel
+
         g = GoalDefinition(
-            id="ctx_api", name="Ctx API", description="",
+            id="ctx_api",
+            name="Ctx API",
+            description="",
             related_intents=["system.test"],
             possible_capabilities=["system.info"],
             context_rules={"cpu_high": 0.6},
@@ -437,8 +493,11 @@ class TestGoalDefinitionContextRulesBridge:
 
     def test_goal_to_dict_includes_timestamps(self):
         from sentinel.core.goals import GoalDefinition, RiskLevel
+
         g = GoalDefinition(
-            id="ts_api", name="TS API", description="",
+            id="ts_api",
+            name="TS API",
+            description="",
             related_intents=["system.test"],
             possible_capabilities=["system.info"],
         )

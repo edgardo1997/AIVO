@@ -15,9 +15,15 @@ class _IntegrationTool(Tool):
         self._service = service
 
     def spec(self) -> ToolSpec:
-        return ToolSpec(id=self.tool_id, name=self.tool_name, description=self.description,
-                        version="1.0.0", category="integration", parameters=self.parameters,
-                        required_permissions=self.permissions)
+        return ToolSpec(
+            id=self.tool_id,
+            name=self.tool_name,
+            description=self.description,
+            version="1.0.0",
+            category="integration",
+            parameters=self.parameters,
+            required_permissions=self.permissions,
+        )
 
 
 class IntegrationStatusTool(_IntegrationTool):
@@ -34,8 +40,11 @@ class IdeOpenTool(_IntegrationTool):
     tool_name = "Open in IDE"
     description = "Open an existing file or workspace in VS Code, Code Insiders or VSCodium."
     permissions = ["filesystem.read", "executor.launch"]
-    parameters = {"type": "object", "properties": {"path": {"type": "string"},
-                  "line": {"type": "integer", "minimum": 1}}, "required": ["path"]}
+    parameters = {
+        "type": "object",
+        "properties": {"path": {"type": "string"}, "line": {"type": "integer", "minimum": 1}},
+        "required": ["path"],
+    }
 
     async def execute(self, params: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> ToolResult:
         try:

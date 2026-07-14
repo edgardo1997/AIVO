@@ -19,9 +19,12 @@ class TestToolRegistration:
         class UnclassifiedTool(Tool):
             def spec(self):
                 return ToolSpec(
-                    id="test.unclassified", name="Unclassified",
-                    description="Must never become executable", version="1.0.0",
-                    parameters={}, required_permissions=[],
+                    id="test.unclassified",
+                    name="Unclassified",
+                    description="Must never become executable",
+                    version="1.0.0",
+                    parameters={},
+                    required_permissions=[],
                 )
 
             async def execute(self, params, context):
@@ -32,6 +35,7 @@ class TestToolRegistration:
 
     def test_gateway_initialized(self):
         from modules import get_gateway
+
         gw = get_gateway()
         assert gw is not None
         specs = gw.list_specs()
@@ -39,6 +43,7 @@ class TestToolRegistration:
 
     def test_filesystem_tools_registered(self):
         from modules import get_gateway
+
         gw = get_gateway()
         ids = [s.id for s in gw.list_specs()]
         for tid in ["filesystem.read", "filesystem.write", "filesystem.list", "filesystem.search"]:
@@ -46,6 +51,7 @@ class TestToolRegistration:
 
     def test_executor_tools_registered(self):
         from modules import get_gateway
+
         gw = get_gateway()
         ids = [s.id for s in gw.list_specs()]
         for tid in ["executor.command", "executor.launch", "executor.kill"]:
@@ -53,6 +59,7 @@ class TestToolRegistration:
 
     def test_sentinel_tools_still_registered(self):
         from modules import get_gateway
+
         gw = get_gateway()
         ids = [s.id for s in gw.list_specs()]
         for tid in ["system.info", "system.cpu", "system.processes"]:
@@ -62,6 +69,7 @@ class TestToolRegistration:
 class TestFilesystemTools:
     def test_read_tool_spec(self):
         from services.filesystem_service import FilesystemService
+
         tool = FilesystemService(tool_id="filesystem.read")
         spec = tool.spec()
         assert spec.id == "filesystem.read"
@@ -70,6 +78,7 @@ class TestFilesystemTools:
 
     def test_write_tool_spec(self):
         from services.filesystem_service import FilesystemService
+
         tool = FilesystemService(tool_id="filesystem.write")
         spec = tool.spec()
         assert spec.id == "filesystem.write"
@@ -77,6 +86,7 @@ class TestFilesystemTools:
 
     def test_list_tool_spec(self):
         from services.filesystem_service import FilesystemService
+
         tool = FilesystemService(tool_id="filesystem.list")
         spec = tool.spec()
         assert spec.id == "filesystem.list"
@@ -99,6 +109,7 @@ class TestFilesystemTools:
 class TestExecutorTools:
     def test_command_tool_spec(self):
         from services.executor_service import ExecutorService
+
         tool = ExecutorService()
         spec = tool.spec()
         assert spec.id == "executor.command"
@@ -106,33 +117,42 @@ class TestExecutorTools:
 
     def test_launch_tool_spec(self):
         from services.executor_service import ExecutorService
+
         tool = ExecutorService()
         spec = tool.spec_launch()
         assert spec.id == "executor.launch"
 
     def test_kill_tool_spec(self):
         from services.executor_service import ExecutorService
+
         tool = ExecutorService()
         spec = tool.spec_kill()
         assert spec.id == "executor.kill"
 
     def test_executor_endpoint_still_works(self):
         from modules.permissions import _svc as perm_svc
+
         perm_svc.set_level("admin")
-        resp = client.post("/v1/execute", json={"tool_id": "executor.command", "params": {"command": "echo hello", "timeout": 10}})
+        resp = client.post(
+            "/v1/execute", json={"tool_id": "executor.command", "params": {"command": "echo hello", "timeout": 10}}
+        )
         assert resp.status_code == 200
         assert resp.json()["success"] == True
         assert "stdout" in resp.json()["data"]
 
     def test_executor_del_in_temp_allowed(self):
         from modules.permissions import _svc as perm_svc
+
         tmp = tempfile.gettempdir()
         test_file = os.path.join(tmp, "aivo_tool_del_test.txt")
         try:
             with open(test_file, "w") as f:
                 f.write("delete me")
             perm_svc.set_level("admin")
-            resp = client.post("/v1/execute", json={"tool_id": "executor.command", "params": {"command": f"del \"{test_file}\"", "timeout": 10}})
+            resp = client.post(
+                "/v1/execute",
+                json={"tool_id": "executor.command", "params": {"command": f'del "{test_file}"', "timeout": 10}},
+            )
             assert resp.status_code == 200
         finally:
             if os.path.exists(test_file):
@@ -144,11 +164,14 @@ class TestDelegation:
 
     def test_filesystem_write_blocked_by_view_level(self):
         from modules.permissions import _svc as perm_svc
+
         perm_svc.set_level("view")
         tmp = tempfile.gettempdir()
         test_file = os.path.join(tmp, "aivo_deleg_write.txt")
         try:
-            resp = client.post("/v1/execute", json={"tool_id": "filesystem.write", "params": {"path": test_file, "content": "test"}})
+            resp = client.post(
+                "/v1/execute", json={"tool_id": "filesystem.write", "params": {"path": test_file, "content": "test"}}
+            )
             assert resp.json()["success"] == False, "View level should block write"
         finally:
             if os.path.exists(test_file):
@@ -157,11 +180,15 @@ class TestDelegation:
 
     def test_filesystem_write_allowed_at_admin(self):
         from modules.permissions import _svc as perm_svc
+
         perm_svc.set_level("admin")
         tmp = tempfile.gettempdir()
         test_file = os.path.join(tmp, "aivo_deleg_admin.txt")
         try:
-            resp = client.post("/v1/execute", json={"tool_id": "filesystem.write", "params": {"path": test_file, "content": "admin test"}})
+            resp = client.post(
+                "/v1/execute",
+                json={"tool_id": "filesystem.write", "params": {"path": test_file, "content": "admin test"}},
+            )
             assert resp.status_code == 200, "Admin level should allow write"
         finally:
             if os.path.exists(test_file):
@@ -170,15 +197,25 @@ class TestDelegation:
 
     def test_executor_blocked_by_emergency_stop(self):
         from modules.permissions import _svc as perm_svc
+
         perm_svc.emergency("stop")
-        resp = client.post("/v1/execute", json={"tool_id": "executor.command", "params": {"command": "echo hello", "timeout": 10}})
+        resp = client.post(
+            "/v1/execute", json={"tool_id": "executor.command", "params": {"command": "echo hello", "timeout": 10}}
+        )
         assert resp.json()["success"] == False, "Emergency stop should block"
         perm_svc.emergency("resume")
 
     def test_executor_system_path_denied_by_guardian(self):
         from modules.permissions import _svc as perm_svc
+
         perm_svc.set_level("admin")
-        resp = client.post("/v1/execute", json={"tool_id": "executor.command", "params": {"command": "del C:\\Windows\\System32\\drivers\\etc\\hosts", "timeout": 10}})
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "executor.command",
+                "params": {"command": "del C:\\Windows\\System32\\drivers\\etc\\hosts", "timeout": 10},
+            },
+        )
         assert resp.json()["success"] == False, "PathGuardian should block system path"
         perm_svc.set_level("confirm")
 

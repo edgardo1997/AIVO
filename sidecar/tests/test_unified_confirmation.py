@@ -8,17 +8,30 @@ from sentinel.core.policy import PolicyEffect
 from sentinel.core.policy_engine import PolicyEngine
 from sentinel.core.tool import Tool, ToolResult, ToolSpec
 from sentinel.core.tool_gateway import ToolGateway
-from sentinel.policies.security_policies import GranularPermissionPolicy, IdentityPermissionPolicy, PermissionLevelPolicy
+from sentinel.policies.security_policies import (
+    GranularPermissionPolicy,
+    IdentityPermissionPolicy,
+    PermissionLevelPolicy,
+)
 
 
 IDENTITY = {"user_id": "alice", "is_authenticated": True, "permissions": ["*"]}
 
 
 class DangerousTool(Tool):
-    def __init__(self): self.calls = 0
+    def __init__(self):
+        self.calls = 0
+
     def spec(self):
-        return ToolSpec(id="executor.command", name="Command", description="test", version="1",
-                        parameters={}, required_permissions=["executor.command"])
+        return ToolSpec(
+            id="executor.command",
+            name="Command",
+            description="test",
+            version="1",
+            parameters={},
+            required_permissions=["executor.command"],
+        )
+
     async def execute(self, params, context):
         self.calls += 1
         return ToolResult.ok({"executed": params["command"]}, "executor.command")
@@ -31,9 +44,11 @@ def gateway_with_confirmation():
     engine.register(PermissionLevelPolicy(lambda: "confirm"), permissions=["executor.command"])
     gateway = ToolGateway(policy_engine=engine)
     gateway.set_confirmation_broker(ConfirmationBroker(memory))
-    audit = MagicMock(); audit.log_gateway_authorization.return_value = None
+    audit = MagicMock()
+    audit.log_gateway_authorization.return_value = None
     gateway.set_audit_service(audit)
-    tool = DangerousTool(); gateway.register(tool)
+    tool = DangerousTool()
+    gateway.register(tool)
     return gateway, tool
 
 
@@ -62,12 +77,26 @@ async def test_rejection_consumes_confirmation_without_execution():
 
 @pytest.mark.asyncio
 async def test_granular_rule_matches_user_tool_permission_and_path_scope():
-    rules = [{"id": "rule-1", "user_id": "alice", "tool": "filesystem.*",
-              "permission": "filesystem.write", "path_prefix": "C:\\protected", "effect": "deny"}]
+    rules = [
+        {
+            "id": "rule-1",
+            "user_id": "alice",
+            "tool": "filesystem.*",
+            "permission": "filesystem.write",
+            "path_prefix": "C:\\protected",
+            "effect": "deny",
+        }
+    ]
     policy = GranularPermissionPolicy(lambda: rules)
-    denied = await policy.evaluate("filesystem.write", {"path": "C:\\protected\\file.txt"},
-                                   {"identity": IDENTITY, "required_permissions": ["filesystem.write"]})
-    allowed = await policy.evaluate("filesystem.write", {"path": "C:\\public\\file.txt"},
-                                    {"identity": IDENTITY, "required_permissions": ["filesystem.write"]})
+    denied = await policy.evaluate(
+        "filesystem.write",
+        {"path": "C:\\protected\\file.txt"},
+        {"identity": IDENTITY, "required_permissions": ["filesystem.write"]},
+    )
+    allowed = await policy.evaluate(
+        "filesystem.write",
+        {"path": "C:\\public\\file.txt"},
+        {"identity": IDENTITY, "required_permissions": ["filesystem.write"]},
+    )
     assert denied.effect == PolicyEffect.DENY
     assert allowed.effect == PolicyEffect.ALLOW

@@ -36,10 +36,13 @@ class KnowledgeBaseSearchTool(Tool):
         if not query:
             return ToolResult.error("query is required", tool_id="kb.search")
         results = self._kb.search(query, k=k)
-        return ToolResult.ok(data={
-            "results": [{"text": r.text, "source": r.source, "score": round(r.score, 4)} for r in results],
-            "count": len(results),
-        }, tool_id="kb.search")
+        return ToolResult.ok(
+            data={
+                "results": [{"text": r.text, "source": r.source, "score": round(r.score, 4)} for r in results],
+                "count": len(results),
+            },
+            tool_id="kb.search",
+        )
 
 
 class KnowledgeBaseAddTool(Tool):
@@ -91,13 +94,16 @@ class KnowledgeBaseListTool(Tool):
 
     async def execute(self, params: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> ToolResult:
         docs = self._kb.list_documents()
-        return ToolResult.ok(data={
-            "documents": [
-                {"doc_id": d.doc_id, "source": d.source, "chunks": d.chunks, "created_at": d.created_at}
-                for d in docs
-            ],
-            "total": len(docs),
-        }, tool_id="kb.list")
+        return ToolResult.ok(
+            data={
+                "documents": [
+                    {"doc_id": d.doc_id, "source": d.source, "chunks": d.chunks, "created_at": d.created_at}
+                    for d in docs
+                ],
+                "total": len(docs),
+            },
+            tool_id="kb.list",
+        )
 
 
 class KnowledgeBaseDeleteTool(Tool):

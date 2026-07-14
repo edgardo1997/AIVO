@@ -10,9 +10,24 @@ from copy import deepcopy
 logger = logging.getLogger(__name__)
 
 _COMPLEX_KEYWORDS = [
-    "design", "architect", "analyze", "compare", "optimize", "refactor",
-    "explain", "architect", "strategy", "complex", "detailed", "comprehensive",
-    "research", "investigate", "evaluate", "synthesize", "debug", "troubleshoot",
+    "design",
+    "architect",
+    "analyze",
+    "compare",
+    "optimize",
+    "refactor",
+    "explain",
+    "architect",
+    "strategy",
+    "complex",
+    "detailed",
+    "comprehensive",
+    "research",
+    "investigate",
+    "evaluate",
+    "synthesize",
+    "debug",
+    "troubleshoot",
 ]
 
 
@@ -140,7 +155,7 @@ class AgentRegistry:
         elif strategy == "powerful":
             prefer_local = False
         else:
-            prefer_local = (complexity == "simple")
+            prefer_local = complexity == "simple"
 
         def score(agent: AgentSpec) -> int:
             s = 0
@@ -175,12 +190,17 @@ class AgentRegistry:
         if best:
             logger.info(
                 "Auto-selected agent '%s' (provider=%s, model=%s) for strategy=%s task='%s'",
-                best.id, best.provider, best.model, strategy, task[:60],
+                best.id,
+                best.provider,
+                best.model,
+                strategy,
+                task[:60],
             )
             return best
 
         if self._model_router:
             from sentinel.core.model_router import TaskType, BUILTIN_PROVIDERS
+
             complexity = self._analyze_complexity(task)
             task_type = TaskType.QUICK if complexity == "simple" else TaskType.REASONING
             provider = self._model_router.select(task_type, context={})
@@ -229,7 +249,9 @@ class AgentRegistry:
 
         try:
             result = self._model_router.chat_with_provider(
-                messages, agent.provider, agent.model,
+                messages,
+                agent.provider,
+                agent.model,
             )
             return {
                 "agent_id": agent_id,

@@ -26,17 +26,21 @@ run_hook = _svc.run_hook
 discover_plugins = _svc.discover
 ensure_dirs = _svc.ensure_dirs
 
+
 @router.get("/list")
 def list_plugins():
     return _svc.list_all()
+
 
 @router.get("/templates")
 def list_templates():
     return _svc.list_templates()
 
+
 @router.post("/create")
 def create_plugin(data: dict):
     return _svc.create(data.get("name", "my_plugin"), data.get("template", "minimal"))
+
 
 @router.post("/{plugin_id}/load")
 def load_plugin_endpoint(plugin_id: str):
@@ -49,10 +53,12 @@ def load_plugin_endpoint(plugin_id: str):
     error = _svc._states.get(plugin_id, {}).get("error", "Unknown error")
     return {"status": "error", "error": error}
 
+
 @router.post("/{plugin_id}/unload")
 def unload_plugin_endpoint(plugin_id: str):
     _svc.unload(plugin_id)
     return {"status": "unloaded"}
+
 
 @router.post("/{plugin_id}/reload")
 def reload_plugin_endpoint(plugin_id: str):
@@ -62,18 +68,22 @@ def reload_plugin_endpoint(plugin_id: str):
     error = _svc._states.get(plugin_id, {}).get("error")
     return {"status": "error", "error": error}
 
+
 @router.post("/{plugin_id}/toggle")
 def toggle_plugin(plugin_id: str):
     return _svc.toggle(plugin_id)
+
 
 @router.get("/{plugin_id}/hooks")
 def get_hooks(plugin_id: str):
     return _svc.get_hooks(plugin_id)
 
+
 @router.post("/hooks/run/{hook}")
 def run_system_hook(hook: str, data: dict = {}):
     results = _svc.run_hook(hook, **data)
     return {"hook": hook, "results": results}
+
 
 @router.get("/states")
 def get_all_states():

@@ -4,9 +4,15 @@ from repositories.permissions_repository import PermissionsRepository
 
 log = logging.getLogger("sentinel.permissions_service")
 
+
 class PermissionsService:
-    def __init__(self, repo: PermissionsRepository = None, pending_actions: dict = None,
-                 emergency_stop: list = None, state_lock=None):
+    def __init__(
+        self,
+        repo: PermissionsRepository = None,
+        pending_actions: dict = None,
+        emergency_stop: list = None,
+        state_lock=None,
+    ):
         self.repo = repo or PermissionsRepository()
         self._pending = pending_actions if pending_actions is not None else {}
         self._emergency_stop = emergency_stop if emergency_stop is not None else [False]
@@ -25,9 +31,9 @@ class PermissionsService:
         self._emergency_stop[0] = value
 
     def set_memory_backend(self, memory) -> None:
-        if hasattr(self._pending, 'set_memory'):
+        if hasattr(self._pending, "set_memory"):
             self._pending.set_memory(memory)
-        if hasattr(self._emergency_stop, 'set_memory'):
+        if hasattr(self._emergency_stop, "set_memory"):
             self._emergency_stop.set_memory(memory)
         log.info("OperationalMemory bound to permissions service")
 
@@ -42,8 +48,12 @@ class PermissionsService:
         perms = self.repo.load()
         emergency = self._emergency_stop[0]
         pending = len(self._pending)
-        return {**perms, "emergency_stop": emergency, "pending_actions": pending,
-                "granular_rules": len(perms.get("granular_rules", []))}
+        return {
+            **perms,
+            "emergency_stop": emergency,
+            "pending_actions": pending,
+            "granular_rules": len(perms.get("granular_rules", [])),
+        }
 
     def list_rules(self) -> list:
         return list(self.repo.load().get("granular_rules", []))
@@ -52,16 +62,25 @@ class PermissionsService:
         effect = rule.get("effect")
         if effect not in ("allow", "deny", "require_confirm"):
             raise ValueError("effect must be allow, deny, or require_confirm")
-        stored = {"id": uuid.uuid4().hex[:12], "user_id": rule.get("user_id") or "*",
-                  "tool": rule.get("tool") or "*", "permission": rule.get("permission") or "*",
-                  "path_prefix": rule.get("path_prefix") or "", "effect": effect}
-        data = self.repo.load(); data.setdefault("granular_rules", []).append(stored); self.repo.save(data)
+        stored = {
+            "id": uuid.uuid4().hex[:12],
+            "user_id": rule.get("user_id") or "*",
+            "tool": rule.get("tool") or "*",
+            "permission": rule.get("permission") or "*",
+            "path_prefix": rule.get("path_prefix") or "",
+            "effect": effect,
+        }
+        data = self.repo.load()
+        data.setdefault("granular_rules", []).append(stored)
+        self.repo.save(data)
         return stored
 
     def remove_rule(self, rule_id: str) -> bool:
-        data = self.repo.load(); before = len(data.get("granular_rules", []))
+        data = self.repo.load()
+        before = len(data.get("granular_rules", []))
         data["granular_rules"] = [rule for rule in data.get("granular_rules", []) if rule.get("id") != rule_id]
-        self.repo.save(data); return len(data["granular_rules"]) < before
+        self.repo.save(data)
+        return len(data["granular_rules"]) < before
 
     def set_level(self, level: str) -> dict:
         perms = self.repo.load()
@@ -71,6 +90,7 @@ class PermissionsService:
 
     def emergency(self, action: str) -> dict:
         from fastapi import HTTPException
+
         if self._lock:
             with self._lock:
                 return self._emergency_action(action)
@@ -85,6 +105,7 @@ class PermissionsService:
             self._emergency_stop[0] = False
             return {"status": "emergency_stop_deactivated"}
         from fastapi import HTTPException
+
         raise HTTPException(400, "Use 'stop' or 'resume'")
 
     def confirm_action(self, action_id: str, approved: bool) -> dict:

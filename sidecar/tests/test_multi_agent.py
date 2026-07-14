@@ -1,17 +1,28 @@
 """Tests for sentinel.core.multi_agent."""
-import os, sys, pytest
+
+import os
+import sys
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from unittest.mock import MagicMock, AsyncMock, patch
 from sentinel.core.multi_agent import (
-    MultiAgentOrchestrator, SubTask, SubTaskResult, DecompositionResult, MultiAgentResult,
+    MultiAgentOrchestrator,
+    SubTask,
+    SubTaskResult,
+    DecompositionResult,
+    MultiAgentResult,
 )
 from sentinel.core.agent import AgentSpec, AgentStatus, AgentRegistry
 
 
 def make_agent(agent_id="agent-a", provider="ollama", model="llama3", capabilities=None):
     return AgentSpec(
-        id=agent_id, name=agent_id, provider=provider, model=model,
+        id=agent_id,
+        name=agent_id,
+        provider=provider,
+        model=model,
         capabilities=capabilities or [],
         status=AgentStatus.ACTIVE,
     )
@@ -126,6 +137,7 @@ class TestExecuteSingle:
     async def test_execute_fn_success(self):
         def fake_execute(agent_id, task, ctx):
             return {"response": "done", "agent_id": agent_id}
+
         ma = MultiAgentOrchestrator(execute_agent_fn=fake_execute)
         st = SubTask(id="t1", description="test task", agent_id="a1")
         result = await ma._run_sub_task(st, {})
@@ -136,6 +148,7 @@ class TestExecuteSingle:
     async def test_execute_fn_error(self):
         def fake_execute(agent_id, task, ctx):
             return {"error": "something went wrong"}
+
         ma = MultiAgentOrchestrator(execute_agent_fn=fake_execute)
         st = SubTask(id="t1", description="test", agent_id="a1")
         result = await ma._run_sub_task(st, {})
@@ -146,6 +159,7 @@ class TestExecuteSingle:
     async def test_execute_fn_exception(self):
         def fake_execute(agent_id, task, ctx):
             raise RuntimeError("crash")
+
         ma = MultiAgentOrchestrator(execute_agent_fn=fake_execute)
         st = SubTask(id="t1", description="test", agent_id="a1")
         result = await ma._run_sub_task(st, {})
@@ -166,6 +180,7 @@ class TestExecuteMulti:
     async def test_multi_sub_task_with_execution(self):
         def fake_execute(agent_id, task, ctx):
             return {"response": f"result from {agent_id}: {task[:20]}"}
+
         registry = AgentRegistry()
         registry.register(make_agent("agent-1"))
         registry.register(make_agent("agent-2"))
@@ -180,6 +195,7 @@ class TestExecuteMulti:
     async def test_empty_decomposition_returns_error(self):
         def empty_decompose(task, ctx):
             return DecompositionResult(sub_tasks=[], decomposition_method="test")
+
         ma = MultiAgentOrchestrator(decompose_fn=empty_decompose)
         result = await ma.execute("anything")
         assert not result.success
@@ -233,6 +249,7 @@ class TestOrchestratorIntegration:
         from sentinel.core.orchestrator import Orchestrator
         from sentinel.core.intent import IntentEngine
         from sentinel.core.tool_gateway import ToolGateway
+
         gw = MagicMock(spec=ToolGateway)
         gw.execute = AsyncMock()
         orch = Orchestrator(intent_engine=IntentEngine(), tool_gateway=gw, multi_agent_orchestrator=None)
@@ -252,7 +269,9 @@ class TestOrchestratorIntegration:
             return {"response": f"result from {agent_id}"}
 
         registry = AgentRegistry()
-        registry.register(AgentSpec(id="test-agent", name="test", provider="ollama", model="llama3", status=AgentStatus.ACTIVE))
+        registry.register(
+            AgentSpec(id="test-agent", name="test", provider="ollama", model="llama3", status=AgentStatus.ACTIVE)
+        )
         ma = MultiAgentOrchestrator(agent_registry=registry, execute_agent_fn=fake_execute)
         gw = MagicMock(spec=ToolGateway)
         gw.execute = AsyncMock()
@@ -267,6 +286,7 @@ class TestOrchestratorIntegration:
         from sentinel.core.intent import IntentEngine
         from sentinel.core.tool_gateway import ToolGateway
         from sentinel.core.multi_agent import MultiAgentOrchestrator
+
         gw = MagicMock(spec=ToolGateway)
         gw.execute = AsyncMock()
         ma = MultiAgentOrchestrator()

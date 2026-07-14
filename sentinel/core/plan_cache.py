@@ -51,25 +51,30 @@ def _deserialize_plan(d: dict) -> Plan:
                 except ValueError:
                     tt = TaskType.QUICK
         from .model_router import RouterDecision
-        steps.append(PlanStep(
-            id=sd.get("id", ""),
-            tool_id=sd.get("tool_id", ""),
-            params=sd.get("params", {}),
-            description=sd.get("description", ""),
-            is_reversible=sd.get("is_reversible", False),
-            rollback_tool_id=sd.get("rollback_tool_id"),
-            rollback_params=sd.get("rollback_params"),
-            estimated_impact=sd.get("estimated_impact", "low"),
-            estimated_duration_ms=sd.get("estimated_duration_ms"),
-            depends_on=sd.get("depends_on", []),
-            model_decision=RouterDecision(
-                provider_id=md["provider_id"],
-                model=md["model"],
-                task_type=tt or TaskType.QUICK,
-                strategy=md.get("strategy", "cached"),
-                reason=md.get("reason", "from cache"),
-            ) if md else None,
-        ))
+
+        steps.append(
+            PlanStep(
+                id=sd.get("id", ""),
+                tool_id=sd.get("tool_id", ""),
+                params=sd.get("params", {}),
+                description=sd.get("description", ""),
+                is_reversible=sd.get("is_reversible", False),
+                rollback_tool_id=sd.get("rollback_tool_id"),
+                rollback_params=sd.get("rollback_params"),
+                estimated_impact=sd.get("estimated_impact", "low"),
+                estimated_duration_ms=sd.get("estimated_duration_ms"),
+                depends_on=sd.get("depends_on", []),
+                model_decision=RouterDecision(
+                    provider_id=md["provider_id"],
+                    model=md["model"],
+                    task_type=tt or TaskType.QUICK,
+                    strategy=md.get("strategy", "cached"),
+                    reason=md.get("reason", "from cache"),
+                )
+                if md
+                else None,
+            )
+        )
     intent_data = d.get("intent", {})
     intent = Intent(
         action=intent_data.get("action", ""),

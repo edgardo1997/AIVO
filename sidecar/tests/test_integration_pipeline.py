@@ -1,5 +1,6 @@
 import os
 import sys
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import asyncio
@@ -71,9 +72,13 @@ class TestFullHttpPipeline:
         assert data["tool_result"]["duration_ms"] > 0
 
     def test_v1_execute_returns_pipeline_data(self):
-        resp = client.post("/v1/execute", json={
-            "tool_id": "system.info", "params": {},
-        })
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "system.info",
+                "params": {},
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["success"] is True
@@ -159,9 +164,13 @@ class TestPermissionEscalation:
         assert resp.status_code == 200
         data = resp.json()
         if data.get("blocked"):
-            approve_resp = client.post("/api/sentinel/simulate/approve", json={
-                "action_id": data["action_id"], "approved": True,
-            })
+            approve_resp = client.post(
+                "/api/sentinel/simulate/approve",
+                json={
+                    "action_id": data["action_id"],
+                    "approved": True,
+                },
+            )
             assert approve_resp.status_code == 200
             data = approve_resp.json()
         assert data["approved"] is True
@@ -171,21 +180,28 @@ class TestPermissionEscalation:
     def test_v1_execute_blocked_at_view_allowed_at_admin(self):
         perm_svc.set_level("view")
         try:
-            resp = client.post("/v1/execute", json={
-                "tool_id": "filesystem.write",
-                "params": {"path": "C:\\test_blocked.txt", "content": "x"},
-            })
+            resp = client.post(
+                "/v1/execute",
+                json={
+                    "tool_id": "filesystem.write",
+                    "params": {"path": "C:\\test_blocked.txt", "content": "x"},
+                },
+            )
             assert resp.status_code == 200
             assert resp.json()["success"] is False
         finally:
             perm_svc.set_level("admin")
         import tempfile
+
         test_file = os.path.join(tempfile.gettempdir(), "integ_test_admin.txt")
         try:
-            resp = client.post("/v1/execute", json={
-                "tool_id": "filesystem.write",
-                "params": {"path": test_file, "content": "admin allowed"},
-            })
+            resp = client.post(
+                "/v1/execute",
+                json={
+                    "tool_id": "filesystem.write",
+                    "params": {"path": test_file, "content": "admin allowed"},
+                },
+            )
             assert resp.status_code == 200
             assert resp.json()["success"] is True
         finally:
@@ -195,21 +211,33 @@ class TestPermissionEscalation:
 
 class TestEmergencyStopMidFlow:
     def test_emergency_stop_blocks_then_resume_works(self):
-        resp = client.post("/v1/execute", json={
-            "tool_id": "system.info", "params": {},
-        })
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "system.info",
+                "params": {},
+            },
+        )
         assert resp.json()["success"] is True
         perm_svc.emergency("stop")
         try:
-            resp = client.post("/v1/execute", json={
-                "tool_id": "system.info", "params": {},
-            })
+            resp = client.post(
+                "/v1/execute",
+                json={
+                    "tool_id": "system.info",
+                    "params": {},
+                },
+            )
             assert resp.json()["success"] is False
         finally:
             perm_svc.emergency("resume")
-        resp = client.post("/v1/execute", json={
-            "tool_id": "system.info", "params": {},
-        })
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "system.info",
+                "params": {},
+            },
+        )
         assert resp.json()["success"] is True
 
     def test_emergency_stop_through_process_endpoint(self):
@@ -231,6 +259,7 @@ class TestConfirmationWorkflow:
     def _create_pending_action(self, command: str) -> str:
         import uuid
         from modules.permissions import _svc as perm_svc
+
         aid = uuid.uuid4().hex[:12]
         perm_svc.pending_actions[aid] = {
             "command": command,
@@ -241,10 +270,13 @@ class TestConfirmationWorkflow:
 
     def test_destructive_command_requires_confirm(self):
         perm_svc.set_level("auto")
-        resp = client.post("/v1/execute", json={
-            "tool_id": "executor.command",
-            "params": {"command": "echo safe_test", "timeout": 5},
-        })
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "executor.command",
+                "params": {"command": "echo safe_test", "timeout": 5},
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["requires_confirmation"] is True
@@ -252,6 +284,7 @@ class TestConfirmationWorkflow:
     def test_confirm_then_execute_succeeds(self):
         from modules.permissions import _svc as perm_svc
         import uuid
+
         perm_svc.set_level("confirm")
         action_id = uuid.uuid4().hex[:12]
         perm_svc.pending_actions[action_id] = {
@@ -260,10 +293,13 @@ class TestConfirmationWorkflow:
             "timeout": 30,
         }
         perm_svc.confirm_action(action_id, approved=True)
-        resp = client.post("/v1/execute", json={
-            "tool_id": "executor.command",
-            "params": {"command": "echo confirmed_ok", "timeout": 5, "confirmed": True, "action_id": action_id},
-        })
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "executor.command",
+                "params": {"command": "echo confirmed_ok", "timeout": 5, "confirmed": True, "action_id": action_id},
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["success"] is True, f"Failed: {data.get('error')}"
@@ -271,16 +307,22 @@ class TestConfirmationWorkflow:
     def test_denied_command_blocked(self):
         perm_svc.set_level("confirm")
         action_id = self._create_pending_action("rm denied_file")
-        resp = client.post("/v1/execute", json={
-            "tool_id": "permissions.confirm",
-            "params": {"action_id": action_id, "approved": False},
-        })
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "permissions.confirm",
+                "params": {"action_id": action_id, "approved": False},
+            },
+        )
         assert resp.status_code == 200
         assert resp.json()["success"] is True
-        resp = client.post("/v1/execute", json={
-            "tool_id": "executor.command",
-            "params": {"command": "rm denied_file", "timeout": 5, "confirmed": True, "action_id": action_id},
-        })
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "executor.command",
+                "params": {"command": "rm denied_file", "timeout": 5, "confirmed": True, "action_id": action_id},
+            },
+        )
         assert resp.status_code == 200
         assert resp.json()["success"] is False
 
@@ -300,20 +342,26 @@ class TestErrorHandling:
         assert "error" in data or data.get("error") is not None
 
     def test_unknown_tool_returns_error(self):
-        resp = client.post("/v1/execute", json={
-            "tool_id": "system.nonexistent",
-            "params": {},
-        })
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "system.nonexistent",
+                "params": {},
+            },
+        )
         assert resp.status_code == 500 or resp.status_code == 200
         if resp.status_code == 200:
             assert resp.json()["success"] is False
             assert resp.json()["error"] is not None
 
     def test_invalid_params_returns_error(self):
-        resp = client.post("/v1/execute", json={
-            "tool_id": "filesystem.read",
-            "params": {},
-        })
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "filesystem.read",
+                "params": {},
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["success"] is False
@@ -322,10 +370,13 @@ class TestErrorHandling:
     def test_error_path_stores_memory(self):
         memory = get_memory()
         memory.clear()
-        client.post("/v1/execute", json={
-            "tool_id": "system.nonexistent",
-            "params": {},
-        })
+        client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "system.nonexistent",
+                "params": {},
+            },
+        )
         last = memory.get_last_execution()
         assert last is not None
         assert last.error is not None or last.tool_result["success"] is False
@@ -349,9 +400,13 @@ class TestAuditIntegration:
     def test_audit_trail_immutable(self):
         resp = client.get("/v1/audit", params={"limit": 100})
         count_before = resp.json()["total"]
-        resp = client.post("/v1/execute", json={
-            "tool_id": "system.memory", "params": {},
-        })
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "system.memory",
+                "params": {},
+            },
+        )
         assert resp.status_code == 200
         resp = client.get("/v1/audit", params={"limit": 100})
         count_after = resp.json()["total"]
@@ -360,9 +415,13 @@ class TestAuditIntegration:
     def test_audit_clear_requires_admin(self):
         perm_svc.set_level("view")
         try:
-            resp = client.post("/v1/execute", json={
-                "tool_id": "audit.clear", "params": {},
-            })
+            resp = client.post(
+                "/v1/execute",
+                json={
+                    "tool_id": "audit.clear",
+                    "params": {},
+                },
+            )
             assert resp.status_code == 200
             assert resp.json()["success"] is False
         finally:
@@ -379,9 +438,13 @@ class TestDecisionContext:
             assert data["context_modifier"] is not None
 
     def test_decision_v1_execute_returns_decision(self):
-        resp = client.post("/v1/execute", json={
-            "tool_id": "system.cpu", "params": {},
-        })
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "system.cpu",
+                "params": {},
+            },
+        )
         assert resp.status_code == 200
         pipe = resp.json()["pipeline"]
         assert pipe["decision"] is not None
@@ -391,10 +454,13 @@ class TestDecisionContext:
 
 class TestDryRun:
     def test_process_dry_run_returns_simulated(self):
-        resp = client.post("/api/sentinel/process", json={
-            "utterance": "cpu usage",
-            "dry_run": True,
-        })
+        resp = client.post(
+            "/api/sentinel/process",
+            json={
+                "utterance": "cpu usage",
+                "dry_run": True,
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["simulated"] is True
@@ -405,11 +471,14 @@ class TestDryRun:
         assert data["tool_result"]["data"]["simulated"] is True
 
     def test_execute_dry_run_returns_simulated(self):
-        resp = client.post("/v1/execute", json={
-            "tool_id": "system.cpu",
-            "params": {},
-            "dry_run": True,
-        })
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "system.cpu",
+                "params": {},
+                "dry_run": True,
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["simulated"] is True
@@ -418,21 +487,28 @@ class TestDryRun:
 
     def test_execute_dry_run_does_not_store_memory(self):
         from modules.sentinel_bridge import get_memory
+
         memory = get_memory()
         count_before = len(memory.get_session_history("dry_test", limit=100))
-        client.post("/v1/execute", json={
-            "tool_id": "system.cpu",
-            "params": {},
-            "dry_run": True,
-        })
+        client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "system.cpu",
+                "params": {},
+                "dry_run": True,
+            },
+        )
         count_after = len(memory.get_session_history("dry_test", limit=100))
         assert count_after == count_before
 
     def test_process_dry_run_multistep(self):
-        resp = client.post("/api/sentinel/process", json={
-            "utterance": "system health check",
-            "dry_run": True,
-        })
+        resp = client.post(
+            "/api/sentinel/process",
+            json={
+                "utterance": "system health check",
+                "dry_run": True,
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["simulated"] is True
@@ -442,19 +518,25 @@ class TestDryRun:
             assert step["data"]["simulated"] is True
 
     def test_dry_run_false_does_not_set_simulated(self):
-        resp = client.post("/v1/execute", json={
-            "tool_id": "system.cpu",
-            "params": {},
-        })
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "system.cpu",
+                "params": {},
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data.get("simulated") is False or "simulated" not in data
 
     def test_process_dry_run_false(self):
-        resp = client.post("/api/sentinel/process", json={
-            "utterance": "cpu usage",
-            "dry_run": False,
-        })
+        resp = client.post(
+            "/api/sentinel/process",
+            json={
+                "utterance": "cpu usage",
+                "dry_run": False,
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["simulated"] is False or "simulated" not in data

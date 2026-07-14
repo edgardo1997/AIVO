@@ -15,8 +15,14 @@ class AlertSeverity(str, Enum):
 
 
 ALERT_SOURCES = [
-    "cost", "performance", "circuit_breaker", "fallback",
-    "network", "offline_queue", "system", "skill",
+    "cost",
+    "performance",
+    "circuit_breaker",
+    "fallback",
+    "network",
+    "offline_queue",
+    "system",
+    "skill",
 ]
 
 
@@ -93,7 +99,7 @@ class AlertManager:
         )
         self._alerts.append(alert)
         if len(self._alerts) > self._max_alerts:
-            self._alerts = self._alerts[-self._max_alerts:]
+            self._alerts = self._alerts[-self._max_alerts :]
 
         logger.info("Alert [%s] %s: %s", severity.value, alert_type, title)
         for handler in self._handlers:
@@ -156,12 +162,18 @@ class AlertManager:
                         alert_type="budget_exceeded",
                         severity=AlertSeverity.WARNING,
                         title=f"Budget exceeded: {ba.budget_name}",
-                        message=(f"Cost ${ba.current_cost:.4f} exceeds ${ba.max_cost:.4f} "
-                                 f"({ba.provider_id}, {ba.period})"),
+                        message=(
+                            f"Cost ${ba.current_cost:.4f} exceeds ${ba.max_cost:.4f} ({ba.provider_id}, {ba.period})"
+                        ),
                         source="cost",
-                        data={"budget_name": ba.budget_name, "provider_id": ba.provider_id,
-                              "current_cost": ba.current_cost, "max_cost": ba.max_cost,
-                              "current_tokens": ba.current_tokens, "max_tokens": ba.max_tokens},
+                        data={
+                            "budget_name": ba.budget_name,
+                            "provider_id": ba.provider_id,
+                            "current_cost": ba.current_cost,
+                            "max_cost": ba.max_cost,
+                            "current_tokens": ba.current_tokens,
+                            "max_tokens": ba.max_tokens,
+                        },
                     )
                     count += 1
             except Exception as e:
@@ -176,12 +188,19 @@ class AlertManager:
                         alert_type="performance_regression",
                         severity=sev,
                         title=f"Performance regression: {pa.tool_id}",
-                        message=(f"{pa.provider_id}/{pa.model} avg {pa.current_avg:.0f}ms "
-                                 f"vs baseline {pa.baseline_avg:.0f}ms ({pa.deviation_pct:+.0f}%)"),
+                        message=(
+                            f"{pa.provider_id}/{pa.model} avg {pa.current_avg:.0f}ms "
+                            f"vs baseline {pa.baseline_avg:.0f}ms ({pa.deviation_pct:+.0f}%)"
+                        ),
                         source="performance",
-                        data={"provider_id": pa.provider_id, "model": pa.model,
-                              "tool_id": pa.tool_id, "current_avg": pa.current_avg,
-                              "baseline_avg": pa.baseline_avg, "deviation_pct": pa.deviation_pct},
+                        data={
+                            "provider_id": pa.provider_id,
+                            "model": pa.model,
+                            "tool_id": pa.tool_id,
+                            "current_avg": pa.current_avg,
+                            "baseline_avg": pa.baseline_avg,
+                            "deviation_pct": pa.deviation_pct,
+                        },
                     )
                     count += 1
             except Exception as e:

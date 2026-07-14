@@ -7,7 +7,7 @@ import type {
   KbStats, KbListResponse, KbSearchResponse, KbAddResponse, KbQueryResponse,
   AlertStats, AlertListResponse, CostAlertItem, PerfAlertItem,
   PermissionRule, MemorySession, MemoryRecord, ReportPreview, UserProfile,
-  Trigger, TriggerHistory, SentinelResponse, ProfileHistoryEntry, ProfilePreset,
+  Trigger, TriggerHistory, SentinelResponse, ProfileHistoryEntry, ProfilePreset, ProfileSearchResult,
 } from "./types";
 import { invoke } from "@tauri-apps/api/core";
 
@@ -234,7 +234,7 @@ export const api = {
     deletePreset: (presetName: string) =>
       postJSON<{ preset_name: string; status: string }>(`${BASE}/api/sentinel/profile/presets`, { preset_name: presetName }),
     search: (query: string, limit = 20) =>
-      fetchJSON<{ results: Record<string, unknown>[]; count: number }>(`${BASE}/api/sentinel/profile/search?query=${encodeURIComponent(query)}&limit=${limit}`),
+      fetchJSON<{ results: ProfileSearchResult[]; count: number }>(`${BASE}/api/sentinel/profile/search?query=${encodeURIComponent(query)}&limit=${limit}`),
   },
 
   observability: {

@@ -9,7 +9,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from sentinel.core.integrations import DesktopIntegrationService
 from sentinel.tools.integration_tools import (
-    BrowserOpenTool, IdeOpenTool, ImageInspectTool, IntegrationStatusTool,
+    BrowserOpenTool,
+    IdeOpenTool,
+    ImageInspectTool,
+    IntegrationStatusTool,
 )
 
 
@@ -35,8 +38,10 @@ def test_ide_uses_argument_list_and_existing_path(tmp_path: Path):
     source = tmp_path / "app.py"
     source.write_text("print('ok')", encoding="utf-8")
     process = MagicMock(pid=123)
-    with patch.object(DesktopIntegrationService, "_find", return_value="C:/bin/code.exe"), \
-         patch("sentinel.core.integrations.subprocess.Popen", return_value=process) as popen:
+    with (
+        patch.object(DesktopIntegrationService, "_find", return_value="C:/bin/code.exe"),
+        patch("sentinel.core.integrations.subprocess.Popen", return_value=process) as popen,
+    ):
         result = DesktopIntegrationService().open_ide(str(source), 2)
     assert result["pid"] == 123
     args = popen.call_args.args[0]

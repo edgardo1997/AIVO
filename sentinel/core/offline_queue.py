@@ -126,12 +126,10 @@ class OfflineQueue:
         item.last_error = error
         if item.retry_count >= item.max_retries:
             item.status = QueueStatus.FAILED
-            log.warning("Operation %s failed permanently after %d retries: %s",
-                        item_id, item.max_retries, error)
+            log.warning("Operation %s failed permanently after %d retries: %s", item_id, item.max_retries, error)
         else:
             item.status = QueueStatus.PENDING
-            log.info("Operation %s failed (retry %d/%d): %s",
-                     item_id, item.retry_count, item.max_retries, error)
+            log.info("Operation %s failed (retry %d/%d): %s", item_id, item.retry_count, item.max_retries, error)
         return True
 
     async def process_queue(

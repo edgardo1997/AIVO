@@ -1,4 +1,6 @@
-import os, sys
+import os
+import sys
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from unittest.mock import ANY, MagicMock
@@ -14,8 +16,10 @@ from sentinel.core.tool_gateway import ToolGateway
 class TestRouterDecisionToDict:
     def test_to_dict_converts_task_type_enum(self):
         d = RouterDecision(
-            provider_id="ollama", model="llama3",
-            task_type=TaskType.QUICK, strategy="priority",
+            provider_id="ollama",
+            model="llama3",
+            task_type=TaskType.QUICK,
+            strategy="priority",
             reason="test",
         ).to_dict()
         assert d == {
@@ -28,9 +32,12 @@ class TestRouterDecisionToDict:
 
     def test_to_dict_json_serializable(self):
         import json
+
         d = RouterDecision(
-            provider_id="openrouter", model="gpt-4o",
-            task_type=TaskType.CODE, strategy="smart",
+            provider_id="openrouter",
+            model="gpt-4o",
+            task_type=TaskType.CODE,
+            strategy="smart",
             reason="smart selected",
         ).to_dict()
         s = json.dumps(d)
@@ -63,12 +70,13 @@ class TestPlanStepHasModelDecision:
 
     def test_can_set_router_decision(self):
         decision = RouterDecision(
-            provider_id="ollama", model="llama3",
-            task_type=TaskType.QUICK, strategy="priority",
+            provider_id="ollama",
+            model="llama3",
+            task_type=TaskType.QUICK,
+            strategy="priority",
             reason="test",
         )
-        step = PlanStep(id="s1", tool_id="system.cpu", description="cpu",
-                        model_decision=decision)
+        step = PlanStep(id="s1", tool_id="system.cpu", description="cpu", model_decision=decision)
         assert step.model_decision is decision
         assert step.model_decision.provider_id == "ollama"
 
@@ -78,8 +86,10 @@ class TestOrchestratorMultiModel:
         router = MagicMock(spec=ModelRouter)
         router._key_map = {"ollama": "test"}
         router.select.return_value = RouterDecision(
-            provider_id="ollama", model="llama3",
-            task_type=TaskType.QUICK, strategy="priority",
+            provider_id="ollama",
+            model="llama3",
+            task_type=TaskType.QUICK,
+            strategy="priority",
             reason="mock",
         )
 
@@ -92,11 +102,15 @@ class TestOrchestratorMultiModel:
             memory=None,
         )
         orch._intent_engine.parse.return_value = Intent(
-            action="query", target="system.health",
-            parameters={}, confidence=0.9, raw_input="check health",
+            action="query",
+            target="system.health",
+            parameters={},
+            confidence=0.9,
+            raw_input="check health",
         )
 
         import asyncio
+
         result = asyncio.run(orch.process("check health", skip_simulation=True))
 
         plan_steps = result.plan.plan.steps
@@ -111,7 +125,8 @@ class TestOrchestratorMultiModel:
         router.select.side_effect = lambda tt, context=None: RouterDecision(
             provider_id="ollama" if tt == TaskType.QUICK else "openrouter",
             model="llama3" if tt == TaskType.QUICK else "gpt-4o",
-            task_type=tt, strategy="priority",
+            task_type=tt,
+            strategy="priority",
             reason=f"mock for {tt.value}",
         )
 
@@ -124,12 +139,15 @@ class TestOrchestratorMultiModel:
             memory=None,
         )
         orch._intent_engine.parse.return_value = Intent(
-            action="execute", target="executor.launch",
-            parameters={"command": "notepad"}, confidence=0.9,
+            action="execute",
+            target="executor.launch",
+            parameters={"command": "notepad"},
+            confidence=0.9,
             raw_input="launch notepad",
         )
 
         import asyncio
+
         result = asyncio.run(orch.process("launch notepad", skip_simulation=True))
 
         plan_steps = result.plan.plan.steps
@@ -146,8 +164,10 @@ class TestOrchestratorMultiModel:
         router = MagicMock(spec=ModelRouter)
         router._key_map = {"ollama": "test"}
         router.select.return_value = RouterDecision(
-            provider_id="ollama", model="llama3",
-            task_type=TaskType.QUICK, strategy="priority",
+            provider_id="ollama",
+            model="llama3",
+            task_type=TaskType.QUICK,
+            strategy="priority",
             reason="mock",
         )
 
@@ -170,11 +190,15 @@ class TestOrchestratorMultiModel:
             memory=None,
         )
         orch._intent_engine.parse.return_value = Intent(
-            action="query", target="system.cpu",
-            parameters={}, confidence=0.9, raw_input="cpu",
+            action="query",
+            target="system.cpu",
+            parameters={},
+            confidence=0.9,
+            raw_input="cpu",
         )
 
         import asyncio
+
         asyncio.run(orch.process("cpu", skip_simulation=True))
 
         assert len(executed_contexts) >= 1
@@ -188,8 +212,10 @@ class TestOrchestratorMultiModel:
         router = MagicMock(spec=ModelRouter)
         router._key_map = {"ollama": "test"}
         router.select.return_value = RouterDecision(
-            provider_id="ollama", model="llama3",
-            task_type=TaskType.QUICK, strategy="priority",
+            provider_id="ollama",
+            model="llama3",
+            task_type=TaskType.QUICK,
+            strategy="priority",
             reason="mock",
         )
 
@@ -202,12 +228,16 @@ class TestOrchestratorMultiModel:
             memory=None,
         )
         orch._intent_engine.parse.return_value = Intent(
-            action="query", target="system.cpu",
-            parameters={}, confidence=0.9, raw_input="cpu",
+            action="query",
+            target="system.cpu",
+            parameters={},
+            confidence=0.9,
+            raw_input="cpu",
         )
 
         import asyncio
         import json
+
         result = asyncio.run(orch.process("cpu", skip_simulation=True))
 
         plan_dict = orch._plan_to_dict(result.plan.plan)

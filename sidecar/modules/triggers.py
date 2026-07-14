@@ -93,7 +93,13 @@ def _save_history(record: TriggerFireRecord) -> None:
         return
     _db.execute(
         "INSERT INTO trigger_history (trigger_id, condition_met, action_executed, result, timestamp) VALUES (?, ?, ?, ?, ?)",
-        (record.trigger_id, 1 if record.condition_met else 0, 1 if record.action_executed else 0, record.result, record.timestamp),
+        (
+            record.trigger_id,
+            1 if record.condition_met else 0,
+            1 if record.action_executed else 0,
+            record.result,
+            record.timestamp,
+        ),
     )
     _db.commit()
 
@@ -103,18 +109,23 @@ def _wrap_engine_for_persistence() -> None:
     engine = get_engine()
 
     orig_add = engine.add_rule
+
     def wrapped_add(rule: TriggerRule) -> None:
         orig_add(rule)
         _save_rule(rule)
+
     engine.add_rule = wrapped_add
 
     orig_remove = engine.remove_rule
+
     def wrapped_remove(rule_id: str) -> None:
         orig_remove(rule_id)
         _delete_rule_db(rule_id)
+
     engine.remove_rule = wrapped_remove
 
     orig_evaluate = engine.evaluate
+
     def wrapped_evaluate(metrics: Dict[str, float]) -> List[TriggerFireRecord]:
         fires = orig_evaluate(metrics)
         for rec in fires:
@@ -124,13 +135,16 @@ def _wrap_engine_for_persistence() -> None:
                 if rule:
                     _save_rule(rule)
         return fires
+
     engine.evaluate = wrapped_evaluate
 
     orig_update = engine.update_rule
+
     def wrapped_update(rule_id: str, **updates: Any) -> TriggerRule:
         rule = orig_update(rule_id, **updates)
         _save_rule(rule)
         return rule
+
     engine.update_rule = wrapped_update
 
 
@@ -146,6 +160,7 @@ def ensure_wired() -> None:
 
 # --- API endpoints ---
 
+
 @router.get("/triggers")
 def list_triggers():
     ensure_wired()
@@ -160,6 +175,7 @@ def get_trigger(trigger_id: str):
     rule = engine.get_rule(trigger_id)
     if not rule:
         from fastapi import HTTPException
+
         raise HTTPException(status_code=404, detail=f"Trigger '{trigger_id}' not found")
     return {"trigger": rule.to_dict()}
 
@@ -171,9 +187,11 @@ def create_trigger(body: dict):
     rule_id = body.get("id", "")
     if not rule_id:
         from fastapi import HTTPException
+
         raise HTTPException(status_code=400, detail="id is required")
     if engine.get_rule(rule_id):
         from fastapi import HTTPException
+
         raise HTTPException(status_code=409, detail=f"Trigger '{rule_id}' already exists")
     conditions = [TriggerCondition.from_dict(c) for c in body.get("conditions", [])]
     action_data = body.get("action")
@@ -199,6 +217,7 @@ def update_trigger(trigger_id: str, body: dict):
     rule = engine.get_rule(trigger_id)
     if not rule:
         from fastapi import HTTPException
+
         raise HTTPException(status_code=404, detail=f"Trigger '{trigger_id}' not found")
     updates = {}
     if "name" in body:
@@ -226,6 +245,7 @@ def delete_trigger(trigger_id: str):
         return {"status": "deleted", "trigger_id": trigger_id}
     except KeyError:
         from fastapi import HTTPException
+
         raise HTTPException(status_code=404, detail=f"Trigger '{trigger_id}' not found")
 
 
@@ -258,6 +278,7 @@ def evaluate_trigger(trigger_id: str, body: dict):
     rule = engine.get_rule(trigger_id)
     if not rule:
         from fastapi import HTTPException
+
         raise HTTPException(status_code=404, detail=f"Trigger '{trigger_id}' not found")
     metrics = body.get("metrics", {})
     fires = engine.evaluate(metrics)

@@ -29,8 +29,12 @@ async def test_simulate_read_only(engine):
 async def test_simulate_file_write(engine):
     plan = Plan(
         steps=[
-            PlanStep(id="s1", tool_id="filesystem.write", description="Write file",
-                     params={"path": "/tmp/test.txt", "content": "hello world"}),
+            PlanStep(
+                id="s1",
+                tool_id="filesystem.write",
+                description="Write file",
+                params={"path": "/tmp/test.txt", "content": "hello world"},
+            ),
         ],
         intent=Intent(action="execute", target="filesystem"),
     )
@@ -44,8 +48,7 @@ async def test_simulate_file_write(engine):
 async def test_simulate_destructive_command(engine):
     plan = Plan(
         steps=[
-            PlanStep(id="s1", tool_id="executor.command", description="Run command",
-                     params={"command": "rm -rf /"}),
+            PlanStep(id="s1", tool_id="executor.command", description="Run command", params={"command": "rm -rf /"}),
         ],
         intent=Intent(action="execute", target="executor"),
     )
@@ -58,8 +61,11 @@ async def test_simulate_destructive_command(engine):
 @pytest.mark.asyncio
 async def test_simulate_irreversible(engine):
     plan = Plan(
-        steps=[PlanStep(id="s1", tool_id="filesystem.delete", description="Delete file",
-                        params={"path": "/data/db.sqlite"})],
+        steps=[
+            PlanStep(
+                id="s1", tool_id="filesystem.delete", description="Delete file", params={"path": "/data/db.sqlite"}
+            )
+        ],
         intent=Intent(action="execute", target="filesystem"),
     )
     result = await engine.simulate(plan, {})
@@ -80,8 +86,7 @@ async def test_simulate_empty_plan(engine):
 @pytest.mark.asyncio
 async def test_simulate_high_cpu_context(engine):
     plan = Plan(
-        steps=[PlanStep(id="s1", tool_id="executor.command", description="Heavy task",
-                        params={"command": "compile"})],
+        steps=[PlanStep(id="s1", tool_id="executor.command", description="Heavy task", params={"command": "compile"})],
         intent=Intent(action="execute", target="executor"),
     )
     result = await engine.simulate(plan, {"system_summary": {"cpu_percent": 95}})

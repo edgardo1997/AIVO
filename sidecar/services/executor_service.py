@@ -12,11 +12,31 @@ log = logging.getLogger("sentinel.executor_service")
 
 from sentinel.policies.loader import load_or_default, PolicyStore
 
-SHELL_METACHARS = re.compile(r'[&|;`$%@()\[\]{}<>]')
+SHELL_METACHARS = re.compile(r"[&|;`$%@()\[\]{}<>]")
 ALLOWED_SAFE_CMDS = {
-    "dir", "ls", "echo", "type", "find", "more", "help", "cd", "pwd",
-    "whoami", "ipconfig", "systeminfo", "tasklist", "netstat", "ver",
-    "date", "time", "cls", "clear", "tree", "set", "path", "chcp",
+    "dir",
+    "ls",
+    "echo",
+    "type",
+    "find",
+    "more",
+    "help",
+    "cd",
+    "pwd",
+    "whoami",
+    "ipconfig",
+    "systeminfo",
+    "tasklist",
+    "netstat",
+    "ver",
+    "date",
+    "time",
+    "cls",
+    "clear",
+    "tree",
+    "set",
+    "path",
+    "chcp",
 }
 
 
@@ -201,13 +221,13 @@ class ExecutorService(Tool):
 
     def validate_command(self, cmd: str) -> str:
         from fastapi import HTTPException
+
         if not cmd or not cmd.strip():
             raise HTTPException(400, "Command cannot be empty")
         if len(cmd) > 8192:
             raise HTTPException(400, "Command too long")
         cmd_stripped = cmd.strip()
-        first_token = cmd_stripped.split(None, 1)[0].lower() if cmd_stripped else ""
-        is_allowed_builtin = first_token in ALLOWED_SAFE_CMDS
+        cmd_stripped.split(None, 1)[0].lower() if cmd_stripped else ""
         has_metachars = bool(SHELL_METACHARS.search(cmd_stripped))
         if has_metachars:
             log.warning("Blocked shell metacharacters in command: %s", cmd_stripped[:100])
@@ -224,9 +244,9 @@ class ExecutorService(Tool):
             return "safe"
         return "unknown"
 
-    def execute_sync(self, command: str, timeout: int = 30, confirmed: bool = False,
-                action_id: str = "") -> dict:
+    def execute_sync(self, command: str, timeout: int = 30, confirmed: bool = False, action_id: str = "") -> dict:
         from fastapi import HTTPException
+
         safe_cmd = self.validate_command(command)
         classification = self.classify_command(safe_cmd)
         result = self._run_plugin_hooks(safe_cmd, classification)
@@ -280,6 +300,8 @@ class ExecutorService(Tool):
             self._audit.log_action(action, details, status)
 
     def _exec_safe(self, cmd: str, timeout: int = 30) -> subprocess.CompletedProcess:
+        from fastapi import HTTPException
+
         try:
             args = shlex.split(cmd, posix=False)
         except ValueError:
@@ -305,6 +327,7 @@ class ExecutorService(Tool):
     def _kill_process_tree(self, pid: int):
         try:
             import psutil
+
             parent = psutil.Process(pid)
             for child in parent.children(recursive=True):
                 try:
@@ -317,6 +340,7 @@ class ExecutorService(Tool):
 
     def launch_app(self, app_name: str, args: str = "") -> dict:
         from fastapi import HTTPException
+
         app_name = app_name.strip()
         if not app_name:
             raise HTTPException(400, "app_name cannot be empty")
@@ -333,7 +357,9 @@ class ExecutorService(Tool):
         try:
             app_path = shutil.which(app_name) or app_name
             parsed_args = shlex.split(args, posix=False) if args else []
-            subprocess.Popen([app_path, *parsed_args], shell=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.Popen(
+                [app_path, *parsed_args], shell=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            )
             self._log_action("app_launched", f"{app_name} {args}", "success")
             return {"success": True, "message": f"Launched {app_name}"}
         except Exception as e:
@@ -342,10 +368,12 @@ class ExecutorService(Tool):
 
     def kill_process(self, pid: int) -> dict:
         from fastapi import HTTPException
+
         if pid <= 0 or pid > 999999:
             raise HTTPException(400, "Invalid PID")
         try:
             import psutil
+
             proc = psutil.Process(pid)
             proc_name = proc.name()
             try:
@@ -355,8 +383,11 @@ class ExecutorService(Tool):
             proc.terminate()
             self._log_action("process_killed", f"PID {pid} ({proc_name})", "success")
             return {
-                "success": True, "message": f"Process {pid} terminated",
-                "pid": pid, "process_name": proc_name, "args": " ".join(cmdline[1:]) if len(cmdline) > 1 else "",
+                "success": True,
+                "message": f"Process {pid} terminated",
+                "pid": pid,
+                "process_name": proc_name,
+                "args": " ".join(cmdline[1:]) if len(cmdline) > 1 else "",
             }
         except psutil.NoSuchProcess:
             raise HTTPException(404, f"Process {pid} not found")
@@ -368,12 +399,15 @@ class ExecutorService(Tool):
 
     def restart_process(self, process_name: str, args: str = "") -> dict:
         from fastapi import HTTPException
+
         if not process_name:
             raise HTTPException(400, "process_name cannot be empty")
         try:
             app_path = shutil.which(process_name) or process_name
             parsed_args = shlex.split(args, posix=False) if args else []
-            subprocess.Popen([app_path, *parsed_args], shell=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.Popen(
+                [app_path, *parsed_args], shell=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            )
             self._log_action("process_restarted", f"{process_name} {args}", "success")
             return {"success": True, "message": f"Restarted {process_name}"}
         except Exception as e:
@@ -382,6 +416,7 @@ class ExecutorService(Tool):
 
     def which_app(self, name: str) -> dict:
         from fastapi import HTTPException
+
         if not name or "/" in name or "\\" in name:
             raise HTTPException(400, "Invalid app name")
         path = shutil.which(name)
@@ -401,8 +436,19 @@ class ExecutorService(Tool):
         return {"patterns": DESTRUCTIVE_PATTERNS}
 
     def _is_file_operation(self, command: str) -> bool:
-        file_keywords = {"rm ", "del ", "remove-item", "clear-content", "copy ",
-                         "move ", "ren ", "rename-item", "erase", "rd ", "rmdir"}
+        file_keywords = {
+            "rm ",
+            "del ",
+            "remove-item",
+            "clear-content",
+            "copy ",
+            "move ",
+            "ren ",
+            "rename-item",
+            "erase",
+            "rd ",
+            "rmdir",
+        }
         lower = command.strip().lower()
         for pattern in DESTRUCTIVE_PATTERNS:
             if any(kw in pattern.lower() for kw in file_keywords):

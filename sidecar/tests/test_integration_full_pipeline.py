@@ -4,7 +4,12 @@ Exercises real HTTP endpoints with all subsystems wired:
 multi-agent, rate limiter, circuit breaker, cost tracking,
 feedback, performance monitoring, plan cache, deep context.
 """
-import os, sys, time, json
+
+import os
+import sys
+import time
+import json
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import pytest
@@ -19,11 +24,15 @@ client = TestClient(app)
 # Multi-agent integration
 # ---------------------------------------------------------------------------
 
+
 class TestMultiAgentAPI:
     def test_multi_agent_simple_task(self):
-        resp = client.post("/api/sentinel/process/multi-agent", json={
-            "utterance": "show disk usage",
-        })
+        resp = client.post(
+            "/api/sentinel/process/multi-agent",
+            json={
+                "utterance": "show disk usage",
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert isinstance(data.get("sub_task_results"), list)
@@ -31,9 +40,12 @@ class TestMultiAgentAPI:
         assert data.get("success") is True
 
     def test_multi_agent_complex_task(self):
-        resp = client.post("/api/sentinel/process/multi-agent", json={
-            "utterance": "research and analyze the current system performance",
-        })
+        resp = client.post(
+            "/api/sentinel/process/multi-agent",
+            json={
+                "utterance": "research and analyze the current system performance",
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         # should produce multiple sub-tasks via decomposition
@@ -53,6 +65,7 @@ class TestMultiAgentAPI:
 # ---------------------------------------------------------------------------
 # Rate limiter integration (orchestrator-level, not HTTP middleware)
 # ---------------------------------------------------------------------------
+
 
 class TestOrchestratorRateLimiterIntegration:
     def setup_method(self):
@@ -92,6 +105,7 @@ class TestOrchestratorRateLimiterIntegration:
 # Circuit breaker through HTTP
 # ---------------------------------------------------------------------------
 
+
 class TestCircuitBreakerIntegration:
     def test_circuit_breaker_endpoint(self):
         resp = client.get("/api/sentinel/circuit-breaker")
@@ -109,6 +123,7 @@ class TestCircuitBreakerIntegration:
 # ---------------------------------------------------------------------------
 # Cost tracking through real pipeline
 # ---------------------------------------------------------------------------
+
 
 class TestCostTrackingPipeline:
     def setup_method(self):
@@ -144,6 +159,7 @@ class TestCostTrackingPipeline:
 # Feedback and performance tracking
 # ---------------------------------------------------------------------------
 
+
 class TestFeedbackPerformancePipeline:
     def setup_method(self):
         reset_bridge()
@@ -170,6 +186,7 @@ class TestFeedbackPerformancePipeline:
 # ---------------------------------------------------------------------------
 # Plan cache through HTTP
 # ---------------------------------------------------------------------------
+
 
 class TestPlanCacheIntegration:
     def setup_method(self):
@@ -200,6 +217,7 @@ class TestPlanCacheIntegration:
 # ---------------------------------------------------------------------------
 # Full pipeline with all subsystems
 # ---------------------------------------------------------------------------
+
 
 class TestFullPipelineSubsystems:
     """Verify that the full pipeline returns data from all subsystems."""
@@ -240,11 +258,12 @@ class TestFullPipelineSubsystems:
 # Error handling and edge cases
 # ---------------------------------------------------------------------------
 
+
 class TestErrorHandlingIntegration:
     def test_utterance_too_short(self):
         resp = client.post("/api/sentinel/process", json={"utterance": "x"})
         assert resp.status_code == 200
-        data = resp.json()
+        resp.json()
 
     def test_very_long_utterance(self):
         long_text = "system " * 100
@@ -256,23 +275,34 @@ class TestErrorHandlingIntegration:
 
     def test_session_continuity(self):
         session = "integ-test-session"
-        resp1 = client.post("/api/sentinel/process", json={
-            "utterance": "cpu usage", "session_id": session,
-        })
+        resp1 = client.post(
+            "/api/sentinel/process",
+            json={
+                "utterance": "cpu usage",
+                "session_id": session,
+            },
+        )
         assert resp1.status_code == 200
-        resp2 = client.post("/api/sentinel/process", json={
-            "utterance": "cpu usage", "session_id": session,
-        })
+        resp2 = client.post(
+            "/api/sentinel/process",
+            json={
+                "utterance": "cpu usage",
+                "session_id": session,
+            },
+        )
         assert resp2.status_code == 200
         # both should succeed
         assert resp1.json()["tool_result"]["success"] is True
         assert resp2.json()["tool_result"]["success"] is True
 
     def test_dry_run_through_full_pipeline(self):
-        resp = client.post("/api/sentinel/process", json={
-            "utterance": "analyze system health",
-            "dry_run": True,
-        })
+        resp = client.post(
+            "/api/sentinel/process",
+            json={
+                "utterance": "analyze system health",
+                "dry_run": True,
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["simulated"] is True
@@ -281,10 +311,13 @@ class TestErrorHandlingIntegration:
 
     def test_simulate_approve_reject_cycle(self):
         # simulate + approve workflow through real pipeline
-        resp = client.post("/v1/execute", json={
-            "tool_id": "executor.command",
-            "params": {"command": "echo integration_test", "timeout": 5},
-        })
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "executor.command",
+                "params": {"command": "echo integration_test", "timeout": 5},
+            },
+        )
         # at auto level, may require confirm
         assert resp.status_code == 200
 
@@ -293,10 +326,11 @@ class TestErrorHandlingIntegration:
 # Multi-agent orchestrator via direct access
 # ---------------------------------------------------------------------------
 
+
 class TestMultiAgentDirectIntegration:
     def test_multi_agent_property_on_orchestrator(self):
         orch = get_orchestrator()
-        assert hasattr(orch, 'multi_agent')
+        assert hasattr(orch, "multi_agent")
         ma = orch.multi_agent
         assert ma is not None
 

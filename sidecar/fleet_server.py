@@ -17,9 +17,16 @@ FLEET_PORT = 8766
 _rate_limiter = SlidingWindowRateLimiter(window_seconds=60, max_buckets=1024)
 
 REMOTE_ALLOWED_TOOLS = {
-    "system.info", "system.cpu", "system.memory", "system.disk",
-    "system.network", "system.processes", "system.gpu", "audit.list",
+    "system.info",
+    "system.cpu",
+    "system.memory",
+    "system.disk",
+    "system.network",
+    "system.processes",
+    "system.gpu",
+    "audit.list",
 }
+
 
 def load_fleet():
     if os.path.exists(FLEET_CONFIG):
@@ -38,13 +45,17 @@ def _server_endpoint(cfg):
             raise RuntimeError("Non-loopback fleet access requires configured TLS certificate and key")
     return host, port
 
+
 class FleetProxyHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self._handle()
+
     def do_POST(self):
         self._handle()
+
     def do_DELETE(self):
         self._handle()
+
     def do_PUT(self):
         self._handle()
 
@@ -53,7 +64,8 @@ class FleetProxyHandler(BaseHTTPRequestHandler):
         decision = _rate_limiter.allow(client_ip, limit=30)
         if not decision.allowed:
             self._send_json(
-                429, {"error": "Too many requests", "retry_after": decision.retry_after},
+                429,
+                {"error": "Too many requests", "retry_after": decision.retry_after},
                 headers={"Retry-After": str(decision.retry_after)},
             )
             return
@@ -133,7 +145,9 @@ class FleetProxyHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
 
+
 _server_instance = None
+
 
 def start_fleet_server():
     global _server_instance
@@ -153,16 +167,19 @@ def start_fleet_server():
     except Exception:
         pass
 
+
 def run_fleet_thread():
     t = threading.Thread(target=start_fleet_server, daemon=True)
     t.start()
     return t
+
 
 def stop_fleet_server():
     global _server_instance
     if _server_instance:
         _server_instance.shutdown()
         _server_instance = None
+
 
 if __name__ == "__main__":
     print(f"Fleet server starting with configured loopback/TLS policy on port {FLEET_PORT}")

@@ -1,4 +1,6 @@
-import os, sys
+import os
+import sys
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from unittest.mock import MagicMock
@@ -20,8 +22,10 @@ def local_services_available_for_feedback_tests(monkeypatch):
         provider = router._providers[provider_id]
         available = (not provider.requires_key) or router.has_api_key(provider_id)
         return ProviderAvailability(
-            provider_id, available,
-            "test_available" if available else "missing_api_key", 0.0,
+            provider_id,
+            available,
+            "test_available" if available else "missing_api_key",
+            0.0,
         )
 
     monkeypatch.setattr(ModelRouter, "provider_availability", availability)
@@ -96,8 +100,10 @@ class TestOrchestratorRecordsFeedback:
         router = MagicMock(spec=ModelRouter)
         router._key_map = {"ollama": "test"}
         router.select.return_value = RouterDecision(
-            provider_id="ollama", model="llama3",
-            task_type=TaskType.QUICK, strategy="priority",
+            provider_id="ollama",
+            model="llama3",
+            task_type=TaskType.QUICK,
+            strategy="priority",
             reason="mock",
         )
 
@@ -112,11 +118,15 @@ class TestOrchestratorRecordsFeedback:
             model_feedback_store=store,
         )
         orch._intent_engine.parse.return_value = Intent(
-            action="query", target="system.cpu",
-            parameters={}, confidence=0.9, raw_input="cpu",
+            action="query",
+            target="system.cpu",
+            parameters={},
+            confidence=0.9,
+            raw_input="cpu",
         )
 
         import asyncio
+
         asyncio.run(orch.process("cpu", skip_simulation=True))
 
         assert store.total_records >= 1
@@ -127,8 +137,10 @@ class TestOrchestratorRecordsFeedback:
         router = MagicMock(spec=ModelRouter)
         router._key_map = {"ollama": "test"}
         router.select.return_value = RouterDecision(
-            provider_id="ollama", model="llama3",
-            task_type=TaskType.QUICK, strategy="priority",
+            provider_id="ollama",
+            model="llama3",
+            task_type=TaskType.QUICK,
+            strategy="priority",
             reason="mock",
         )
 
@@ -143,11 +155,15 @@ class TestOrchestratorRecordsFeedback:
             model_feedback_store=store,
         )
         orch._intent_engine.parse.return_value = Intent(
-            action="query", target="system.cpu",
-            parameters={}, confidence=0.9, raw_input="cpu",
+            action="query",
+            target="system.cpu",
+            parameters={},
+            confidence=0.9,
+            raw_input="cpu",
         )
 
         import asyncio
+
         asyncio.run(orch.process("cpu", skip_simulation=True))
 
         stats = store.get_stats(provider_id="ollama", task_type=TaskType.QUICK)
@@ -166,17 +182,24 @@ class TestSmartSelectUsesFeedback:
         router.set_feedback_store(store)
 
         from sentinel.core.model_router import ProviderSpec
+
         router._providers["ollama"] = ProviderSpec(
-            id="ollama", name="Ollama",
+            id="ollama",
+            name="Ollama",
             task_types=[TaskType.QUICK, TaskType.LOCAL],
-            requires_key=False, is_local=True,
-            default_model="llama3", priority=10,
+            requires_key=False,
+            is_local=True,
+            default_model="llama3",
+            priority=10,
         )
         router._providers["openrouter"] = ProviderSpec(
-            id="openrouter", name="OpenRouter",
+            id="openrouter",
+            name="OpenRouter",
             task_types=[TaskType.QUICK, TaskType.REASONING, TaskType.CODE],
-            requires_key=True, is_local=False,
-            default_model="gpt-4o", priority=20,
+            requires_key=True,
+            is_local=False,
+            default_model="gpt-4o",
+            priority=20,
         )
         router._key_map = {"openrouter": "sk-test"}
         router._strategy = "smart"
@@ -195,17 +218,24 @@ class TestSmartSelectUsesFeedback:
         router.set_feedback_store(store)
 
         from sentinel.core.model_router import ProviderSpec
+
         router._providers["ollama"] = ProviderSpec(
-            id="ollama", name="Ollama",
+            id="ollama",
+            name="Ollama",
             task_types=[TaskType.QUICK, TaskType.LOCAL],
-            requires_key=False, is_local=True,
-            default_model="llama3", priority=10,
+            requires_key=False,
+            is_local=True,
+            default_model="llama3",
+            priority=10,
         )
         router._providers["openrouter"] = ProviderSpec(
-            id="openrouter", name="OpenRouter",
+            id="openrouter",
+            name="OpenRouter",
             task_types=[TaskType.QUICK, TaskType.REASONING, TaskType.CODE],
-            requires_key=True, is_local=False,
-            default_model="gpt-4o", priority=20,
+            requires_key=True,
+            is_local=False,
+            default_model="gpt-4o",
+            priority=20,
         )
         router._key_map = {"openrouter": "sk-test"}
         router._strategy = "smart"
@@ -216,17 +246,24 @@ class TestSmartSelectUsesFeedback:
     def test_no_feedback_falls_back_to_normal_scoring(self):
         router = ModelRouter(providers=[])
         from sentinel.core.model_router import ProviderSpec
+
         router._providers["ollama"] = ProviderSpec(
-            id="ollama", name="Ollama",
+            id="ollama",
+            name="Ollama",
             task_types=[TaskType.QUICK, TaskType.LOCAL],
-            requires_key=False, is_local=True,
-            default_model="llama3", priority=30,
+            requires_key=False,
+            is_local=True,
+            default_model="llama3",
+            priority=30,
         )
         router._providers["openrouter"] = ProviderSpec(
-            id="openrouter", name="OpenRouter",
+            id="openrouter",
+            name="OpenRouter",
             task_types=[TaskType.QUICK, TaskType.REASONING, TaskType.CODE],
-            requires_key=True, is_local=False,
-            default_model="gpt-4o", priority=20,
+            requires_key=True,
+            is_local=False,
+            default_model="gpt-4o",
+            priority=20,
         )
         router._key_map = {"openrouter": "sk-test"}
         router._strategy = "smart"
@@ -236,6 +273,7 @@ class TestSmartSelectUsesFeedback:
 
         decision = router.select(TaskType.QUICK, context={"permission_level": "admin"})
         assert decision.provider_id == "ollama"
+
 
 class TestPersistence:
     def test_db_path_creates_sqlite_file(self, tmp_path):

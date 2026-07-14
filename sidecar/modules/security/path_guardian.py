@@ -21,7 +21,8 @@ def _unwrap_identity(context) -> Optional[dict]:
     if isinstance(context, AuthContext):
         warnings.warn(
             "AuthContext passed to PathGuardian is deprecated, use IdentityContext",
-            DeprecationWarning, stacklevel=4,
+            DeprecationWarning,
+            stacklevel=4,
         )
         return {"user_id": context.user_id, "client_id": context.client_id, "level": "confirm"}
     if hasattr(context, "user_id") and hasattr(context, "level"):
@@ -36,32 +37,22 @@ class PathGuardian:
     def __init__(self):
         self._max_path_length = 260
 
-    def validate_read(
-        self, path: str, context: Optional[Any] = None
-    ) -> ValidationResult:
+    def validate_read(self, path: str, context: Optional[Any] = None) -> ValidationResult:
         return self._validate(path, "read", _unwrap_identity(context))
 
-    def validate_write(
-        self, path: str, context: Optional[Any] = None
-    ) -> ValidationResult:
+    def validate_write(self, path: str, context: Optional[Any] = None) -> ValidationResult:
         return self._validate(path, "write", _unwrap_identity(context))
 
-    def validate_delete(
-        self, path: str, context: Optional[Any] = None
-    ) -> ValidationResult:
+    def validate_delete(self, path: str, context: Optional[Any] = None) -> ValidationResult:
         return self._validate(path, "delete", _unwrap_identity(context))
 
-    def validate_search(
-        self, root: str, context: Optional[Any] = None
-    ) -> ValidationResult:
+    def validate_search(self, root: str, context: Optional[Any] = None) -> ValidationResult:
         if not root or not root.strip():
             return self._deny("Search root path is empty", "medium")
         normalized = self._normalize(root)
         blocked, blocked_by = path_matches_blocked(normalized)
         if blocked:
-            return self._deny(
-                f"Search root blocked: matches '{blocked_by}'", "critical", normalized
-            )
+            return self._deny(f"Search root blocked: matches '{blocked_by}'", "critical", normalized)
         return self._allow(normalized)
 
     def resolve_path(self, path: str) -> str:
@@ -70,16 +61,12 @@ class PathGuardian:
             raise PathSecurityError(result.reason, path, result.risk_level)
         return result.normalized_path
 
-    def _validate(
-        self, path: str, operation: str, context: Optional[dict] = None
-    ) -> ValidationResult:
+    def _validate(self, path: str, operation: str, context: Optional[dict] = None) -> ValidationResult:
         if not path or not path.strip():
             return self._deny("Path is empty", "medium")
 
         if len(path) > self._max_path_length:
-            return self._deny(
-                f"Path exceeds max length ({len(path)} > {self._max_path_length})", "medium"
-            )
+            return self._deny(f"Path exceeds max length ({len(path)} > {self._max_path_length})", "medium")
 
         if self._has_traversal(path):
             return self._deny("Path traversal detected", "high", self._normalize(path))
@@ -92,9 +79,7 @@ class PathGuardian:
 
         blocked, blocked_by = path_matches_blocked(normalized)
         if blocked:
-            return self._deny(
-                f"Path is blocked: matches '{blocked_by}'", "critical", normalized
-            )
+            return self._deny(f"Path is blocked: matches '{blocked_by}'", "critical", normalized)
 
         real_path = self._resolve_symlink(normalized)
         if real_path != normalized:
@@ -102,7 +87,8 @@ class PathGuardian:
             if blocked_real:
                 return self._deny(
                     f"Symlink target blocked: '{real_path}' matches '{blocked_by_real}'",
-                    "critical", normalized,
+                    "critical",
+                    normalized,
                 )
 
         if operation in ("write", "delete"):
@@ -111,9 +97,7 @@ class PathGuardian:
                 if real_path != normalized:
                     allowed, _ = path_is_within_allowed(real_path)
                 if not allowed:
-                    return self._deny(
-                        f"Path outside allowed directories for {operation}", "high", normalized
-                    )
+                    return self._deny(f"Path outside allowed directories for {operation}", "high", normalized)
 
         if not os.path.exists(normalized) and operation not in ("write", "resolve"):
             return self._deny(f"Path does not exist: {normalized}", "low", normalized)
@@ -139,7 +123,7 @@ class PathGuardian:
         parts = path.replace("/", sep).split(sep)
         if ".." in parts:
             return True
-        if re.search(r'(?:^|[/\\])\.\.(?:[/\\]|$)', path):
+        if re.search(r"(?:^|[/\\])\.\.(?:[/\\]|$)", path):
             return True
         return False
 
@@ -150,9 +134,7 @@ class PathGuardian:
                 if target.startswith("\\\\?\\"):
                     target = target[4:]
                 if not os.path.isabs(target):
-                    target = os.path.abspath(
-                        os.path.join(os.path.dirname(path), target)
-                    )
+                    target = os.path.abspath(os.path.join(os.path.dirname(path), target))
                 resolved = os.path.normpath(target)
                 log.debug("Symlink %s -> %s", path, resolved)
                 return resolved

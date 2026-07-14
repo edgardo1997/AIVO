@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { api } from "../../api";
+import type { MemorySession } from "../../types";
 
-interface Session { session_id: string; created_at: string; updated_at: string; execution_count: number; last_utterance: string; }
 interface RecordItem { execution_id: string; timestamp: string; utterance: string; intent?: { action?: string; target?: string }; error?: string | null; }
 
 export function Memory() {
-  const [sessions, setSessions] = useState<Session[]>([]);
+  const [sessions, setSessions] = useState<MemorySession[]>([]);
   const [records, setRecords] = useState<RecordItem[]>([]);
   const [selected, setSelected] = useState("");
   const [query, setQuery] = useState("");

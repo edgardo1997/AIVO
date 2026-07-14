@@ -25,7 +25,11 @@ class SlidingWindowRateLimiter:
         self._lock = threading.RLock()
 
     def allow(
-        self, key: str, *, limit: int, now: Optional[float] = None,
+        self,
+        key: str,
+        *,
+        limit: int,
+        now: Optional[float] = None,
     ) -> RateLimitDecision:
         if limit <= 0:
             raise ValueError("limit must be positive")

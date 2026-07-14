@@ -97,9 +97,13 @@ class TestProcessPipeline:
             assert resp.status_code == 200, f"Spanish utterance failed: {utt}"
 
     def test_dry_run_returns_plan_without_execution(self):
-        resp = client.post("/api/sentinel/process", json={
-            "utterance": "analyze system health", "dry_run": True,
-        })
+        resp = client.post(
+            "/api/sentinel/process",
+            json={
+                "utterance": "analyze system health",
+                "dry_run": True,
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data.get("simulated") is True
@@ -109,15 +113,21 @@ class TestProcessPipeline:
     def test_approve_reject_cycle(self):
         try:
             perm_svc.set_level("view")
-            resp = client.post("/api/sentinel/process", json={
-                "utterance": "run command echo hello",
-            })
+            resp = client.post(
+                "/api/sentinel/process",
+                json={
+                    "utterance": "run command echo hello",
+                },
+            )
             data = resp.json()
             action_id = data.get("action_id")
             if action_id:
-                reject = client.post("/api/sentinel/simulate/reject", json={
-                    "action_id": action_id,
-                })
+                reject = client.post(
+                    "/api/sentinel/simulate/reject",
+                    json={
+                        "action_id": action_id,
+                    },
+                )
                 assert reject.status_code == 200
                 assert reject.json().get("approved") is False
         finally:
@@ -150,24 +160,36 @@ class TestV1Execute:
     """Direct tool execution via /v1/execute."""
 
     def test_system_cpu(self):
-        resp = client.post("/v1/execute", json={
-            "tool_id": "system.cpu", "params": {},
-        })
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "system.cpu",
+                "params": {},
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["success"] is True
 
     def test_system_info(self):
-        resp = client.post("/v1/execute", json={
-            "tool_id": "system.info", "params": {},
-        })
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "system.info",
+                "params": {},
+            },
+        )
         assert resp.status_code == 200
         assert resp.json()["success"] is True
 
     def test_unknown_tool(self):
-        resp = client.post("/v1/execute", json={
-            "tool_id": "nonexistent.tool", "params": {},
-        })
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "nonexistent.tool",
+                "params": {},
+            },
+        )
         assert resp.status_code == 200
         assert resp.json()["success"] is False
 
@@ -176,41 +198,63 @@ class TestV1Execute:
         assert resp.status_code == 422
 
     def test_extra_fields_rejected(self):
-        resp = client.post("/v1/execute", json={
-            "tool_id": "system.cpu", "params": {}, "invalid": True,
-        })
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "system.cpu",
+                "params": {},
+                "invalid": True,
+            },
+        )
         assert resp.status_code == 422
 
     def test_returns_pipeline_info(self):
-        resp = client.post("/v1/execute", json={
-            "tool_id": "system.cpu", "params": {},
-        })
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "system.cpu",
+                "params": {},
+            },
+        )
         data = resp.json()
         assert "pipeline" in data
         assert "plan" in data["pipeline"]
         assert "decision" in data["pipeline"]
 
     def test_dry_run_simulated(self):
-        resp = client.post("/v1/execute", json={
-            "tool_id": "system.cpu", "params": {}, "dry_run": True,
-        })
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "system.cpu",
+                "params": {},
+                "dry_run": True,
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data.get("simulated") is True
 
     def test_app_discovery_list(self):
-        resp = client.post("/v1/execute", json={
-            "tool_id": "app.discovery", "params": {"action": "list"},
-        })
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "app.discovery",
+                "params": {"action": "list"},
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["success"] is True
         assert "apps" in data["data"]
 
     def test_app_discovery_capabilities(self):
-        resp = client.post("/v1/execute", json={
-            "tool_id": "app.discovery", "params": {"action": "capabilities"},
-        })
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "app.discovery",
+                "params": {"action": "capabilities"},
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["success"] is True
@@ -221,9 +265,13 @@ class TestV1Execute:
     def test_executor_command_admin(self):
         try:
             perm_svc.set_level("admin")
-            resp = client.post("/v1/execute", json={
-                "tool_id": "executor.command", "params": {"command": "echo hello"},
-            })
+            resp = client.post(
+                "/v1/execute",
+                json={
+                    "tool_id": "executor.command",
+                    "params": {"command": "echo hello"},
+                },
+            )
             assert resp.status_code == 200
             data = resp.json()
             assert data["success"] is True
@@ -246,15 +294,18 @@ class TestGoals:
     def test_create_and_delete_goal(self):
         try:
             perm_svc.set_level("admin")
-            new = client.post("/api/sentinel/goals", json={
-                "id": "e2e_test_goal",
-                "name": "E2E Test Goal",
-                "description": "Temporary goal for E2E testing",
-                "intent_targets": ["test.e2e"],
-                "possible_capabilities": ["system.cpu"],
-                "priority": 1,
-                "base_risk": "low",
-            })
+            new = client.post(
+                "/api/sentinel/goals",
+                json={
+                    "id": "e2e_test_goal",
+                    "name": "E2E Test Goal",
+                    "description": "Temporary goal for E2E testing",
+                    "intent_targets": ["test.e2e"],
+                    "possible_capabilities": ["system.cpu"],
+                    "priority": 1,
+                    "base_risk": "low",
+                },
+            )
             assert new.status_code == 201
             assert new.json()["goal_id"] == "e2e_test_goal"
             found = client.get("/api/sentinel/goals/matches", params={"intent": "test.e2e"})
@@ -268,9 +319,13 @@ class TestWebBrowsing:
     """Web browsing tools and endpoints."""
 
     def test_web_search_tool_returns_dict(self):
-        resp = client.post("/v1/execute", json={
-            "tool_id": "web.search", "params": {"query": "python programming"},
-        })
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "web.search",
+                "params": {"query": "python programming"},
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["success"] is True
@@ -278,17 +333,25 @@ class TestWebBrowsing:
         assert "results" in data["data"]
 
     def test_web_navigate_tool(self):
-        resp = client.post("/v1/execute", json={
-            "tool_id": "web.navigate", "params": {"url": "https://example.com"},
-        })
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "web.navigate",
+                "params": {"url": "https://example.com"},
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["success"] is True
 
     def test_web_extract_tool(self):
-        resp = client.post("/v1/execute", json={
-            "tool_id": "web.extract", "params": {"url": "https://example.com"},
-        })
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "web.extract",
+                "params": {"url": "https://example.com"},
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["success"] is True
@@ -313,9 +376,13 @@ class TestHardening:
         assert isinstance(data, dict)
 
     def test_tool_timeout_override(self):
-        resp = client.put("/api/sentinel/hardening/tool-override/system.cpu", json={
-            "timeout": 30, "max_retries": 2,
-        })
+        resp = client.put(
+            "/api/sentinel/hardening/tool-override/system.cpu",
+            json={
+                "timeout": 30,
+                "max_retries": 2,
+            },
+        )
         assert resp.status_code == 200
 
     def test_tool_override_reset(self):
@@ -333,14 +400,17 @@ class TestTriggers:
         assert "triggers" in data
 
     def test_trigger_create_and_delete(self):
-        resp = client.post("/v1/triggers", json={
-            "id": "e2e-test-trigger",
-            "name": "E2E Test",
-            "conditions": [{"metric": "cpu_percent", "operator": "gt", "value": 95}],
-            "action": {"tool_id": "system.diagnostic", "params": {}},
-            "cooldown_seconds": 60,
-            "enabled": True,
-        })
+        resp = client.post(
+            "/v1/triggers",
+            json={
+                "id": "e2e-test-trigger",
+                "name": "E2E Test",
+                "conditions": [{"metric": "cpu_percent", "operator": "gt", "value": 95}],
+                "action": {"tool_id": "system.diagnostic", "params": {}},
+                "cooldown_seconds": 60,
+                "enabled": True,
+            },
+        )
         assert resp.status_code == 201
         assert resp.json()["trigger_id"] == "e2e-test-trigger"
         resp = client.delete("/v1/triggers/e2e-test-trigger")
@@ -363,23 +433,29 @@ class TestAgents:
         assert isinstance(data, list)
 
     def test_agent_create_and_delete(self):
-        resp = client.post("/v1/agents", json={
-            "agent_id": "e2e-test-agent",
-            "name": "E2E Agent",
-            "provider": "ollama",
-            "model": "llama3",
-            "capabilities": ["system.read"],
-        })
+        resp = client.post(
+            "/v1/agents",
+            json={
+                "agent_id": "e2e-test-agent",
+                "name": "E2E Agent",
+                "provider": "ollama",
+                "model": "llama3",
+                "capabilities": ["system.read"],
+            },
+        )
         assert resp.status_code == 201
         assert resp.json()["agent_id"] == "e2e-test-agent"
         resp = client.delete("/v1/agents/e2e-test-agent")
         assert resp.status_code == 200
 
     def test_agent_delegate_tool(self):
-        resp = client.post("/v1/execute", json={
-            "tool_id": "agent.delegate",
-            "params": {"task": "show system info", "strategy": "auto"},
-        })
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "agent.delegate",
+                "params": {"task": "show system info", "strategy": "auto"},
+            },
+        )
         assert resp.status_code == 200
 
 
@@ -394,14 +470,17 @@ class TestVault:
         assert "encryption_enabled" in data
 
     def test_vault_create_and_reveal(self):
-        client.post("/api/sentinel/vault/entries", json={
-            "id": "e2e-test-key",
-            "name": "E2E Test Key",
-            "category": "api_key",
-            "value": "sk-test12345abcdef",
-            "rotatable": True,
-            "rotation_days": 30,
-        })
+        client.post(
+            "/api/sentinel/vault/entries",
+            json={
+                "id": "e2e-test-key",
+                "name": "E2E Test Key",
+                "category": "api_key",
+                "value": "sk-test12345abcdef",
+                "rotatable": True,
+                "rotation_days": 30,
+            },
+        )
         reveal = client.post("/api/sentinel/vault/entries/e2e-test-key/reveal")
         assert reveal.status_code == 200
         assert reveal.json()["value"] == "sk-test12345abcdef"
@@ -420,9 +499,12 @@ class TestMultiAgent:
     """Multi-agent task delegation."""
 
     def test_multi_agent_simple_task(self):
-        resp = client.post("/api/sentinel/process/multi-agent", json={
-            "utterance": "show system info",
-        })
+        resp = client.post(
+            "/api/sentinel/process/multi-agent",
+            json={
+                "utterance": "show system info",
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert "success" in data
@@ -435,9 +517,12 @@ class TestMultiAgent:
         assert "error" in data
 
     def test_multi_agent_complex_task(self):
-        resp = client.post("/api/sentinel/process/multi-agent", json={
-            "utterance": "analyze system health and design a monitoring plan",
-        })
+        resp = client.post(
+            "/api/sentinel/process/multi-agent",
+            json={
+                "utterance": "analyze system health and design a monitoring plan",
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert "sub_task_results" in data
@@ -447,9 +532,13 @@ class TestPermissions:
     """Permission levels, emergency stop, security."""
 
     def test_permission_status(self):
-        resp = client.post("/v1/execute", json={
-            "tool_id": "permissions.status", "params": {},
-        })
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "permissions.status",
+                "params": {},
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["success"] is True
@@ -459,29 +548,44 @@ class TestPermissions:
     def test_permission_level_toggle(self):
         try:
             perm_svc.set_level("admin")
-            resp = client.post("/v1/execute", json={
-                "tool_id": "permissions.status", "params": {},
-            })
+            resp = client.post(
+                "/v1/execute",
+                json={
+                    "tool_id": "permissions.status",
+                    "params": {},
+                },
+            )
             assert resp.json()["data"]["level"] == "admin"
         finally:
             perm_svc.set_level("confirm")
-            resp = client.post("/v1/execute", json={
-                "tool_id": "permissions.status", "params": {},
-            })
+            resp = client.post(
+                "/v1/execute",
+                json={
+                    "tool_id": "permissions.status",
+                    "params": {},
+                },
+            )
             assert resp.json()["data"]["level"] == "confirm"
 
     def test_admin_executes_command_via_pipeline(self):
         try:
             perm_svc.set_level("admin")
-            resp = client.post("/api/sentinel/process", json={
-                "utterance": "run command echo hello",
-            })
+            resp = client.post(
+                "/api/sentinel/process",
+                json={
+                    "utterance": "run command echo hello",
+                },
+            )
             assert resp.status_code == 200
             data = resp.json()
             if data.get("blocked"):
-                approve = client.post("/api/sentinel/simulate/approve", json={
-                    "action_id": data["action_id"], "approved": True,
-                })
+                approve = client.post(
+                    "/api/sentinel/simulate/approve",
+                    json={
+                        "action_id": data["action_id"],
+                        "approved": True,
+                    },
+                )
                 assert approve.status_code == 200
                 data = approve.json()
             assert data["tool_result"]["success"] is True
@@ -494,9 +598,13 @@ class TestSessions:
 
     def test_session_preserved(self):
         session = "test-session-e2e"
-        resp = client.post("/api/sentinel/process", json={
-            "utterance": "cpu usage", "session_id": session,
-        })
+        resp = client.post(
+            "/api/sentinel/process",
+            json={
+                "utterance": "cpu usage",
+                "session_id": session,
+            },
+        )
         assert resp.status_code == 200
 
 
@@ -504,15 +612,18 @@ class TestAgentPersistence:
     """Agent persistence via API."""
 
     def test_agent_persistence_create_and_delete(self):
-        resp = client.post("/v1/agents", json={
-            "agent_id": "e2e-persist-agent",
-            "name": "Persist Agent",
-            "provider": "ollama",
-            "model": "llama3",
-            "capabilities": ["system.read", "filesystem.read"],
-            "allowed_tools": ["system.cpu", "system.info"],
-            "status": "active",
-        })
+        resp = client.post(
+            "/v1/agents",
+            json={
+                "agent_id": "e2e-persist-agent",
+                "name": "Persist Agent",
+                "provider": "ollama",
+                "model": "llama3",
+                "capabilities": ["system.read", "filesystem.read"],
+                "allowed_tools": ["system.cpu", "system.info"],
+                "status": "active",
+            },
+        )
         assert resp.status_code == 201
 
         resp = client.get("/v1/agents/e2e-persist-agent")
@@ -555,6 +666,7 @@ class TestRecovery:
 
     def test_error_classifier(self):
         from sentinel.core.recovery import ErrorClassifier, ErrorCategory
+
         classifier = ErrorClassifier()
         for err in ["timeout", "connection refused", "permission denied"]:
             cat = classifier.classify(err)
@@ -562,12 +674,14 @@ class TestRecovery:
 
     def test_retry_backoff(self):
         from sentinel.core.recovery import RetryHandler, RecoveryPolicy
-        handler = RetryHandler()
+
+        RetryHandler()
         policy = RecoveryPolicy(max_retries=3, retry_delay_ms=100, retry_backoff=2.0)
         delays = []
         for attempt in range(1, policy.max_retries + 1):
-            delay = min(policy.retry_delay_ms * (policy.retry_backoff ** (attempt - 1)),
-                        policy.retry_max_delay_ms) / 1000
+            delay = (
+                min(policy.retry_delay_ms * (policy.retry_backoff ** (attempt - 1)), policy.retry_max_delay_ms) / 1000
+            )
             delays.append(delay)
         assert len(delays) == 3
         for i in range(1, len(delays)):

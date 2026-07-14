@@ -88,10 +88,19 @@ class Goal:
         return self.definition.possible_capabilities
 
 
-_ALLOWED_UPDATE_FIELDS = frozenset({
-    "name", "description", "related_intents", "possible_capabilities",
-    "priority", "base_risk", "keywords", "enabled", "context_rules",
-})
+_ALLOWED_UPDATE_FIELDS = frozenset(
+    {
+        "name",
+        "description",
+        "related_intents",
+        "possible_capabilities",
+        "priority",
+        "base_risk",
+        "keywords",
+        "enabled",
+        "context_rules",
+    }
+)
 
 
 class GoalRegistry:
@@ -128,11 +137,16 @@ class GoalRegistry:
             self._definitions[definition.id] = definition
             for intent_target in definition.related_intents:
                 self._intent_index.setdefault(intent_target, []).append(definition.id)
-            self._audit("REGISTER", definition.id, source, {
-                "priority": definition.priority,
-                "intents": list(definition.related_intents),
-                "caps": list(definition.possible_capabilities),
-            })
+            self._audit(
+                "REGISTER",
+                definition.id,
+                source,
+                {
+                    "priority": definition.priority,
+                    "intents": list(definition.related_intents),
+                    "caps": list(definition.possible_capabilities),
+                },
+            )
 
     def unregister(self, goal_id: str, source: str = "system") -> None:
         with self._lock:
@@ -231,12 +245,14 @@ class GoalRegistry:
             # 1. Exact match on related_intents
             for gid in self._intent_index.get(intent_target, []):
                 if gid in self._definitions:
-                    results.append(GoalMatchResult(
-                        goal=self._definitions[gid],
-                        confidence=1.0,
-                        match_type="exact",
-                        matched_by=intent_target,
-                    ))
+                    results.append(
+                        GoalMatchResult(
+                            goal=self._definitions[gid],
+                            confidence=1.0,
+                            match_type="exact",
+                            matched_by=intent_target,
+                        )
+                    )
                     seen.add(gid)
 
             # 2. Fuzzy match on related_intents
@@ -247,10 +263,14 @@ class GoalRegistry:
                     sim = self._token_similarity(intent_target, ref)
                     if sim >= 0.3:
                         conf = round(min(0.5 + sim * 0.4, 0.95), 2)
-                        results.append(GoalMatchResult(
-                            goal=goal, confidence=conf,
-                            match_type="fuzzy_intent", matched_by=ref,
-                        ))
+                        results.append(
+                            GoalMatchResult(
+                                goal=goal,
+                                confidence=conf,
+                                match_type="fuzzy_intent",
+                                matched_by=ref,
+                            )
+                        )
                         seen.add(goal.id)
                         break
 
@@ -264,17 +284,19 @@ class GoalRegistry:
                     sim = self._token_similarity(intent_target, cap)
                     if sim >= 0.3:
                         conf = round(min(0.4 + sim * 0.4, 0.85), 2)
-                        results.append(GoalMatchResult(
-                            goal=goal, confidence=conf,
-                            match_type="capability", matched_by=cap,
-                        ))
+                        results.append(
+                            GoalMatchResult(
+                                goal=goal,
+                                confidence=conf,
+                                match_type="capability",
+                                matched_by=cap,
+                            )
+                        )
                         seen.add(goal.id)
                         break
 
             # 4. Keyword match on name / description / keywords field
-            target_tokens = set(
-                intent_target.replace(".", " ").replace("_", " ").lower().split()
-            ) - self._STOPWORDS
+            target_tokens = set(intent_target.replace(".", " ").replace("_", " ").lower().split()) - self._STOPWORDS
             for goal in self._definitions.values():
                 if goal.id in seen:
                     continue
@@ -283,11 +305,14 @@ class GoalRegistry:
                 nd_tokens = set(nd.replace(".", " ").replace("_", " ").lower().split()) - self._STOPWORDS
                 overlap = target_tokens & nd_tokens
                 if overlap:
-                    results.append(GoalMatchResult(
-                        goal=goal, confidence=0.4,
-                        match_type="keyword",
-                        matched_by=", ".join(sorted(overlap)),
-                    ))
+                    results.append(
+                        GoalMatchResult(
+                            goal=goal,
+                            confidence=0.4,
+                            match_type="keyword",
+                            matched_by=", ".join(sorted(overlap)),
+                        )
+                    )
                     seen.add(goal.id)
 
             return results
@@ -309,8 +334,7 @@ class ScoredGoal:
 
 
 class GoalScorer:
-    def __init__(self, context: Optional[Dict[str, Any]] = None,
-                 config: Optional[GoalScorerConfig] = None) -> None:
+    def __init__(self, context: Optional[Dict[str, Any]] = None, config: Optional[GoalScorerConfig] = None) -> None:
         self._context = context or {}
         self._config = config or GoalScorerConfig()
 
@@ -366,57 +390,65 @@ class GoalScorer:
 
 def create_default_goal_registry(max_audit_entries: int = 1000) -> GoalRegistry:
     registry = GoalRegistry(max_audit_entries=max_audit_entries)
-    registry.register(GoalDefinition(
-        id="system_health_diagnosis",
-        name="System Health Diagnosis",
-        description="Analyze overall system health and performance",
-        related_intents=["system.health"],
-        possible_capabilities=[
-            "system.cpu",
-            "system.info",
-            "system.processes",
-        ],
-        priority=8,
-        base_risk=RiskLevel.LOW,
-        context_rules={"cpu_high": 0.3, "mem_high": 0.3, "disk_high": 0.3},
-    ))
-    registry.register(GoalDefinition(
-        id="disk_space_cleanup",
-        name="Disk Space Cleanup",
-        description="Identify and free disk space by analyzing storage usage",
-        related_intents=["system.disk"],
-        possible_capabilities=[
-            "system.info",
-        ],
-        priority=5,
-        base_risk=RiskLevel.LOW,
-        context_rules={"disk_high": 1.0},
-    ))
-    registry.register(GoalDefinition(
-        id="network_diagnosis",
-        name="Network Diagnosis",
-        description="Troubleshoot network connectivity and performance issues",
-        related_intents=["system.network"],
-        possible_capabilities=[
-            "system.info",
-            "system.processes",
-        ],
-        priority=6,
-        base_risk=RiskLevel.LOW,
-        context_rules={},
-    ))
-    registry.register(GoalDefinition(
-        id="performance_tuning",
-        name="Performance Tuning",
-        description="Optimize system performance by analyzing resource usage",
-        related_intents=["system.cpu", "system.processes", "system.memory"],
-        possible_capabilities=[
-            "system.cpu",
-            "system.info",
-            "system.processes",
-        ],
-        priority=7,
-        base_risk=RiskLevel.LOW,
-        context_rules={"cpu_high": 0.5, "mem_high": 0.5},
-    ))
+    registry.register(
+        GoalDefinition(
+            id="system_health_diagnosis",
+            name="System Health Diagnosis",
+            description="Analyze overall system health and performance",
+            related_intents=["system.health"],
+            possible_capabilities=[
+                "system.cpu",
+                "system.info",
+                "system.processes",
+            ],
+            priority=8,
+            base_risk=RiskLevel.LOW,
+            context_rules={"cpu_high": 0.3, "mem_high": 0.3, "disk_high": 0.3},
+        )
+    )
+    registry.register(
+        GoalDefinition(
+            id="disk_space_cleanup",
+            name="Disk Space Cleanup",
+            description="Identify and free disk space by analyzing storage usage",
+            related_intents=["system.disk"],
+            possible_capabilities=[
+                "system.info",
+            ],
+            priority=5,
+            base_risk=RiskLevel.LOW,
+            context_rules={"disk_high": 1.0},
+        )
+    )
+    registry.register(
+        GoalDefinition(
+            id="network_diagnosis",
+            name="Network Diagnosis",
+            description="Troubleshoot network connectivity and performance issues",
+            related_intents=["system.network"],
+            possible_capabilities=[
+                "system.info",
+                "system.processes",
+            ],
+            priority=6,
+            base_risk=RiskLevel.LOW,
+            context_rules={},
+        )
+    )
+    registry.register(
+        GoalDefinition(
+            id="performance_tuning",
+            name="Performance Tuning",
+            description="Optimize system performance by analyzing resource usage",
+            related_intents=["system.cpu", "system.processes", "system.memory"],
+            possible_capabilities=[
+                "system.cpu",
+                "system.info",
+                "system.processes",
+            ],
+            priority=7,
+            base_risk=RiskLevel.LOW,
+            context_rules={"cpu_high": 0.5, "mem_high": 0.5},
+        )
+    )
     return registry

@@ -1,4 +1,6 @@
-import os, sys
+import os
+import sys
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from unittest.mock import MagicMock, AsyncMock
@@ -20,12 +22,19 @@ class TestSkillSpec:
 
     def test_to_dict_with_all_fields(self):
         s = SkillSpec(
-            id="full.skill", name="Full", description="Full skill", category="code",
-            tools=["tool.a", "tool.b"], system_prompt="Do stuff",
+            id="full.skill",
+            name="Full",
+            description="Full skill",
+            category="code",
+            tools=["tool.a", "tool.b"],
+            system_prompt="Do stuff",
             input_schema={"type": "object", "properties": {"x": {"type": "string"}}},
             output_schema={"type": "object", "properties": {"y": {"type": "integer"}}},
-            preconditions=["pre"], postconditions=["post"],
-            risk_level="high", requires_confirmation=True, version="2.0.0",
+            preconditions=["pre"],
+            postconditions=["post"],
+            risk_level="high",
+            requires_confirmation=True,
+            version="2.0.0",
             tags=["tag1", "tag2"],
         )
         d = s.to_dict()
@@ -108,8 +117,24 @@ class TestSkillRegistry:
 
     def test_find_for_task_scores_correctly(self):
         reg = SkillRegistry()
-        reg.register(SkillSpec(id="code.review", name="Code Review", description="Review code", category="code", tags=["code", "quality"]))
-        reg.register(SkillSpec(id="system.diag", name="System Diagnosis", description="Diagnose system", category="system", tags=["system", "health"]))
+        reg.register(
+            SkillSpec(
+                id="code.review",
+                name="Code Review",
+                description="Review code",
+                category="code",
+                tags=["code", "quality"],
+            )
+        )
+        reg.register(
+            SkillSpec(
+                id="system.diag",
+                name="System Diagnosis",
+                description="Diagnose system",
+                category="system",
+                tags=["system", "health"],
+            )
+        )
         results = reg.find_for_task("review the code quality")
         assert len(results) >= 1
         assert results[0].id == "code.review"
@@ -150,8 +175,13 @@ class TestSkillEngine:
     @pytest.mark.asyncio
     async def test_validate_missing_required(self):
         reg = SkillRegistry()
-        s = SkillSpec(id="test.req", name="Test Required", description="d", category="c",
-                       input_schema={"type": "object", "properties": {"x": {"type": "string"}}, "required": ["x"]})
+        s = SkillSpec(
+            id="test.req",
+            name="Test Required",
+            description="d",
+            category="c",
+            input_schema={"type": "object", "properties": {"x": {"type": "string"}}, "required": ["x"]},
+        )
         reg.register(s)
         engine = SkillEngine(registry=reg)
         result = await engine.execute("test.req", {})
@@ -161,8 +191,17 @@ class TestSkillEngine:
     @pytest.mark.asyncio
     async def test_validate_enum(self):
         reg = SkillRegistry()
-        s = SkillSpec(id="test.enum", name="Test Enum", description="d", category="c",
-                       input_schema={"type": "object", "properties": {"mode": {"type": "string", "enum": ["a", "b"]}}, "required": ["mode"]})
+        s = SkillSpec(
+            id="test.enum",
+            name="Test Enum",
+            description="d",
+            category="c",
+            input_schema={
+                "type": "object",
+                "properties": {"mode": {"type": "string", "enum": ["a", "b"]}},
+                "required": ["mode"],
+            },
+        )
         reg.register(s)
         engine = SkillEngine(registry=reg)
         result = await engine.execute("test.enum", {"mode": "c"})
@@ -171,8 +210,7 @@ class TestSkillEngine:
     @pytest.mark.asyncio
     async def test_execute_with_gateway(self):
         reg = SkillRegistry()
-        s = SkillSpec(id="test.exec", name="Test Exec", description="d", category="c",
-                       tools=["test.tool"])
+        s = SkillSpec(id="test.exec", name="Test Exec", description="d", category="c", tools=["test.tool"])
         reg.register(s)
         gw = MagicMock()
         gw.get_spec.return_value = MagicMock()
@@ -189,8 +227,7 @@ class TestSkillEngine:
     @pytest.mark.asyncio
     async def test_execute_step_failure_stops(self):
         reg = SkillRegistry()
-        s = SkillSpec(id="test.fail", name="Test Fail", description="d", category="c",
-                       tools=["tool.a", "tool.b"])
+        s = SkillSpec(id="test.fail", name="Test Fail", description="d", category="c", tools=["tool.a", "tool.b"])
         reg.register(s)
         gw = MagicMock()
         gw.get_spec.return_value = MagicMock()
@@ -213,7 +250,9 @@ class TestSkillEngine:
     @pytest.mark.asyncio
     async def test_suggest_finds_skills(self):
         reg = SkillRegistry()
-        reg.register(SkillSpec(id="code.review", name="Code Review", description="Review code", category="code", tags=["code"]))
+        reg.register(
+            SkillSpec(id="code.review", name="Code Review", description="Review code", category="code", tags=["code"])
+        )
         engine = SkillEngine(registry=reg)
         result = await engine.suggest("review the code")
         assert result["matched"] is True
@@ -236,8 +275,13 @@ class TestSkillEngine:
 
     def test_validate_params_optional_not_required(self):
         reg = SkillRegistry()
-        s = SkillSpec(id="test.opt", name="Test Opt", description="d", category="c",
-                       input_schema={"type": "object", "properties": {"x": {"type": "string"}}})
+        s = SkillSpec(
+            id="test.opt",
+            name="Test Opt",
+            description="d",
+            category="c",
+            input_schema={"type": "object", "properties": {"x": {"type": "string"}}},
+        )
         engine = SkillEngine(registry=reg)
         err = engine._validate_params(s, {"y": 1})
         assert err is None
@@ -246,11 +290,13 @@ class TestSkillEngine:
 class TestSkillsAPI:
     def setup_method(self):
         from modules.sentinel_bridge import reset_bridge
+
         reset_bridge()
 
     def test_list_skills(self):
         from fastapi.testclient import TestClient
         from main import app
+
         client = TestClient(app)
         resp = client.get("/api/sentinel/skills")
         assert resp.status_code == 200
@@ -261,6 +307,7 @@ class TestSkillsAPI:
     def test_find_skills(self):
         from fastapi.testclient import TestClient
         from main import app
+
         client = TestClient(app)
         resp = client.get("/api/sentinel/skills/find?q=code")
         assert resp.status_code == 200
@@ -268,6 +315,7 @@ class TestSkillsAPI:
     def test_find_skills_empty_query(self):
         from fastapi.testclient import TestClient
         from main import app
+
         client = TestClient(app)
         resp = client.get("/api/sentinel/skills/find?q=")
         assert resp.status_code == 200
@@ -276,6 +324,7 @@ class TestSkillsAPI:
     def test_suggest_skill(self):
         from fastapi.testclient import TestClient
         from main import app
+
         client = TestClient(app)
         resp = client.post("/api/sentinel/skills/suggest", json={"task": "organize files"})
         assert resp.status_code == 200
@@ -283,6 +332,7 @@ class TestSkillsAPI:
     def test_suggest_skill_no_task(self):
         from fastapi.testclient import TestClient
         from main import app
+
         client = TestClient(app)
         resp = client.post("/api/sentinel/skills/suggest", json={})
         assert resp.status_code == 200
@@ -291,6 +341,7 @@ class TestSkillsAPI:
     def test_execute_skill_no_skill_id(self):
         from fastapi.testclient import TestClient
         from main import app
+
         client = TestClient(app)
         resp = client.post("/api/sentinel/skills/execute", json={"params": {}})
         assert resp.status_code == 200

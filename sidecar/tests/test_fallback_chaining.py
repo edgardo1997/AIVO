@@ -1,12 +1,18 @@
-import os, sys
+import os
+import sys
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from unittest.mock import MagicMock, patch
 import pytest
 
 from sentinel.core.model_router import (
-    ModelRouter, TaskType, ProviderSpec, RouterDecision,
-    FALLBACK_STRATEGIES, ProviderAvailability,
+    ModelRouter,
+    TaskType,
+    ProviderSpec,
+    RouterDecision,
+    FALLBACK_STRATEGIES,
+    ProviderAvailability,
 )
 from sentinel.core.circuit_breaker import CircuitBreaker
 
@@ -17,7 +23,10 @@ def all_test_providers_available(monkeypatch):
         ModelRouter,
         "provider_availability",
         lambda self, provider_id, refresh=False: ProviderAvailability(
-            provider_id, True, "test_available", 0.0,
+            provider_id,
+            True,
+            "test_available",
+            0.0,
         ),
     )
 
@@ -58,14 +67,14 @@ class TestFallbackChainingUnit:
         assert mr._max_fallbacks == 1
 
     def test_build_fallback_chain_uses_provider_chain(self):
-        p = ProviderSpec(id="primary", name="Primary", task_types=[TaskType.QUICK],
-                         fallback_chain=["groq", "ollama"])
+        p = ProviderSpec(id="primary", name="Primary", task_types=[TaskType.QUICK], fallback_chain=["groq", "ollama"])
         mr = ModelRouter(providers=[p])
         # register fallback providers as well
         mr._providers["groq"] = ProviderSpec(id="groq", name="Groq", task_types=[TaskType.QUICK])
         mr._providers["ollama"] = ProviderSpec(id="ollama", name="Ollama", task_types=[TaskType.QUICK])
-        decision = RouterDecision(provider_id="primary", model="m", task_type=TaskType.QUICK,
-                                  strategy="priority", reason="test")
+        decision = RouterDecision(
+            provider_id="primary", model="m", task_type=TaskType.QUICK, strategy="priority", reason="test"
+        )
         chain = mr._build_fallback_chain(decision, TaskType.QUICK)
         ids = [c.provider_id for c in chain]
         assert ids == ["primary", "groq", "ollama"]
@@ -75,8 +84,9 @@ class TestFallbackChainingUnit:
         mr._providers["groq"] = ProviderSpec(id="groq", name="Groq", task_types=[TaskType.QUICK])
         mr._providers["ollama"] = ProviderSpec(id="ollama", name="Ollama", task_types=[TaskType.QUICK])
         mr.set_default_fallback_chain(["groq", "ollama"])
-        decision = RouterDecision(provider_id="primary", model="m", task_type=TaskType.QUICK,
-                                  strategy="priority", reason="test")
+        decision = RouterDecision(
+            provider_id="primary", model="m", task_type=TaskType.QUICK, strategy="priority", reason="test"
+        )
         chain = mr._build_fallback_chain(decision, TaskType.QUICK)
         ids = [c.provider_id for c in chain]
         assert ids == ["primary", "groq", "ollama"]
@@ -85,8 +95,9 @@ class TestFallbackChainingUnit:
         mr = ModelRouter()
         mr._providers["ollama"] = ProviderSpec(id="ollama", name="Ollama", task_types=[TaskType.QUICK])
         mr.set_default_fallback_chain(["nonexistent", "ollama"])
-        decision = RouterDecision(provider_id="primary", model="m", task_type=TaskType.QUICK,
-                                  strategy="priority", reason="test")
+        decision = RouterDecision(
+            provider_id="primary", model="m", task_type=TaskType.QUICK, strategy="priority", reason="test"
+        )
         chain = mr._build_fallback_chain(decision, TaskType.QUICK)
         ids = [c.provider_id for c in chain]
         assert ids == ["primary", "ollama"]
@@ -97,8 +108,9 @@ class TestFallbackChainingUnit:
         mr._providers["ollama"] = ProviderSpec(id="ollama", name="Ollama", task_types=[TaskType.QUICK])
         mr.set_default_fallback_chain(["groq", "ollama"])
         mr.set_max_fallbacks(1)
-        decision = RouterDecision(provider_id="primary", model="m", task_type=TaskType.QUICK,
-                                  strategy="priority", reason="test")
+        decision = RouterDecision(
+            provider_id="primary", model="m", task_type=TaskType.QUICK, strategy="priority", reason="test"
+        )
         chain = mr._build_fallback_chain(decision, TaskType.QUICK)
         ids = [c.provider_id for c in chain]
         assert ids == ["primary", "groq"]
@@ -108,11 +120,15 @@ class TestFallbackChainingUnit:
         mr = ModelRouter()
         # primary must be registered; add another local provider so select_all has a candidate
         mr._providers["local_test"] = ProviderSpec(
-            id="local_test", name="Local Test", task_types=[TaskType.QUICK],
-            is_local=True, requires_key=False,
+            id="local_test",
+            name="Local Test",
+            task_types=[TaskType.QUICK],
+            is_local=True,
+            requires_key=False,
         )
-        decision = RouterDecision(provider_id="ollama", model="m", task_type=TaskType.QUICK,
-                                  strategy="priority", reason="test")
+        decision = RouterDecision(
+            provider_id="ollama", model="m", task_type=TaskType.QUICK, strategy="priority", reason="test"
+        )
         chain = mr._build_fallback_chain(decision, TaskType.QUICK)
         assert chain[0].provider_id == "ollama"
         assert len(chain) > 1
@@ -122,8 +138,9 @@ class TestFallbackChainingUnit:
         mr._providers["ollama"] = ProviderSpec(id="ollama", name="Ollama", task_types=[TaskType.QUICK])
         mr._providers["groq"] = ProviderSpec(id="groq", name="Groq", task_types=[TaskType.QUICK])
         mr.set_default_fallback_chain(["ollama", "ollama", "groq"])
-        decision = RouterDecision(provider_id="primary", model="m", task_type=TaskType.QUICK,
-                                  strategy="priority", reason="test")
+        decision = RouterDecision(
+            provider_id="primary", model="m", task_type=TaskType.QUICK, strategy="priority", reason="test"
+        )
         chain = mr._build_fallback_chain(decision, TaskType.QUICK)
         ids = [c.provider_id for c in chain]
         assert ids == ["primary", "ollama", "groq"]
@@ -153,15 +170,14 @@ class TestFallbackChainingUnit:
         assert mr._fallback_stats["ollama"] == 1
 
     def test_provider_spec_fallback_chain_field(self):
-        p = ProviderSpec(id="test", name="Test", task_types=[TaskType.QUICK],
-                         fallback_chain=["a", "b"])
+        p = ProviderSpec(id="test", name="Test", task_types=[TaskType.QUICK], fallback_chain=["a", "b"])
         assert p.fallback_chain == ["a", "b"]
 
     def test_chat_uses_fallback_chain_override(self):
         mr = ModelRouter()
-        original_call = mr._call_provider
 
         call_order = []
+
         def tracking_call(decision, provider, messages, model_override=None):
             call_order.append(decision.provider_id)
             if decision.provider_id == "groq":
@@ -169,21 +185,24 @@ class TestFallbackChainingUnit:
             raise ConnectionError("fail")
 
         mr._call_provider = tracking_call
-        result = mr.chat([{"role": "user", "content": "hi"}], task_type=TaskType.QUICK,
-                         fallback_chain_override=["ollama", "groq"])
+        result = mr.chat(
+            [{"role": "user", "content": "hi"}], task_type=TaskType.QUICK, fallback_chain_override=["ollama", "groq"]
+        )
         assert result["provider"] == "groq"
         assert call_order == ["ollama", "groq"]
 
     def test_chat_fallback_records_stats(self):
         mr = ModelRouter()
+
         def mock_call(decision, provider, messages, model_override=None):
             if decision.provider_id == "groq":
                 return {"response": "ok", "provider": "groq", "model": "m", "usage": None}
             raise ConnectionError("fail")
 
         mr._call_provider = mock_call
-        mr.chat([{"role": "user", "content": "hi"}], task_type=TaskType.QUICK,
-                fallback_chain_override=["ollama", "groq"])
+        mr.chat(
+            [{"role": "user", "content": "hi"}], task_type=TaskType.QUICK, fallback_chain_override=["ollama", "groq"]
+        )
         stats = mr.fallback_stats()
         assert stats["total_fallbacks"] == 1
         assert "groq" in stats["fallback_counts"]
@@ -202,6 +221,7 @@ class TestFallbackIntegration:
         mr._circuit_breaker.record_failure("ollama")
 
         call_log = []
+
         def mock_call(decision, provider, messages, model_override=None):
             call_log.append(decision.provider_id)
             if decision.provider_id == "groq":
@@ -209,8 +229,11 @@ class TestFallbackIntegration:
             raise ConnectionError("fail")
 
         mr._call_provider = mock_call
-        result = mr.chat([{"role": "user", "content": "hi"}], task_type=TaskType.QUICK,
-                         fallback_chain_override=["ollama", "groq", "openrouter"])
+        result = mr.chat(
+            [{"role": "user", "content": "hi"}],
+            task_type=TaskType.QUICK,
+            fallback_chain_override=["ollama", "groq", "openrouter"],
+        )
         # ollama should be skipped (circuit open), groq should succeed
         assert "ollama" not in call_log
         assert result["provider"] == "groq"
@@ -227,17 +250,21 @@ class TestFallbackIntegration:
 
         mr._call_provider = mock_call
         with pytest.raises(RuntimeError) as exc:
-            mr.chat([{"role": "user", "content": "hi"}], task_type=TaskType.QUICK,
-                    fallback_chain_override=["ollama", "groq"])
+            mr.chat(
+                [{"role": "user", "content": "hi"}],
+                task_type=TaskType.QUICK,
+                fallback_chain_override=["ollama", "groq"],
+            )
         assert "circuit breaker open" in str(exc.value).lower()
 
     def test_primary_succeeds_no_fallback_recorded(self):
         mr = ModelRouter()
+
         def mock_call(decision, provider, messages, model_override=None):
             return {"response": "ok", "provider": decision.provider_id, "model": "m", "usage": None}
 
         mr._call_provider = mock_call
-        result = mr.chat([{"role": "user", "content": "hi"}], task_type=TaskType.QUICK)
+        mr.chat([{"role": "user", "content": "hi"}], task_type=TaskType.QUICK)
         stats = mr.fallback_stats()
         assert stats["total_fallbacks"] == 0
 
@@ -251,11 +278,13 @@ class TestFallbackIntegration:
 class TestFallbackAPI:
     def setup_method(self):
         from modules.sentinel_bridge import reset_bridge
+
         reset_bridge()
 
     def test_get_fallback_stats_endpoint(self):
         from fastapi.testclient import TestClient
         from main import app
+
         client = TestClient(app)
         resp = client.get("/api/sentinel/fallback/stats")
         assert resp.status_code == 200
@@ -265,6 +294,7 @@ class TestFallbackAPI:
     def test_reset_fallback_stats_endpoint(self):
         from fastapi.testclient import TestClient
         from main import app
+
         client = TestClient(app)
         resp = client.post("/api/sentinel/fallback/reset-stats")
         assert resp.status_code == 200

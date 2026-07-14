@@ -77,27 +77,31 @@ class AuditService:
         params: dict,
     ) -> None:
         actor = identity.get("user_id", "unknown")
-        self.repo.append(self._sanitize({
-            "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-            "action": f"pipeline.preflight.{tool_id}",
-            "execution_id": execution_id,
-            "details": json.dumps({"execution_id": execution_id, "tool_id": tool_id}),
-            "status": "authorized",
-            "user": actor,
-            "payload": {
-                "execution_id": execution_id,
-                "tool_id": tool_id,
-                "pipeline": {
-                    "identity": identity,
-                    "intent": None,
-                    "decision": decision,
-                    "policy": policy,
-                    "execution": {"phase": "preflight", "params_present": sorted(params)},
-                    "quality": None,
-                },
-                "error": None,
-            },
-        }))
+        self.repo.append(
+            self._sanitize(
+                {
+                    "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                    "action": f"pipeline.preflight.{tool_id}",
+                    "execution_id": execution_id,
+                    "details": json.dumps({"execution_id": execution_id, "tool_id": tool_id}),
+                    "status": "authorized",
+                    "user": actor,
+                    "payload": {
+                        "execution_id": execution_id,
+                        "tool_id": tool_id,
+                        "pipeline": {
+                            "identity": identity,
+                            "intent": None,
+                            "decision": decision,
+                            "policy": policy,
+                            "execution": {"phase": "preflight", "params_present": sorted(params)},
+                            "quality": None,
+                        },
+                        "error": None,
+                    },
+                }
+            )
+        )
 
     @classmethod
     def _redact(cls, value: str) -> str:
@@ -114,7 +118,10 @@ class AuditService:
             sanitized = {}
             for key, item in value.items():
                 normalized = str(key).lower().replace("-", "_")
-                if any(marker in normalized for marker in ("password", "passwd", "secret", "token", "api_key", "apikey", "authorization")):
+                if any(
+                    marker in normalized
+                    for marker in ("password", "passwd", "secret", "token", "api_key", "apikey", "authorization")
+                ):
                     sanitized[key] = "<REDACTED>"
                 else:
                     sanitized[key] = cls._sanitize(item)

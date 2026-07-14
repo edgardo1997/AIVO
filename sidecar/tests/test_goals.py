@@ -9,8 +9,9 @@ from sentinel.core.goals import Goal, GoalDefinition, GoalRegistry
 from sentinel.core.capability_registry import RiskLevel
 
 
-def make_goal(gid: str, intents: list = None, caps: list = None,
-              priority: int = 0, risk: RiskLevel = RiskLevel.LOW) -> GoalDefinition:
+def make_goal(
+    gid: str, intents: list = None, caps: list = None, priority: int = 0, risk: RiskLevel = RiskLevel.LOW
+) -> GoalDefinition:
     return GoalDefinition(
         id=gid,
         name=gid.replace("_", " ").title(),
@@ -95,8 +96,9 @@ class TestGoalFindByIntent:
 
 class TestGoalSerialization:
     def test_to_dict(self):
-        goal = make_goal("improve_performance", intents=["system.health"],
-                         caps=["system.cpu", "system.info"], risk=RiskLevel.MEDIUM)
+        goal = make_goal(
+            "improve_performance", intents=["system.health"], caps=["system.cpu", "system.info"], risk=RiskLevel.MEDIUM
+        )
         d = goal.to_dict()
         assert d["id"] == "improve_performance"
         assert d["base_risk"] == "medium"
@@ -120,9 +122,13 @@ class TestGoalSerialization:
         assert goal.priority == 5
 
     def test_roundtrip(self):
-        goal = make_goal("cleanup", intents=["system.disk"],
-                         caps=["filesystem.list", "filesystem.write"],
-                         risk=RiskLevel.LOW, priority=3)
+        goal = make_goal(
+            "cleanup",
+            intents=["system.disk"],
+            caps=["filesystem.list", "filesystem.write"],
+            risk=RiskLevel.LOW,
+            priority=3,
+        )
         d = goal.to_dict()
         restored = GoalDefinition.from_dict(d)
         assert restored.id == goal.id
@@ -157,8 +163,7 @@ class TestGoalThreadSafety:
 
         def worker(ident):
             try:
-                g = make_goal(f"goal.{ident}", intents=[f"intent.{ident}"],
-                              caps=[f"cap.{ident}"])
+                g = make_goal(f"goal.{ident}", intents=[f"intent.{ident}"], caps=[f"cap.{ident}"])
                 registry.register(g)
             except Exception as e:
                 errors.append(e)
@@ -249,6 +254,7 @@ class TestGoalDefinitionHardening:
 
     def test_updated_at_changes_on_update(self):
         import time
+
         registry = GoalRegistry()
         g = make_goal("update_time", intents=["system.test"])
         registry.register(g)

@@ -13,9 +13,7 @@ def test_acl_limits_directory_to_user_and_system(tmp_path: Path, monkeypatch):
     target.mkdir()
     monkeypatch.delenv("AIVO_TESTING", raising=False)
     assert protect_path(target, directory=True) is True
-    result = subprocess.run(
-        ["icacls.exe", str(target)], capture_output=True, text=True, timeout=10, shell=False
-    )
+    result = subprocess.run(["icacls.exe", str(target)], capture_output=True, text=True, timeout=10, shell=False)
     assert result.returncode == 0
     normalized = result.stdout.upper()
     assert "SYSTEM" in normalized

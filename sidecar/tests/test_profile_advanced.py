@@ -12,6 +12,7 @@ from sentinel.core.user_profile import UserProfileManager, UserProfile, ALLOWED_
 class _FakeDB:
     def __init__(self):
         import sqlite3
+
         tmp = tempfile.mktemp(suffix=".db")
         self._conn = sqlite3.connect(tmp, timeout=10, isolation_level=None)
         self._conn.row_factory = sqlite3.Row
@@ -170,7 +171,7 @@ class TestProfileExportImport:
 
     def test_import_creates_profile(self, mgr):
         data = {"display_name": "New", "preferences": {"key": "val"}}
-        result = mgr.import_profile("brand-new", data)
+        mgr.import_profile("brand-new", data)
         p = mgr.get_profile("brand-new")
         assert p is not None
         assert p.display_name == "New"

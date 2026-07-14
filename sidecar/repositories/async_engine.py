@@ -62,7 +62,8 @@ def get_async_engine():
 
         log.info(
             "Async DatabaseEngine initialized: %s (%s)",
-            db_url, "SQLite (NullPool)" if is_sqlite else "PostgreSQL (pool_size=10, overflow=20)",
+            db_url,
+            "SQLite (NullPool)" if is_sqlite else "PostgreSQL (pool_size=10, overflow=20)",
         )
         return _async_engine_instance, _AsyncSessionFactory
 
@@ -74,6 +75,7 @@ async def init_async_db():
         await conn.run_sync(Base.metadata.create_all)
         if "sqlite" in str(engine.url):
             from sqlalchemy import text
+
             existing_cols = set()
             result = await conn.execute(text("PRAGMA table_info(audit_log)"))
             for row in result:

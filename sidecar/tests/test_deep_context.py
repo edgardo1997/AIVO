@@ -41,6 +41,7 @@ async def test_collect_with_all_sources():
 @pytest.mark.asyncio
 async def test_collect_with_failing_sources():
     """Should not crash when callables raise exceptions."""
+
     def failing():
         raise RuntimeError("fail")
 
@@ -124,6 +125,7 @@ async def test_collect_permission_defaults_to_confirm_on_missing_fn():
 async def test_collect_permission_defaults_to_confirm_on_failure():
     def fail():
         raise RuntimeError("fail")
+
     ctx = DeepContextEngine(get_permission_level_fn=fail)
     result = await ctx.collect()
     assert result["permission_level"] == "confirm"
@@ -133,9 +135,10 @@ async def test_collect_permission_defaults_to_confirm_on_failure():
 async def test_collect_system_context_failure():
     engine = DeepContextEngine()
     engine._system.collect_fail = True
-    original = engine._system.collect
+
     async def fail_collect(*args, **kwargs):
         raise RuntimeError("system failure")
+
     engine._system.collect = fail_collect
     result = await engine.collect()
     assert "system_summary" in result

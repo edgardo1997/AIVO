@@ -1,4 +1,6 @@
-import os, sys
+import os
+import sys
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import pytest
@@ -21,6 +23,7 @@ class TestFeedbackAPI:
 
     def test_feedback_stats_with_data(self):
         from modules.permissions import _svc as perm_svc
+
         perm_svc.set_level("admin")
         resp = client.post("/api/sentinel/process", json={"utterance": "show system info"})
         assert resp.status_code == 200
@@ -58,11 +61,14 @@ class TestCostAPI:
         assert "total_tokens" in data
 
     def test_budgets_crud(self):
-        resp = client.post("/api/sentinel/cost/budgets", json={
-            "name": "test-budget",
-            "max_cost_usd": 50.0,
-            "period": "monthly",
-        })
+        resp = client.post(
+            "/api/sentinel/cost/budgets",
+            json={
+                "name": "test-budget",
+                "max_cost_usd": 50.0,
+                "period": "monthly",
+            },
+        )
         assert resp.status_code == 200
         assert resp.json()["success"] is True
 
@@ -84,7 +90,10 @@ class TestCostAPI:
         assert "alerts" in data
 
     def test_budget_missing_name(self):
-        resp = client.post("/api/sentinel/cost/budgets", json={
-            "max_cost_usd": 10.0,
-        })
+        resp = client.post(
+            "/api/sentinel/cost/budgets",
+            json={
+                "max_cost_usd": 10.0,
+            },
+        )
         assert resp.status_code == 400

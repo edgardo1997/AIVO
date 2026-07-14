@@ -19,39 +19,92 @@ THRESHOLDS = {
 }
 
 SUGGESTION_TEMPLATES = [
-    {"id": "high_cpu", "icon": "\U0001F525", "priority": "warning", "title": "High CPU Usage ({value}%)",
-     "message": "CPU is at {value}%. Consider closing resource-heavy applications.",
-     "actions": [{"label": "Kill Top CPU Process", "action": "kill_top_cpu"}]},
-    {"id": "high_memory", "icon": "\U0001F4BE", "priority": "warning", "title": "High Memory Usage ({value}%)",
-     "message": "RAM usage is at {value}%. Consider freeing up memory.",
-     "actions": [{"label": "Kill Top Memory Process", "action": "kill_top_mem"}]},
-    {"id": "critical_memory", "icon": "\u26A0\uFE0F", "priority": "critical", "title": "Critical Memory ({value}%)",
-     "message": "CRITICAL: RAM at {value}%. System may become unstable.",
-     "actions": [{"label": "Kill Top Memory Process", "action": "kill_top_mem"}]},
-    {"id": "high_disk", "icon": "\U0001F4C0", "priority": "warning", "title": "Disk Almost Full ({value}%)",
-     "message": "Disk is at {value}% capacity. Consider cleaning up.",
-     "actions": []},
-    {"id": "long_uptime", "icon": "\u23F3", "priority": "info", "title": "Long Uptime ({value}d)",
-     "message": "System has been running for {value} days. A reboot may help performance.",
-     "actions": []},
-    {"id": "high_temp", "icon": "\U0001F321\uFE0F", "priority": "warning", "title": "High Temperature ({value}\u00B0C)",
-     "message": "Component temperature is high at {value}\u00B0C.",
-     "actions": []},
-    {"id": "many_processes", "icon": "\U0001F4CA", "priority": "info", "title": "Many Processes ({value})",
-     "message": "{value} processes running. Consider closing unused apps.",
-     "actions": []},
-    {"id": "high_swap", "icon": "\U0001F504", "priority": "warning", "title": "High Swap Usage ({value}%)",
-     "message": "Swap is at {value}%. Consider adding more RAM.",
-     "actions": []},
-    {"id": "ai_insight", "icon": "\U0001F9E0", "priority": "info", "title": "AI Insight Available",
-     "message": "New AI analysis of your system is ready.",
-     "actions": [{"label": "View Analysis", "action": "view_analysis"}]},
+    {
+        "id": "high_cpu",
+        "icon": "\U0001f525",
+        "priority": "warning",
+        "title": "High CPU Usage ({value}%)",
+        "message": "CPU is at {value}%. Consider closing resource-heavy applications.",
+        "actions": [{"label": "Kill Top CPU Process", "action": "kill_top_cpu"}],
+    },
+    {
+        "id": "high_memory",
+        "icon": "\U0001f4be",
+        "priority": "warning",
+        "title": "High Memory Usage ({value}%)",
+        "message": "RAM usage is at {value}%. Consider freeing up memory.",
+        "actions": [{"label": "Kill Top Memory Process", "action": "kill_top_mem"}],
+    },
+    {
+        "id": "critical_memory",
+        "icon": "\u26a0\ufe0f",
+        "priority": "critical",
+        "title": "Critical Memory ({value}%)",
+        "message": "CRITICAL: RAM at {value}%. System may become unstable.",
+        "actions": [{"label": "Kill Top Memory Process", "action": "kill_top_mem"}],
+    },
+    {
+        "id": "high_disk",
+        "icon": "\U0001f4c0",
+        "priority": "warning",
+        "title": "Disk Almost Full ({value}%)",
+        "message": "Disk is at {value}% capacity. Consider cleaning up.",
+        "actions": [],
+    },
+    {
+        "id": "long_uptime",
+        "icon": "\u23f3",
+        "priority": "info",
+        "title": "Long Uptime ({value}d)",
+        "message": "System has been running for {value} days. A reboot may help performance.",
+        "actions": [],
+    },
+    {
+        "id": "high_temp",
+        "icon": "\U0001f321\ufe0f",
+        "priority": "warning",
+        "title": "High Temperature ({value}\u00b0C)",
+        "message": "Component temperature is high at {value}\u00b0C.",
+        "actions": [],
+    },
+    {
+        "id": "many_processes",
+        "icon": "\U0001f4ca",
+        "priority": "info",
+        "title": "Many Processes ({value})",
+        "message": "{value} processes running. Consider closing unused apps.",
+        "actions": [],
+    },
+    {
+        "id": "high_swap",
+        "icon": "\U0001f504",
+        "priority": "warning",
+        "title": "High Swap Usage ({value}%)",
+        "message": "Swap is at {value}%. Consider adding more RAM.",
+        "actions": [],
+    },
+    {
+        "id": "ai_insight",
+        "icon": "\U0001f9e0",
+        "priority": "info",
+        "title": "AI Insight Available",
+        "message": "New AI analysis of your system is ready.",
+        "actions": [{"label": "View Analysis", "action": "view_analysis"}],
+    },
 ]
 
+
 class ProactiveService:
-    def __init__(self, suggestions: list = None, metrics_history: list = None,
-                 engine_active: list = None, permissions_svc=None,
-                 audit_svc=None, plugins_svc=None, ai_svc=None):
+    def __init__(
+        self,
+        suggestions: list = None,
+        metrics_history: list = None,
+        engine_active: list = None,
+        permissions_svc=None,
+        audit_svc=None,
+        plugins_svc=None,
+        ai_svc=None,
+    ):
         self._suggestions = suggestions if suggestions is not None else []
         self._metrics_history = metrics_history if metrics_history is not None else []
         self._engine_active = engine_active if engine_active is not None else [False]
@@ -101,6 +154,7 @@ class ProactiveService:
 
     def get_top_process(self, metric: str):
         import psutil
+
         key = "cpu_percent" if metric == "cpu" else "memory_percent"
         processes = []
         for proc in psutil.process_iter(["pid", "name", key]):
@@ -115,6 +169,7 @@ class ProactiveService:
 
     def check_thresholds(self):
         import psutil
+
         now = time.time()
         cpu_percent = psutil.cpu_percent(interval=0.5)
         mem = psutil.virtual_memory()
@@ -178,20 +233,23 @@ class ProactiveService:
             return
         title = template["title"].replace("{value}", str(value))
         message = template["message"].replace("{value}", str(value))
-        self._suggestions.append({
-            "id": check_id,
-            "uid": str(uuid.uuid4())[:8],
-            "title": title,
-            "message": message,
-            "priority": priority,
-            "icon": template["icon"],
-            "actions": template["actions"],
-            "value": value,
-            "timestamp": time.time(),
-        })
+        self._suggestions.append(
+            {
+                "id": check_id,
+                "uid": str(uuid.uuid4())[:8],
+                "title": title,
+                "message": message,
+                "priority": priority,
+                "icon": template["icon"],
+                "actions": template["actions"],
+                "value": value,
+                "timestamp": time.time(),
+            }
+        )
 
     def store_metrics_snapshot(self):
         import psutil
+
         snapshot = {
             "timestamp": time.time(),
             "cpu": psutil.cpu_percent(interval=0.2),
@@ -251,6 +309,7 @@ class ProactiveService:
         self._last_ai_scan = now
         try:
             import psutil
+
             metrics = {
                 "cpu": psutil.cpu_percent(interval=0.5),
                 "memory": psutil.virtual_memory()._asdict(),
@@ -259,6 +318,7 @@ class ProactiveService:
             }
             cfg = self._ai.repo.load()
             from services.ai_service import FREE_PROVIDERS
+
             provider_info = FREE_PROVIDERS.get(cfg.get("provider", ""), {})
             if cfg.get("api_key") or provider_info.get("url", "").startswith("http://localhost"):
                 thread = threading.Thread(target=self._ai.analyze_metrics, args=(metrics,), daemon=True)
@@ -293,6 +353,7 @@ class ProactiveService:
 
     async def execute_suggestion(self, suggestion_id: str) -> dict:
         from fastapi import HTTPException
+
         if not self._gateway:
             return {"status": "error", "message": "Gateway not available"}
         for s in self._suggestions:
@@ -306,10 +367,12 @@ class ProactiveService:
                     metric = "cpu" if act == "kill_top_cpu" else "memory"
                     _, name, pid = self.get_top_process(metric)
                     identity = IdentityContext.service_identity(
-                        "proactive", frozenset({"executor.kill"}),
+                        "proactive",
+                        frozenset({"executor.kill"}),
                     )
                     result = await self._gateway.execute(
-                        "executor.kill", {"pid": pid},
+                        "executor.kill",
+                        {"pid": pid},
                         {"identity": identity.to_dict()},
                     )
                     if result.success:

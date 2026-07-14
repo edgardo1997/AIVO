@@ -17,6 +17,7 @@ from sentinel.core.operational_memory import (
 
 def _make_record(execution_id="test-1", utterance="test", timestamp=None, duration=0.0):
     from datetime import datetime, timezone
+
     ts = timestamp or (datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"))
     return ExecutionRecord(
         execution_id=execution_id,
@@ -174,58 +175,91 @@ class TestPendingActions:
     def test_store_and_retrieve(self):
         mem = InMemoryBackend()
         rec = PendingActionRecord(
-            action_id="pa-1", tool_id="executor.command",
-            params={"command": "test"}, reason="high risk",
-            created_at="2026-01-01T00:00:00Z", ttl_seconds=600,
+            action_id="pa-1",
+            tool_id="executor.command",
+            params={"command": "test"},
+            reason="high risk",
+            created_at="2026-01-01T00:00:00Z",
+            ttl_seconds=600,
         )
         mem.store_pending_action(rec)
         assert mem.get_pending_action("pa-1") is not None
 
     def test_remove_pending_action(self):
         mem = InMemoryBackend()
-        mem.store_pending_action(PendingActionRecord(
-            action_id="pa-2", tool_id="executor.kill",
-            params={}, reason="test",
-            created_at="2026-01-01T00:00:00Z", ttl_seconds=600,
-        ))
+        mem.store_pending_action(
+            PendingActionRecord(
+                action_id="pa-2",
+                tool_id="executor.kill",
+                params={},
+                reason="test",
+                created_at="2026-01-01T00:00:00Z",
+                ttl_seconds=600,
+            )
+        )
         removed = mem.remove_pending_action("pa-2")
         assert removed is not None
         assert mem.get_pending_action("pa-2") is None
 
     def test_list_pending_actions(self):
         mem = InMemoryBackend()
-        mem.store_pending_action(PendingActionRecord(
-            action_id="pa-a", tool_id="executor.command",
-            params={}, reason="a",
-            created_at="2026-01-01T00:00:00Z", ttl_seconds=600,
-        ))
-        mem.store_pending_action(PendingActionRecord(
-            action_id="pa-b", tool_id="executor.kill",
-            params={}, reason="b",
-            created_at="2026-01-01T00:00:00Z", ttl_seconds=600,
-        ))
+        mem.store_pending_action(
+            PendingActionRecord(
+                action_id="pa-a",
+                tool_id="executor.command",
+                params={},
+                reason="a",
+                created_at="2026-01-01T00:00:00Z",
+                ttl_seconds=600,
+            )
+        )
+        mem.store_pending_action(
+            PendingActionRecord(
+                action_id="pa-b",
+                tool_id="executor.kill",
+                params={},
+                reason="b",
+                created_at="2026-01-01T00:00:00Z",
+                ttl_seconds=600,
+            )
+        )
         actions = mem.list_pending_actions()
         assert len(actions) == 2
 
     def test_pending_action_limit(self):
         config = OperationalMemoryConfig(max_pending_actions=2)
         mem = InMemoryBackend(config)
-        mem.store_pending_action(PendingActionRecord(
-            action_id="pa-1", tool_id="executor.command",
-            params={}, reason="r1",
-            created_at="2026-01-01T00:00:00Z", ttl_seconds=600,
-        ))
-        mem.store_pending_action(PendingActionRecord(
-            action_id="pa-2", tool_id="executor.kill",
-            params={}, reason="r2",
-            created_at="2026-01-01T00:00:00Z", ttl_seconds=600,
-        ))
+        mem.store_pending_action(
+            PendingActionRecord(
+                action_id="pa-1",
+                tool_id="executor.command",
+                params={},
+                reason="r1",
+                created_at="2026-01-01T00:00:00Z",
+                ttl_seconds=600,
+            )
+        )
+        mem.store_pending_action(
+            PendingActionRecord(
+                action_id="pa-2",
+                tool_id="executor.kill",
+                params={},
+                reason="r2",
+                created_at="2026-01-01T00:00:00Z",
+                ttl_seconds=600,
+            )
+        )
         with pytest.raises(RuntimeError, match="Pending action limit"):
-            mem.store_pending_action(PendingActionRecord(
-                action_id="pa-3", tool_id="system.info",
-                params={}, reason="r3",
-                created_at="2026-01-01T00:00:00Z", ttl_seconds=600,
-            ))
+            mem.store_pending_action(
+                PendingActionRecord(
+                    action_id="pa-3",
+                    tool_id="system.info",
+                    params={},
+                    reason="r3",
+                    created_at="2026-01-01T00:00:00Z",
+                    ttl_seconds=600,
+                )
+            )
 
 
 class TestThreadSafety:

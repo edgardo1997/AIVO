@@ -34,8 +34,9 @@ def current_user_sid(runner: Runner = subprocess.run) -> str:
     return sid
 
 
-def protect_path(path: str | Path, *, directory: bool | None = None,
-                 required: bool = True, runner: Runner = subprocess.run) -> bool:
+def protect_path(
+    path: str | Path, *, directory: bool | None = None, required: bool = True, runner: Runner = subprocess.run
+) -> bool:
     """Replace broad access with full control for the current user and SYSTEM."""
     if os.name != "nt" or os.environ.get("AIVO_TESTING") == "1":
         return False
@@ -46,7 +47,7 @@ def protect_path(path: str | Path, *, directory: bool | None = None,
         return False
     is_dir = target.is_dir() if directory is None else directory
     sid = current_user_sid(runner)
-    script = r'''
+    script = r"""
 $ErrorActionPreference = 'Stop'
 $path = $env:SENTINEL_ACL_PATH
 $sid = [System.Security.Principal.SecurityIdentifier]::new($env:SENTINEL_ACL_SID)
@@ -70,13 +71,12 @@ if ($env:SENTINEL_ACL_DIRECTORY -eq '1') {
 } else {
   [System.IO.File]::SetAccessControl($path, $acl)
 }
-'''
+"""
     env = os.environ.copy()
-    env.update({"SENTINEL_ACL_PATH": str(target), "SENTINEL_ACL_SID": sid,
-                "SENTINEL_ACL_DIRECTORY": "1" if is_dir else "0"})
-    result = _run(
-        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script], runner, env=env
+    env.update(
+        {"SENTINEL_ACL_PATH": str(target), "SENTINEL_ACL_SID": sid, "SENTINEL_ACL_DIRECTORY": "1" if is_dir else "0"}
     )
+    result = _run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script], runner, env=env)
     if result.returncode != 0:
         if required:
             raise AclEnforcementError(

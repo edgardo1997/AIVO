@@ -1,4 +1,8 @@
-import os, sys, json, pytest
+import os
+import sys
+import json
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from unittest.mock import MagicMock, PropertyMock, call, ANY
@@ -6,8 +10,13 @@ from datetime import datetime, timezone
 from dataclasses import dataclass
 
 from sentinel.core.operational_memory import (
-    SQLiteBackend, ExecutionRecord, PendingActionRecord, EpisodicMemory,
-    MemoryPattern, LearnedPreference, OperationalMemoryConfig,
+    SQLiteBackend,
+    ExecutionRecord,
+    PendingActionRecord,
+    EpisodicMemory,
+    MemoryPattern,
+    LearnedPreference,
+    OperationalMemoryConfig,
 )
 
 
@@ -15,10 +24,12 @@ from sentinel.core.operational_memory import (
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def make_db():
     """Create a mocked DatabaseManager that stores data in a real SQLite
     in-memory database for each test."""
     import sqlite3
+
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
     conn.executescript("""
@@ -135,8 +146,10 @@ def make_record(exec_id="e1", session="sess1", error=None):
 
 def make_pending(aid="pa1"):
     return PendingActionRecord(
-        action_id=aid, tool_id="sys.info",
-        params={"cmd": "test"}, reason="needs approval",
+        action_id=aid,
+        tool_id="sys.info",
+        params={"cmd": "test"},
+        reason="needs approval",
         created_at=datetime.now(timezone.utc).isoformat(),
         ttl_seconds=600,
     )
@@ -145,6 +158,7 @@ def make_pending(aid="pa1"):
 # ===================================================================
 # Execution Records
 # ===================================================================
+
 
 class TestSQLiteExecutionRecords:
     def test_store_and_get(self):
@@ -224,6 +238,7 @@ class TestSQLiteExecutionRecords:
 # Pending Actions
 # ===================================================================
 
+
 class TestSQLitePendingActions:
     def test_store_and_get(self):
         db = make_db()
@@ -273,6 +288,7 @@ class TestSQLitePendingActions:
 # User Preferences
 # ===================================================================
 
+
 class TestSQLiteUserPreferences:
     def test_store_and_get(self):
         db = make_db()
@@ -306,6 +322,7 @@ class TestSQLiteUserPreferences:
 # ===================================================================
 # Episodic Memory
 # ===================================================================
+
 
 class TestSQLiteEpisodicMemory:
     def test_remember_and_get(self):
@@ -350,6 +367,7 @@ class TestSQLiteEpisodicMemory:
 # Memory Patterns
 # ===================================================================
 
+
 class TestSQLiteMemoryPatterns:
     def test_pattern_generated_from_episode(self):
         db = make_db()
@@ -385,6 +403,7 @@ class TestSQLiteMemoryPatterns:
 # ===================================================================
 # Learned Preferences
 # ===================================================================
+
 
 class TestSQLiteLearnedPreferences:
     def test_learn_and_get(self):
@@ -443,6 +462,7 @@ class TestSQLiteLearnedPreferences:
 # Emergency Stop
 # ===================================================================
 
+
 class TestSQLiteEmergencyStop:
     def test_default_is_false(self):
         db = make_db()
@@ -467,6 +487,7 @@ class TestSQLiteEmergencyStop:
 # Clear
 # ===================================================================
 
+
 class TestSQLiteClear:
     def test_clear_removes_all(self):
         db = make_db()
@@ -487,6 +508,7 @@ class TestSQLiteClear:
 # ===================================================================
 # Close
 # ===================================================================
+
 
 class TestSQLiteClose:
     def test_close_does_not_raise(self):

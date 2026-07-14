@@ -22,7 +22,7 @@ class FleetStatusTool(Tool):
         try:
             result = self._svc.get_status()
             result["api_url"] = f"http://{result.get('local_ip', '127.0.0.1')}:8765"
-            result["paired"] = bool(self._svc.repo.load().get("paired", False)) if hasattr(self._svc, 'repo') else False
+            result["paired"] = bool(self._svc.repo.load().get("paired", False)) if hasattr(self._svc, "repo") else False
             return ToolResult.ok(data=result, tool_id="fleet.status")
         except Exception as e:
             return ToolResult.fail(error=str(e), tool_id="fleet.status")

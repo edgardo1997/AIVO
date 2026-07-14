@@ -74,6 +74,6 @@ def validate_policy(data: Dict[str, Any], schema: Dict[str, Any] = None) -> List
             for k, v in value.items():
                 if value_schema.get("type") == "dict" and isinstance(v, dict):
                     nested = validate_policy(v, {"_": value_schema})
-                    errors.extend(f"'{key}.{k}.{e.split('.',1)[1]}' for {e}" for e in nested)
+                    errors.extend(f"'{key}.{k}.{e.split('.', 1)[1]}' for {e}" for e in nested)
             continue
     return errors

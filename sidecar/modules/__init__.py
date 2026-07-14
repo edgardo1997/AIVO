@@ -58,6 +58,7 @@ class _OrchestratorHolder:
         from sentinel.core.offline_queue import OfflineQueue
         from sentinel.core.network_monitor import NetworkMonitor
         from services.audit_service import AuditService
+
         gw = get_gateway()
         cls._memory = SQLiteBackend()
         perm_svc.set_memory_backend(cls._memory)
@@ -65,10 +66,16 @@ class _OrchestratorHolder:
         _audit_svc = AuditService()
 
         def _get_apps():
-            import json, subprocess
+            import json
+            import subprocess
+
             try:
-                result = subprocess.run(["powershell", "-Command", "Get-StartApps | ConvertTo-Json -Compress"],
-                                        capture_output=True, text=True, timeout=5)
+                result = subprocess.run(
+                    ["powershell", "-Command", "Get-StartApps | ConvertTo-Json -Compress"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
                 if result.returncode == 0 and result.stdout.strip():
                     apps = json.loads(result.stdout)
                     return apps if isinstance(apps, list) else []
@@ -77,7 +84,7 @@ class _OrchestratorHolder:
             return []
 
         def _get_caps():
-            registry = getattr(gw, '_capability_registry', None)
+            registry = getattr(gw, "_capability_registry", None)
             if registry:
                 return [{"id": c.id, "risk": str(c.risk)} for c in registry.list_all()]
             return []
@@ -86,26 +93,31 @@ class _OrchestratorHolder:
             return [t.id for t in gw.list_active()]
 
         deep_ctx = DeepContextEngine(
-            system_context=gw._context_engine if hasattr(gw, '_context_engine') else None,
+            system_context=gw._context_engine if hasattr(gw, "_context_engine") else None,
             app_discovery_fn=_get_apps,
-            fleet_status_fn=lambda: getattr(gw, 'fleet_status', lambda: {})(),
+            fleet_status_fn=lambda: getattr(gw, "fleet_status", lambda: {})(),
             get_goals_fn=lambda: cls._goal_registry.list_goals() if cls._goal_registry else [],
             get_permission_level_fn=lambda: perm_svc.repo.load().get("level", "confirm"),
             get_capabilities_fn=_get_caps,
             get_connected_tools_fn=_get_tools,
         )
         sim = SimulationEngine()
-        cost_tracker = CostTracker(db_path=os.path.join(
-            os.path.dirname(cls._memory._db_path) if hasattr(cls._memory, '_db_path') and cls._memory._db_path else ".",
-            "cost_tracker.db",
-        ))
+        cost_tracker = CostTracker(
+            db_path=os.path.join(
+                os.path.dirname(cls._memory._db_path)
+                if hasattr(cls._memory, "_db_path") and cls._memory._db_path
+                else ".",
+                "cost_tracker.db",
+            )
+        )
         plan_cache = PlanCache()
         rate_limiter = RateLimiter()
         offline_queue = OfflineQueue()
         network_monitor = NetworkMonitor(check_interval=60.0)
-        agent_registry = getattr(gw, '_agent_registry', None)
-        if agent_registry and hasattr(agent_registry, 'set_model_router'):
+        agent_registry = getattr(gw, "_agent_registry", None)
+        if agent_registry and hasattr(agent_registry, "set_model_router"):
             from sentinel.core.model_router import ModelRouter
+
             mr_for_agents = ModelRouter()
             agent_registry.set_model_router(mr_for_agents)
         ma = MultiAgentOrchestrator(
@@ -114,7 +126,8 @@ class _OrchestratorHolder:
         )
 
         from sentinel.core.knowledge_base import KnowledgeBase, create_embedding_provider
-        _kb = getattr(gw, '_knowledge_base', None)
+
+        _kb = getattr(gw, "_knowledge_base", None)
         if _kb is None:
             kb_provider = create_embedding_provider()
             _kb = KnowledgeBase(embedding_provider=kb_provider)
@@ -123,29 +136,34 @@ class _OrchestratorHolder:
         register_knowledge_base_tools(gw, _kb)
 
         from sentinel.core.file_pipeline import FilePipeline
+
         _fp = FilePipeline(knowledge_base=_kb)
         gw._file_pipeline = _fp
         register_file_pipeline_tools(gw, _fp)
 
         from sentinel.core.web_browsing import WebBrowsingService
-        _wb = getattr(gw, '_web_browsing', None)
+
+        _wb = getattr(gw, "_web_browsing", None)
         if _wb is None:
             _wb = WebBrowsingService()
             gw._web_browsing = _wb
         register_web_browsing_tools(gw, _wb)
 
         from sentinel.core.integrations import DesktopIntegrationService
+
         _integrations = DesktopIntegrationService()
         gw._desktop_integrations = _integrations
         register_integration_tools(gw, _integrations)
 
         from sentinel.core.observability import ObservabilityService
+
         _observability = ObservabilityService()
         gw._observability = _observability
         gw.set_observability(_observability)
 
         from sentinel.core.hardening import HardeningService
-        _hardening = getattr(gw, '_hardening', None)
+
+        _hardening = getattr(gw, "_hardening", None)
         if _hardening is None:
             _hardening = HardeningService()
             gw._hardening = _hardening
@@ -156,16 +174,27 @@ class _OrchestratorHolder:
             register_profile_tools(gw, profile_svc)
 
         cls._instance = init_sentinel_orchestrator(
-            gw, memory=cls._memory, goal_registry=cls._goal_registry,
-            audit_service=_audit_svc, profile_manager=profile_svc,
-            deep_context_engine=deep_ctx, simulation_engine=sim,
-            cost_tracker=cost_tracker, plan_cache=plan_cache,
-            rate_limiter=rate_limiter, multi_agent=ma,
-            offline_queue=offline_queue, network_monitor=network_monitor,
-            knowledge_base=_kb, file_pipeline=_fp, web_browsing=_wb,
+            gw,
+            memory=cls._memory,
+            goal_registry=cls._goal_registry,
+            audit_service=_audit_svc,
+            profile_manager=profile_svc,
+            deep_context_engine=deep_ctx,
+            simulation_engine=sim,
+            cost_tracker=cost_tracker,
+            plan_cache=plan_cache,
+            rate_limiter=rate_limiter,
+            multi_agent=ma,
+            offline_queue=offline_queue,
+            network_monitor=network_monitor,
+            knowledge_base=_kb,
+            file_pipeline=_fp,
+            web_browsing=_wb,
             hardening=_hardening,
         )
-        _log.info("Sentinel Orchestrator initialized on shared gateway; deep context + simulation wired; SQLite memory bound to permissions; audit service wired; goals registered")
+        _log.info(
+            "Sentinel Orchestrator initialized on shared gateway; deep context + simulation wired; SQLite memory bound to permissions; audit service wired; goals registered"
+        )
 
 
 def get_gateway():
@@ -212,8 +241,15 @@ def register_tools(gateway):
     from .filesystem import _svc as fs_svc
     from services.filesystem_service import FilesystemService
 
-    for tid in ("filesystem.read", "filesystem.write", "filesystem.list", "filesystem.search",
-                "filesystem.delete", "filesystem.undo_write", "filesystem.restore"):
+    for tid in (
+        "filesystem.read",
+        "filesystem.write",
+        "filesystem.list",
+        "filesystem.search",
+        "filesystem.delete",
+        "filesystem.undo_write",
+        "filesystem.restore",
+    ):
         tool = FilesystemService(guardian=fs_svc._guardian, audit_svc=fs_svc._audit, tool_id=tid)
         gateway.register(tool)
     _log.info("Filesystem tools registered in shared gateway (direct)")
@@ -233,8 +269,17 @@ def register_executor_tools(gateway):
 
 
 def register_sentinel_tools(gateway):
-    from sentinel.tools.system_tools import SystemInfoTool, CpuInfoTool, MemoryInfoTool, DiskInfoTool, NetworkInfoTool, ProcessListTool, GpuInfoTool
+    from sentinel.tools.system_tools import (
+        SystemInfoTool,
+        CpuInfoTool,
+        MemoryInfoTool,
+        DiskInfoTool,
+        NetworkInfoTool,
+        ProcessListTool,
+        GpuInfoTool,
+    )
     from sentinel.tools.app_discovery_tool import AppDiscoveryTool
+
     gateway.register(SystemInfoTool())
     gateway.register(CpuInfoTool())
     gateway.register(MemoryInfoTool())
@@ -249,6 +294,7 @@ def register_sentinel_tools(gateway):
 def register_ai_tools(gateway):
     from .ai_provider import _svc as ai_svc
     from sentinel.tools.ai_tools import AIChatTool, AIAnalyzeTool, AIConfigTool
+
     gateway.register(AIChatTool(ai_svc))
     gateway.register(AIAnalyzeTool(ai_svc))
     gateway.register(AIConfigTool(ai_svc))
@@ -257,6 +303,7 @@ def register_ai_tools(gateway):
 
 def register_agent_tools(gateway):
     from sentinel.tools.agent_tools import AgentListTool, AgentCreateTool, AgentDeleteTool, AgentDelegateTool
+
     gateway.register(AgentListTool())
     gateway.register(AgentCreateTool())
     gateway.register(AgentDeleteTool())
@@ -266,7 +313,14 @@ def register_agent_tools(gateway):
 
 def register_fleet_tools(gateway):
     from .fleet import _svc as fleet_svc
-    from sentinel.tools.fleet_tools import FleetStatusTool, FleetGeneratePairingTool, FleetRevokePairingTool, FleetToggleRemoteTool, FleetQrTool
+    from sentinel.tools.fleet_tools import (
+        FleetStatusTool,
+        FleetGeneratePairingTool,
+        FleetRevokePairingTool,
+        FleetToggleRemoteTool,
+        FleetQrTool,
+    )
+
     gateway.register(FleetStatusTool(fleet_svc))
     gateway.register(FleetGeneratePairingTool(fleet_svc))
     gateway.register(FleetRevokePairingTool(fleet_svc))
@@ -277,7 +331,16 @@ def register_fleet_tools(gateway):
 
 def register_plugins_tools(gateway):
     from .plugins import _svc as plugins_svc
-    from sentinel.tools.plugins_tools import PluginListTool, PluginTemplatesTool, PluginLoadTool, PluginUnloadTool, PluginReloadTool, PluginToggleTool, PluginCreateTool
+    from sentinel.tools.plugins_tools import (
+        PluginListTool,
+        PluginTemplatesTool,
+        PluginLoadTool,
+        PluginUnloadTool,
+        PluginReloadTool,
+        PluginToggleTool,
+        PluginCreateTool,
+    )
+
     gateway.register(PluginListTool(plugins_svc))
     gateway.register(PluginTemplatesTool(plugins_svc))
     gateway.register(PluginLoadTool(plugins_svc))
@@ -290,7 +353,13 @@ def register_plugins_tools(gateway):
 
 def register_permissions_tools(gateway):
     from .permissions import _svc as perm_svc
-    from sentinel.tools.permissions_tools import PermissionStatusTool, PermissionSetLevelTool, PermissionEmergencyTool, PermissionConfirmTool
+    from sentinel.tools.permissions_tools import (
+        PermissionStatusTool,
+        PermissionSetLevelTool,
+        PermissionEmergencyTool,
+        PermissionConfirmTool,
+    )
+
     gateway.register(PermissionStatusTool(perm_svc))
     gateway.register(PermissionSetLevelTool(perm_svc))
     gateway.register(PermissionEmergencyTool(perm_svc))
@@ -301,12 +370,20 @@ def register_permissions_tools(gateway):
 def register_audit_tools(gateway):
     from .audit import _svc as audit_svc
     from sentinel.tools.audit_tools import AuditListTool
+
     gateway.register(AuditListTool(audit_svc))
     _log.info("Audit tools registered in shared gateway")
 
 
 def register_trigger_tools(gateway):
-    from sentinel.tools.trigger_tools import TriggerListTool, TriggerCreateTool, TriggerDeleteTool, TriggerHistoryTool, TriggerEvaluateTool
+    from sentinel.tools.trigger_tools import (
+        TriggerListTool,
+        TriggerCreateTool,
+        TriggerDeleteTool,
+        TriggerHistoryTool,
+        TriggerEvaluateTool,
+    )
+
     gateway.register(TriggerListTool())
     gateway.register(TriggerCreateTool())
     gateway.register(TriggerDeleteTool())
@@ -317,15 +394,19 @@ def register_trigger_tools(gateway):
 
 _kb_tools_registered = False
 
+
 def register_knowledge_base_tools(gateway, kb):
     global _kb_tools_registered
     if _kb_tools_registered:
         return
     from sentinel.tools.knowledge_base_tools import (
-        KnowledgeBaseSearchTool, KnowledgeBaseAddTool,
-        KnowledgeBaseListTool, KnowledgeBaseDeleteTool,
+        KnowledgeBaseSearchTool,
+        KnowledgeBaseAddTool,
+        KnowledgeBaseListTool,
+        KnowledgeBaseDeleteTool,
         KnowledgeBaseStatsTool,
     )
+
     gateway.register(KnowledgeBaseSearchTool(kb))
     gateway.register(KnowledgeBaseAddTool(kb))
     gateway.register(KnowledgeBaseListTool(kb))
@@ -337,11 +418,13 @@ def register_knowledge_base_tools(gateway, kb):
 
 _fp_tools_registered = False
 
+
 def register_file_pipeline_tools(gateway, fp):
     global _fp_tools_registered
     if _fp_tools_registered:
         return
     from sentinel.tools.file_pipeline_tools import PipelineIngestTool, PipelineStatusTool, PipelineReportTool
+
     gateway.register(PipelineIngestTool(fp))
     gateway.register(PipelineStatusTool(fp))
     gateway.register(PipelineReportTool(fp))
@@ -351,14 +434,20 @@ def register_file_pipeline_tools(gateway, fp):
 
 _profile_tools_registered = False
 
+
 def register_profile_tools(gateway, profile_mgr):
     global _profile_tools_registered
     if _profile_tools_registered:
         return
     from sentinel.tools.profile_tools import (
-        ProfileGetTool, ProfileUpdateTool, ProfilePreferenceTool,
-        ProfileExportTool, ProfilePresetTool, ProfileHistoryTool,
+        ProfileGetTool,
+        ProfileUpdateTool,
+        ProfilePreferenceTool,
+        ProfileExportTool,
+        ProfilePresetTool,
+        ProfileHistoryTool,
     )
+
     gateway.register(ProfileGetTool(profile_mgr))
     gateway.register(ProfileUpdateTool(profile_mgr))
     gateway.register(ProfilePreferenceTool(profile_mgr))
@@ -371,11 +460,13 @@ def register_profile_tools(gateway, profile_mgr):
 
 _hardening_tools_registered = False
 
+
 def register_hardening_tools(gateway, hardening):
     global _hardening_tools_registered
     if _hardening_tools_registered:
         return
     from sentinel.tools.hardening_tools import HardeningStatusTool, HardeningResetTool, HardeningConfigTool
+
     gateway.register(HardeningStatusTool(hardening))
     gateway.register(HardeningResetTool(hardening))
     gateway.register(HardeningConfigTool(hardening))
@@ -385,11 +476,13 @@ def register_hardening_tools(gateway, hardening):
 
 _wb_tools_registered = False
 
+
 def register_web_browsing_tools(gateway, wb):
     global _wb_tools_registered
     if _wb_tools_registered:
         return
     from sentinel.tools.web_browsing_tools import WebNavigateTool, WebExtractTool, WebSearchTool
+
     gateway.register(WebNavigateTool(wb))
     gateway.register(WebExtractTool(wb))
     gateway.register(WebSearchTool(wb))
@@ -399,16 +492,30 @@ def register_web_browsing_tools(gateway, wb):
 
 _integration_tools_registered = False
 
+
 def register_integration_tools(gateway, service):
     global _integration_tools_registered
     if _integration_tools_registered:
         return
     from sentinel.tools.integration_tools import (
-        BrowserOpenTool, DocumentOpenTool, IdeOpenTool, ImageInspectTool,
-        ImageOpenTool, IntegrationStatusTool, OsRevealTool,
+        BrowserOpenTool,
+        DocumentOpenTool,
+        IdeOpenTool,
+        ImageInspectTool,
+        ImageOpenTool,
+        IntegrationStatusTool,
+        OsRevealTool,
     )
-    for tool_class in (IntegrationStatusTool, IdeOpenTool, BrowserOpenTool,
-                       DocumentOpenTool, ImageOpenTool, ImageInspectTool, OsRevealTool):
+
+    for tool_class in (
+        IntegrationStatusTool,
+        IdeOpenTool,
+        BrowserOpenTool,
+        DocumentOpenTool,
+        ImageOpenTool,
+        ImageInspectTool,
+        OsRevealTool,
+    ):
         gateway.register(tool_class(service))
     _integration_tools_registered = True
     _log.info("Desktop integration tools registered in shared gateway")
@@ -417,6 +524,7 @@ def register_integration_tools(gateway, service):
 def register_proactive_tools(gateway):
     from .proactive import _svc as pro_svc
     from sentinel.tools.proactive_tools import ProactiveSuggestionsTool, ProactiveDismissTool, ProactiveTrendTool
+
     gateway.register(ProactiveSuggestionsTool(pro_svc))
     gateway.register(ProactiveDismissTool(pro_svc))
     gateway.register(ProactiveTrendTool(pro_svc))
@@ -453,9 +561,7 @@ def init_policies(gateway):
         if spec.required_permissions:
             tool_perms.update(spec.required_permissions)
 
-    all_perms = list(set(
-        p for perms in module_permissions_map.values() for p in perms
-    ) | tool_perms)
+    all_perms = list(set(p for perms in module_permissions_map.values() for p in perms) | tool_perms)
 
     engine = PolicyEngine(default_effect=PolicyEffect.DENY)
     engine.register(IdentityPermissionPolicy(), permissions=all_perms)
@@ -466,13 +572,30 @@ def init_policies(gateway):
     _log.info("Policies initialized on shared gateway (from YAML)")
 
 
-def init_sentinel_orchestrator(gateway, memory=None, goal_registry=None, audit_service=None, profile_manager=None,
-                                deep_context_engine=None, simulation_engine=None, cost_tracker=None, plan_cache=None,
-                                rate_limiter=None, multi_agent=None, offline_queue=None, network_monitor=None,
-                                 knowledge_base=None, file_pipeline=None, web_browsing=None, hardening=None):
+def init_sentinel_orchestrator(
+    gateway,
+    memory=None,
+    goal_registry=None,
+    audit_service=None,
+    profile_manager=None,
+    deep_context_engine=None,
+    simulation_engine=None,
+    cost_tracker=None,
+    plan_cache=None,
+    rate_limiter=None,
+    multi_agent=None,
+    offline_queue=None,
+    network_monitor=None,
+    knowledge_base=None,
+    file_pipeline=None,
+    web_browsing=None,
+    hardening=None,
+):
     from sentinel.core import IntentEngine, ModelRouter, Planner, DecisionEngine, Orchestrator
+
     if memory is not None:
         from sentinel.core.confirmation import ConfirmationBroker
+
         gateway.set_confirmation_broker(ConfirmationBroker(memory))
 
     from .ai_provider import _svc as ai_svc
@@ -480,7 +603,7 @@ def init_sentinel_orchestrator(gateway, memory=None, goal_registry=None, audit_s
 
     mr = ModelRouter()
     try:
-        db = memory._db if hasattr(memory, '_db') else None
+        db = memory._db if hasattr(memory, "_db") else None
         if db:
             mr.set_database(db)
             mr.load_keys_from_db()
@@ -502,11 +625,13 @@ def init_sentinel_orchestrator(gateway, memory=None, goal_registry=None, audit_s
         file_pipeline.set_model_router(mr)
 
     from sentinel.core.context_window import ContextWindowManager
+
     cwm = ContextWindowManager()
     ai_svc._context_manager = cwm
 
     from sentinel.core.skill import SkillRegistry
     from sentinel.core.skill_engine import SkillEngine
+
     skill_registry = SkillRegistry()
     skill_registry.load_builtins()
     skill_engine = SkillEngine(
@@ -517,6 +642,7 @@ def init_sentinel_orchestrator(gateway, memory=None, goal_registry=None, audit_s
 
     from sentinel.core.alerting import AlertManager
     from sentinel.advisory import AdvisoryService
+
     alert_manager = AlertManager()
     if cost_tracker:
         alert_manager.set_cost_tracker(cost_tracker)
@@ -527,7 +653,7 @@ def init_sentinel_orchestrator(gateway, memory=None, goal_registry=None, audit_s
         except Exception:
             return "confirm"
 
-    cap_registry = getattr(gateway, '_capability_registry', None)
+    cap_registry = getattr(gateway, "_capability_registry", None)
     orchestrator = Orchestrator(
         intent_engine=IntentEngine(),
         tool_gateway=gateway,
@@ -556,12 +682,15 @@ def init_sentinel_orchestrator(gateway, memory=None, goal_registry=None, audit_s
     )
     _log.info("AlertManager wired into Orchestrator")
     alert_manager.set_performance_tracker(orchestrator._perf_tracker)
-    agent_registry = getattr(gateway, '_agent_registry', None)
+    agent_registry = getattr(gateway, "_agent_registry", None)
     if agent_registry is not None:
         agent_registry.set_model_router(mr)
         _log.info("ModelRouter wired into AgentRegistry for real agent delegation")
-    _log.info("Sentinel Orchestrator initialized on shared gateway (goal_registry=%s, audit=%s)",
-              goal_registry is not None, audit_service is not None)
+    _log.info(
+        "Sentinel Orchestrator initialized on shared gateway (goal_registry=%s, audit=%s)",
+        goal_registry is not None,
+        audit_service is not None,
+    )
     return orchestrator
 
 
@@ -575,6 +704,7 @@ def init_vault():
     try:
         from repositories.database import DatabaseManager
         from sentinel.core.vault import VaultManager
+
         db = DatabaseManager()
         _vault = VaultManager(db=db)
         _log.info("VaultManager initialized")
@@ -606,6 +736,7 @@ def reset_sentinel():
     _OrchestratorHolder.reset()
     try:
         from repositories.database import DatabaseManager
+
         DatabaseManager().close_connections()
     except Exception:
         pass

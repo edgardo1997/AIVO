@@ -22,6 +22,7 @@ async def _get_profile_svc(session: AsyncSession) -> AsyncUserProfileManager:
 @router.get("/profile")
 async def get_profile(request: Request):
     from modules.auth import request_identity
+
     identity = request_identity(request).to_dict()
     user_id = identity.get("user_id", "local-user")
     async with async_session_scope() as session:
@@ -52,6 +53,7 @@ async def get_profile(request: Request):
 @router.patch("/profile")
 async def update_profile(body: Dict[str, Any], request: Request):
     from modules.auth import request_identity
+
     identity = request_identity(request).to_dict()
     user_id = identity.get("user_id", "local-user")
     async with async_session_scope() as session:
@@ -85,6 +87,7 @@ async def update_profile(body: Dict[str, Any], request: Request):
 @router.get("/profile/preferences")
 async def list_preferences(request: Request):
     from modules.auth import request_identity
+
     identity = request_identity(request).to_dict()
     user_id = identity.get("user_id", "local-user")
     async with async_session_scope() as session:
@@ -95,6 +98,7 @@ async def list_preferences(request: Request):
 @router.put("/profile/preferences")
 async def set_preference(body: Dict[str, Any], request: Request):
     from modules.auth import request_identity
+
     identity = request_identity(request).to_dict()
     user_id = identity.get("user_id", "local-user")
     key = body.get("key")
@@ -110,6 +114,7 @@ async def set_preference(body: Dict[str, Any], request: Request):
 @router.delete("/profile/preferences")
 async def delete_preference(body: Dict[str, Any], request: Request):
     from modules.auth import request_identity
+
     identity = request_identity(request).to_dict()
     user_id = identity.get("user_id", "local-user")
     key = body.get("key")
@@ -126,6 +131,7 @@ async def delete_preference(body: Dict[str, Any], request: Request):
 @router.get("/whoami")
 async def whoami(request: Request):
     from modules.auth import request_identity
+
     identity = request_identity(request).to_dict()
     user_id = identity.get("user_id", "local-user")
     async with async_session_scope() as session:

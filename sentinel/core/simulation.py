@@ -84,7 +84,8 @@ _TOOL_IMPACT: Dict[str, Dict[str, Any]] = {
 }
 
 _IRREVERSIBLE_TOOLS: Set[str] = {
-    "executor.kill", "fleet.revoke_pairing",
+    "executor.kill",
+    "fleet.revoke_pairing",
     "permissions.emergency",
 }
 
@@ -121,9 +122,7 @@ class SimulationEngine:
             impacts.append(impact)
 
         overall_risk = self._calculate_overall_risk(impacts, context)
-        requires_confirmation = overall_risk in ("high", "critical") or any(
-            i.irreversible for i in impacts
-        )
+        requires_confirmation = overall_risk in ("high", "critical") or any(i.irreversible for i in impacts)
         summary = self._build_summary(impacts, overall_risk)
 
         return SimulationResult(
@@ -228,9 +227,7 @@ class SimulationEngine:
             irreversible=irreversible,
         )
 
-    def _calculate_overall_risk(
-        self, impacts: List[SimulatedImpact], context: Dict[str, Any]
-    ) -> str:
+    def _calculate_overall_risk(self, impacts: List[SimulatedImpact], context: Dict[str, Any]) -> str:
         if not impacts:
             return "low"
 
@@ -246,9 +243,7 @@ class SimulationEngine:
         reverse_map = {4: "critical", 3: "high", 2: "medium", 1: "low", 0: "low"}
         return reverse_map.get(max_score, "low")
 
-    def _build_summary(
-        self, impacts: List[SimulatedImpact], overall_risk: str
-    ) -> str:
+    def _build_summary(self, impacts: List[SimulatedImpact], overall_risk: str) -> str:
         parts = [f"Simulation: {len(impacts)} step(s), risk: {overall_risk}"]
 
         for imp in impacts:
@@ -264,9 +259,7 @@ class SimulationEngine:
             if imp.warnings:
                 details.append(f"⚠ {'; '.join(imp.warnings[:3])}")
             suffix = f" [{'; '.join(details)}]" if details else ""
-            parts.append(
-                f"  {imp.step_id}: [{imp.impact_level}] {imp.description}{suffix}"
-            )
+            parts.append(f"  {imp.step_id}: [{imp.impact_level}] {imp.description}{suffix}")
 
         if overall_risk in ("high", "critical"):
             parts.append("⚠ Confirmation required due to risk level")

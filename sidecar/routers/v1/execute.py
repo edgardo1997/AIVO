@@ -38,12 +38,16 @@ class ConfirmExecuteRequest(BaseModel):
 async def confirm_tool(req: ConfirmExecuteRequest, request: Request):
     from modules import get_gateway
     from modules.auth import request_identity
+
     identity = request_identity(request).to_dict()
     result = await get_gateway().confirm(req.action_id, req.approved, identity)
     return ExecuteResponse(
-        success=result.success, data=result.data, error=result.error,
+        success=result.success,
+        data=result.data,
+        error=result.error,
         requires_confirmation=result.requires_confirmation,
-        action_id=None, duration_ms=result.duration_ms,
+        action_id=None,
+        duration_ms=result.duration_ms,
     )
 
 
@@ -56,7 +60,8 @@ async def execute_tool(req: ExecuteRequest, request: Request):
     identity = request_identity(request).to_dict()
 
     result = await orch.execute_direct(
-        req.tool_id, dict(req.params),
+        req.tool_id,
+        dict(req.params),
         identity=identity,
         dry_run=req.dry_run,
     )
@@ -64,7 +69,12 @@ async def execute_tool(req: ExecuteRequest, request: Request):
     if result.blocked:
         return ExecuteResponse(
             success=True,
-            data={"blocked": True, "action_id": result.action_id, "simulation_summary": result.simulation_summary, "error": result.error},
+            data={
+                "blocked": True,
+                "action_id": result.action_id,
+                "simulation_summary": result.simulation_summary,
+                "error": result.error,
+            },
             simulated=True,
             requires_confirmation=True,
         )

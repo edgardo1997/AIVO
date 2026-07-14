@@ -135,7 +135,11 @@ def _resolve_auth(auth) -> dict:
         return {"user_id": "local", "client_id": "unknown", "level": "confirm"}
     if isinstance(auth, dict):
         return auth
-    return {"user_id": getattr(auth, "user_id", "local"), "client_id": getattr(auth, "client_id", "unknown"), "level": "confirm"}
+    return {
+        "user_id": getattr(auth, "user_id", "local"),
+        "client_id": getattr(auth, "client_id", "unknown"),
+        "level": "confirm",
+    }
 
 
 class FilesystemService(Tool):
@@ -180,6 +184,7 @@ class FilesystemService(Tool):
 
     def read_file(self, path: str, auth: Optional[dict] = None) -> dict:
         from fastapi import HTTPException
+
         auth = _resolve_auth(auth)
         result = self._guardian.validate_read(path, auth)
         if not result.allowed:
@@ -205,6 +210,7 @@ class FilesystemService(Tool):
 
     def write_file(self, path: str, content: str, auth: Optional[dict] = None) -> dict:
         from fastapi import HTTPException
+
         auth = _resolve_auth(auth)
         result = self._guardian.validate_write(path, auth)
         if not result.allowed:
@@ -240,6 +246,7 @@ class FilesystemService(Tool):
 
     def list_directory(self, path: str = ".", auth: Optional[dict] = None) -> dict:
         from fastapi import HTTPException
+
         auth = _resolve_auth(auth)
         result = self._guardian.validate_read(path, auth)
         if not result.allowed:
@@ -249,13 +256,15 @@ class FilesystemService(Tool):
         try:
             entries = []
             for entry in os.scandir(safe_path):
-                entries.append({
-                    "name": entry.name,
-                    "path": entry.path,
-                    "is_dir": entry.is_dir(),
-                    "size": entry.stat().st_size if entry.is_file() else 0,
-                    "modified": entry.stat().st_mtime,
-                })
+                entries.append(
+                    {
+                        "name": entry.name,
+                        "path": entry.path,
+                        "is_dir": entry.is_dir(),
+                        "size": entry.stat().st_size if entry.is_file() else 0,
+                        "modified": entry.stat().st_mtime,
+                    }
+                )
             self._log("list", path, result, auth, status="success")
             return {"path": safe_path, "entries": entries}
         except PermissionError:
@@ -272,6 +281,7 @@ class FilesystemService(Tool):
 
     def search_files(self, query: str, root: str = "C:\\", auth: Optional[dict] = None) -> dict:
         from fastapi import HTTPException
+
         auth = _resolve_auth(auth)
         if not query or len(query) < 2:
             raise HTTPException(400, "Search query must be at least 2 characters")
@@ -299,6 +309,7 @@ class FilesystemService(Tool):
 
     def delete_file(self, path: str, auth: Optional[dict] = None) -> dict:
         from fastapi import HTTPException
+
         auth = _resolve_auth(auth)
         result = self._guardian.validate_write(path, auth)
         if not result.allowed:
@@ -324,6 +335,7 @@ class FilesystemService(Tool):
 
     def undo_write(self, path: str, original_content: str, auth: Optional[dict] = None) -> dict:
         from fastapi import HTTPException
+
         auth = _resolve_auth(auth)
         result = self._guardian.validate_write(path, auth)
         if not result.allowed:
@@ -344,6 +356,7 @@ class FilesystemService(Tool):
 
     def restore_file(self, temp_path: str, path: str, auth: Optional[dict] = None) -> dict:
         from fastapi import HTTPException
+
         auth = _resolve_auth(auth)
         result = self._guardian.validate_write(path, auth)
         if not result.allowed:

@@ -14,7 +14,8 @@ class FakeRouter:
         self.calls.append((messages, task_type, context))
         return {
             "response": "# Report\n\nVerified finding.",
-            "provider": "test-provider", "model": "test-model",
+            "provider": "test-provider",
+            "model": "test-model",
             "usage": {"total_tokens": 42},
         }
 
@@ -73,7 +74,8 @@ def test_preview_estimates_route_tokens_and_cost_without_sending_content(tmp_pat
     source.write_text("evidence " * 100, encoding="utf-8")
     router = FakeRouter()
     router._cost_tracker = SimpleNamespace(estimate_cost=lambda provider, model, prompt, completion: 0.0123)
-    pipeline = FilePipeline(); pipeline.set_model_router(router)
+    pipeline = FilePipeline()
+    pipeline.set_model_router(router)
 
     result = pipeline.preview_report(str(source), expected_output_tokens=500)
 

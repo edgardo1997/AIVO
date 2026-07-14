@@ -14,9 +14,9 @@ DESTRUCTIVE_PATTERNS_SCHEMA = {
 }
 
 SECURITY_SCHEMA = {
-    k: v for k, v in POLICY_SCHEMA.items()
-    if k in ("permission_levels", "dangerous_tools", "critical_paths",
-             "emergency_stop", "tool_permissions")
+    k: v
+    for k, v in POLICY_SCHEMA.items()
+    if k in ("permission_levels", "dangerous_tools", "critical_paths", "emergency_stop", "tool_permissions")
 }
 
 logger = logging.getLogger(__name__)

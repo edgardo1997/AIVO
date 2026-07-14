@@ -1,7 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { Agents } from "../components/Agents/Agents";
-import { api } from "../api";
 
 beforeAll(() => {
   Element.prototype.scrollIntoView = vi.fn();

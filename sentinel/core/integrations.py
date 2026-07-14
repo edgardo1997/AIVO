@@ -58,8 +58,14 @@ class DesktopIntegrationService:
         else:
             args.append(target)
         process = subprocess.Popen(args, close_fds=True)
-        return {"opened": True, "integration": "ide", "path": target, "pid": process.pid,
-                "executable": executable, "line": line}
+        return {
+            "opened": True,
+            "integration": "ide",
+            "path": target,
+            "pid": process.pid,
+            "executable": executable,
+            "line": line,
+        }
 
     def open_browser(self, url: str) -> Dict[str, Any]:
         parsed = urlparse(url)
@@ -75,10 +81,10 @@ class DesktopIntegrationService:
         if not path.is_file():
             raise ValueError("A file path is required")
         if hasattr(os, "startfile"):
-            os.startfile(str(path))  # type: ignore[attr-defined]
+            os.startfile(str(path))  # type: ignore[attr-defined]  # noqa: S606 -- validated existing file
         else:
             opener = "open" if shutil.which("open") else "xdg-open"
-            subprocess.Popen([opener, str(path)], close_fds=True)
+            subprocess.Popen([opener, str(path)], close_fds=True)  # noqa: S606 -- fixed executable and validated path
         return {"opened": True, "integration": integration, "path": str(path)}
 
     def reveal_path(self, raw_path: str) -> Dict[str, Any]:
@@ -98,14 +104,16 @@ class DesktopIntegrationService:
         if not mime or not mime.startswith("image/"):
             raise ValueError("Path is not a recognized image")
         data: Dict[str, Any] = {
-            "path": str(path), "name": path.name, "mime_type": mime,
+            "path": str(path),
+            "name": path.name,
+            "mime_type": mime,
             "size_bytes": path.stat().st_size,
         }
         try:
             from PIL import Image
+
             with Image.open(path) as image:
-                data.update({"width": image.width, "height": image.height,
-                             "format": image.format, "mode": image.mode})
+                data.update({"width": image.width, "height": image.height, "format": image.format, "mode": image.mode})
         except ImportError:
             data["dimensions_available"] = False
         except Exception as exc:

@@ -24,6 +24,7 @@ def _sanitize(obj: Any) -> Any:
     except (TypeError, ValueError):
         return str(obj)
 
+
 logger = logging.getLogger(__name__)
 
 
@@ -70,6 +71,7 @@ class EpisodicMemory:
     This is operational product memory, not an audit event.  It must never be
     used to grant a permission or lower the risk of a future action.
     """
+
     memory_id: str
     user_id: str
     execution_id: str
@@ -111,77 +113,55 @@ class LearnedPreference:
 
 
 class MemoryBackend(Protocol):
-    def store_execution(self, record: ExecutionRecord) -> None:
-        ...
+    def store_execution(self, record: ExecutionRecord) -> None: ...
 
-    def update_execution(self, execution_id: str, **updates: Any) -> None:
-        ...
+    def update_execution(self, execution_id: str, **updates: Any) -> None: ...
 
-    def get_execution(self, execution_id: str) -> Optional[ExecutionRecord]:
-        ...
+    def get_execution(self, execution_id: str) -> Optional[ExecutionRecord]: ...
 
-    def get_last_execution(self) -> Optional[ExecutionRecord]:
-        ...
+    def get_last_execution(self) -> Optional[ExecutionRecord]: ...
 
-    def get_recent_executions(self, limit: int = 5) -> List[ExecutionRecord]:
-        ...
+    def get_recent_executions(self, limit: int = 5) -> List[ExecutionRecord]: ...
 
-    def get_session_history(self, session_id: str, limit: int = 10) -> List[ExecutionRecord]:
-        ...
+    def get_session_history(self, session_id: str, limit: int = 10) -> List[ExecutionRecord]: ...
 
-    def list_sessions(self, user_id: str, limit: int = 50) -> List[Dict[str, Any]]:
-        ...
+    def list_sessions(self, user_id: str, limit: int = 50) -> List[Dict[str, Any]]: ...
 
-    def search_memory(self, user_id: str, query: str, limit: int = 50) -> List[ExecutionRecord]:
-        ...
+    def search_memory(self, user_id: str, query: str, limit: int = 50) -> List[ExecutionRecord]: ...
 
-    def delete_session(self, session_id: str, user_id: str) -> int:
-        ...
+    def delete_session(self, session_id: str, user_id: str) -> int: ...
 
-    def store_user_preference(self, session_id: str, key: str, value: Any) -> None:
-        ...
+    def store_user_preference(self, session_id: str, key: str, value: Any) -> None: ...
 
-    def get_user_preferences(self, session_id: str) -> Dict[str, Any]:
-        ...
+    def get_user_preferences(self, session_id: str) -> Dict[str, Any]: ...
 
-    def remember_execution(self, user_id: str, record: ExecutionRecord) -> Optional[EpisodicMemory]:
-        ...
+    def remember_execution(self, user_id: str, record: ExecutionRecord) -> Optional[EpisodicMemory]: ...
 
-    def get_episodes(self, user_id: str, limit: int = 10) -> List[EpisodicMemory]:
-        ...
+    def get_episodes(self, user_id: str, limit: int = 10) -> List[EpisodicMemory]: ...
 
-    def get_patterns(self, user_id: str, min_evidence: Optional[int] = None) -> List[MemoryPattern]:
-        ...
+    def get_patterns(self, user_id: str, min_evidence: Optional[int] = None) -> List[MemoryPattern]: ...
 
-    def learn_preference(self, user_id: str, key: str, value: Any, *, source: str = "explicit") -> LearnedPreference:
-        ...
+    def learn_preference(
+        self, user_id: str, key: str, value: Any, *, source: str = "explicit"
+    ) -> LearnedPreference: ...
 
-    def get_learned_preferences(self, user_id: str) -> Dict[str, LearnedPreference]:
-        ...
+    def get_learned_preferences(self, user_id: str) -> Dict[str, LearnedPreference]: ...
 
-    def store_pending_action(self, record: PendingActionRecord) -> None:
-        ...
+    def store_pending_action(self, record: PendingActionRecord) -> None: ...
 
-    def get_pending_action(self, action_id: str) -> Optional[PendingActionRecord]:
-        ...
+    def get_pending_action(self, action_id: str) -> Optional[PendingActionRecord]: ...
 
-    def remove_pending_action(self, action_id: str) -> Optional[PendingActionRecord]:
-        ...
+    def remove_pending_action(self, action_id: str) -> Optional[PendingActionRecord]: ...
 
-    def list_pending_actions(self) -> List[PendingActionRecord]:
-        ...
+    def list_pending_actions(self) -> List[PendingActionRecord]: ...
 
-    def get_emergency_stop(self) -> bool:
-        ...
+    def get_emergency_stop(self) -> bool: ...
 
-    def set_emergency_stop(self, value: bool) -> None:
-        ...
+    def set_emergency_stop(self, value: bool) -> None: ...
 
-    def clear(self) -> None:
-        ...
+    def clear(self) -> None: ...
 
-    def close(self) -> None:
-        ...
+    def close(self) -> None: ...
 
 
 class InMemoryBackend:
@@ -198,7 +178,8 @@ class InMemoryBackend:
         self._lock = threading.RLock()
         self._stop_eviction = threading.Event()
         self._eviction_thread = threading.Thread(
-            target=self._eviction_loop, daemon=True,
+            target=self._eviction_loop,
+            daemon=True,
         )
         self._eviction_thread.start()
 
@@ -259,25 +240,35 @@ class InMemoryBackend:
             sessions = []
             for session_id, records in grouped.items():
                 records.sort(key=lambda item: item.timestamp, reverse=True)
-                sessions.append({"session_id": session_id, "updated_at": records[0].timestamp,
-                                 "created_at": records[-1].timestamp, "execution_count": len(records),
-                                 "last_utterance": records[0].utterance})
+                sessions.append(
+                    {
+                        "session_id": session_id,
+                        "updated_at": records[0].timestamp,
+                        "created_at": records[-1].timestamp,
+                        "execution_count": len(records),
+                        "last_utterance": records[0].utterance,
+                    }
+                )
             return sorted(sessions, key=lambda item: item["updated_at"], reverse=True)[:limit]
 
     def search_memory(self, user_id: str, query: str, limit: int = 50) -> List[ExecutionRecord]:
         with self._lock:
             needle = query.casefold()
-            records = [self._records[eid] for eid in reversed(self._execution_order)
-                       if eid in self._records]
-            return [record for record in records
-                    if record.context_summary.get("user_id") == user_id
-                    and needle in record.utterance.casefold()][:limit]
+            records = [self._records[eid] for eid in reversed(self._execution_order) if eid in self._records]
+            return [
+                record
+                for record in records
+                if record.context_summary.get("user_id") == user_id and needle in record.utterance.casefold()
+            ][:limit]
 
     def delete_session(self, session_id: str, user_id: str) -> int:
         with self._lock:
-            ids = [eid for eid, record in self._records.items()
-                   if record.context_summary.get("session_id") == session_id
-                   and record.context_summary.get("user_id") == user_id]
+            ids = [
+                eid
+                for eid, record in self._records.items()
+                if record.context_summary.get("session_id") == session_id
+                and record.context_summary.get("user_id") == user_id
+            ]
             for eid in ids:
                 self._records.pop(eid, None)
                 self._episodes.pop(eid, None)
@@ -285,20 +276,21 @@ class InMemoryBackend:
                     self._execution_order.remove(eid)
                 if eid in self._episode_order:
                     self._episode_order.remove(eid)
-            still_used = any(record.context_summary.get("session_id") == session_id
-                             for record in self._records.values())
+            still_used = any(
+                record.context_summary.get("session_id") == session_id for record in self._records.values()
+            )
             if hasattr(self, "_preferences") and not still_used:
                 self._preferences.pop(session_id, None)
             return len(ids)
 
     def store_user_preference(self, session_id: str, key: str, value: Any) -> None:
-        if not hasattr(self, '_preferences'):
+        if not hasattr(self, "_preferences"):
             self._preferences: Dict[str, Dict[str, Any]] = {}
         with self._lock:
             self._preferences.setdefault(session_id, {})[key] = value
 
     def get_user_preferences(self, session_id: str) -> Dict[str, Any]:
-        if not hasattr(self, '_preferences'):
+        if not hasattr(self, "_preferences"):
             return {}
         with self._lock:
             return dict(self._preferences.get(session_id, {}))
@@ -317,9 +309,8 @@ class InMemoryBackend:
     def get_episodes(self, user_id: str, limit: int = 10) -> List[EpisodicMemory]:
         with self._lock:
             return [
-                self._episodes[eid] for eid in reversed(self._episode_order)
-                if self._episodes[eid].user_id == user_id
-            ][:max(0, limit)]
+                self._episodes[eid] for eid in reversed(self._episode_order) if self._episodes[eid].user_id == user_id
+            ][: max(0, limit)]
 
     def get_patterns(self, user_id: str, min_evidence: Optional[int] = None) -> List[MemoryPattern]:
         threshold = self._config.pattern_min_evidence if min_evidence is None else min_evidence
@@ -334,10 +325,16 @@ class InMemoryBackend:
         now = _utc_now()
         with self._lock:
             previous = self._learned_preferences.setdefault(user_id, {}).get(key)
-            pref = LearnedPreference(user_id, key, value, source,
+            pref = LearnedPreference(
+                user_id,
+                key,
+                value,
+                source,
                 (previous.evidence_count + 1) if previous else 1,
                 1.0 if source == "explicit" else min(0.95, ((previous.confidence if previous else 0.5) + 0.1)),
-                previous.created_at if previous else now, now)
+                previous.created_at if previous else now,
+                now,
+            )
             self._learned_preferences[user_id][key] = pref
             return pref
 
@@ -353,19 +350,21 @@ class InMemoryBackend:
         now = episode.occurred_at
         count = (existing.evidence_count + 1) if existing else 1
         self._patterns[key] = MemoryPattern(
-            pattern_id=_pattern_id(*key), user_id=episode.user_id,
-            pattern_type="intent_target", pattern_key=episode.intent_target,
-            evidence_count=count, confidence=min(0.95, count / 10),
-            first_seen=existing.first_seen if existing else now, last_seen=now,
+            pattern_id=_pattern_id(*key),
+            user_id=episode.user_id,
+            pattern_type="intent_target",
+            pattern_key=episode.intent_target,
+            evidence_count=count,
+            confidence=min(0.95, count / 10),
+            first_seen=existing.first_seen if existing else now,
+            last_seen=now,
             data={"tool_id": episode.tool_id, "latest_outcome": episode.outcome},
         )
 
     def store_pending_action(self, record: PendingActionRecord) -> None:
         with self._lock:
             if len(self._pending) >= self._config.max_pending_actions:
-                raise RuntimeError(
-                    f"Pending action limit ({self._config.max_pending_actions}) reached"
-                )
+                raise RuntimeError(f"Pending action limit ({self._config.max_pending_actions}) reached")
             self._pending[record.action_id] = record
 
     def get_pending_action(self, action_id: str) -> Optional[PendingActionRecord]:
@@ -433,8 +432,7 @@ class InMemoryBackend:
 
             pend_threshold = now - timedelta(seconds=self._config.pending_action_ttl)
             expired_pending = [
-                aid for aid, rec in self._pending.items()
-                if self._parse_ts(rec.created_at) < pend_threshold
+                aid for aid, rec in self._pending.items() if self._parse_ts(rec.created_at) < pend_threshold
             ]
             for aid in expired_pending:
                 del self._pending[aid]
@@ -454,6 +452,7 @@ class SQLiteBackend:
             # the top-level repository package avoids loading a second singleton as
             # both `repositories.database` and `sidecar.repositories.database`.
             from repositories.database import DatabaseManager
+
             db = DatabaseManager()
         self._db = db
         self._config = config or OperationalMemoryConfig()
@@ -464,20 +463,34 @@ class SQLiteBackend:
                (execution_id, timestamp, utterance, intent, plan, decision,
                 context_summary, step_results, tool_result, error, duration_ms)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (record.execution_id, record.timestamp, record.utterance,
-             json.dumps(record.intent), json.dumps(record.plan),
-             json.dumps(record.decision) if record.decision else None,
-             json.dumps(record.context_summary),
-             json.dumps(record.step_results),
-             json.dumps(record.tool_result) if record.tool_result else None,
-             record.error, record.duration_ms),
+            (
+                record.execution_id,
+                record.timestamp,
+                record.utterance,
+                json.dumps(record.intent),
+                json.dumps(record.plan),
+                json.dumps(record.decision) if record.decision else None,
+                json.dumps(record.context_summary),
+                json.dumps(record.step_results),
+                json.dumps(record.tool_result) if record.tool_result else None,
+                record.error,
+                record.duration_ms,
+            ),
         )
         self._db.commit()
 
     def update_execution(self, execution_id: str, **updates: Any) -> None:
         allowed_columns = {
-            "timestamp", "utterance", "intent", "plan", "decision", "context_summary",
-            "step_results", "tool_result", "error", "duration_ms",
+            "timestamp",
+            "utterance",
+            "intent",
+            "plan",
+            "decision",
+            "context_summary",
+            "step_results",
+            "tool_result",
+            "error",
+            "duration_ms",
         }
         sets = []
         params = []
@@ -492,21 +505,15 @@ class SQLiteBackend:
         self._db.commit()
 
     def get_execution(self, execution_id: str) -> Optional[ExecutionRecord]:
-        row = self._db.fetchone(
-            "SELECT * FROM execution_history WHERE execution_id = ?", (execution_id,)
-        )
+        row = self._db.fetchone("SELECT * FROM execution_history WHERE execution_id = ?", (execution_id,))
         return self._row_to_record(row) if row else None
 
     def get_last_execution(self) -> Optional[ExecutionRecord]:
-        row = self._db.fetchone(
-            "SELECT * FROM execution_history ORDER BY rowid DESC LIMIT 1"
-        )
+        row = self._db.fetchone("SELECT * FROM execution_history ORDER BY rowid DESC LIMIT 1")
         return self._row_to_record(row) if row else None
 
     def get_recent_executions(self, limit: int = 5) -> List[ExecutionRecord]:
-        rows = self._db.fetchall(
-            "SELECT * FROM execution_history ORDER BY rowid DESC LIMIT ?", (limit,)
-        )
+        rows = self._db.fetchall("SELECT * FROM execution_history ORDER BY rowid DESC LIMIT ?", (limit,))
         return [self._row_to_record(r) for r in rows if r]
 
     def get_session_history(self, session_id: str, limit: int = 10) -> List[ExecutionRecord]:
@@ -535,7 +542,8 @@ class SQLiteBackend:
                 """SELECT utterance FROM execution_history
                    WHERE json_extract(context_summary, '$.user_id') = ?
                      AND json_extract(context_summary, '$.session_id') = ?
-                   ORDER BY timestamp DESC LIMIT 1""", (user_id, row["session_id"]),
+                   ORDER BY timestamp DESC LIMIT 1""",
+                (user_id, row["session_id"]),
             )
             sessions.append({**dict(row), "last_utterance": latest["utterance"] if latest else ""})
         return sessions
@@ -555,19 +563,24 @@ class SQLiteBackend:
         rows = self._db.fetchall(
             """SELECT execution_id FROM execution_history
                WHERE json_extract(context_summary, '$.session_id') = ?
-                 AND json_extract(context_summary, '$.user_id') = ?""", (session_id, user_id),
+                 AND json_extract(context_summary, '$.user_id') = ?""",
+            (session_id, user_id),
         )
         execution_ids = [row["execution_id"] for row in rows]
         for execution_id in execution_ids:
-            self._db.execute("DELETE FROM episodic_memory WHERE execution_id = ? AND user_id = ?", (execution_id, user_id))
+            self._db.execute(
+                "DELETE FROM episodic_memory WHERE execution_id = ? AND user_id = ?", (execution_id, user_id)
+            )
         self._db.execute(
             """DELETE FROM execution_history
                WHERE json_extract(context_summary, '$.session_id') = ?
-                 AND json_extract(context_summary, '$.user_id') = ?""", (session_id, user_id),
+                 AND json_extract(context_summary, '$.user_id') = ?""",
+            (session_id, user_id),
         )
         remaining = self._db.fetchone(
             """SELECT COUNT(*) AS count FROM execution_history
-               WHERE json_extract(context_summary, '$.session_id') = ?""", (session_id,),
+               WHERE json_extract(context_summary, '$.session_id') = ?""",
+            (session_id,),
         )
         if not remaining or remaining["count"] == 0:
             self._db.execute("DELETE FROM user_preferences WHERE session_id = ?", (session_id,))
@@ -600,10 +613,21 @@ class SQLiteBackend:
                (memory_id, user_id, execution_id, occurred_at, summary, intent_action,
                 intent_target, tool_id, outcome, risk_score, tags, metadata, expires_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (episode.memory_id, episode.user_id, episode.execution_id, episode.occurred_at,
-             episode.summary, episode.intent_action, episode.intent_target, episode.tool_id,
-             episode.outcome, episode.risk_score, json.dumps(episode.tags),
-             json.dumps(episode.metadata), episode.expires_at),
+            (
+                episode.memory_id,
+                episode.user_id,
+                episode.execution_id,
+                episode.occurred_at,
+                episode.summary,
+                episode.intent_action,
+                episode.intent_target,
+                episode.tool_id,
+                episode.outcome,
+                episode.risk_score,
+                json.dumps(episode.tags),
+                json.dumps(episode.metadata),
+                episode.expires_at,
+            ),
         )
         self._observe_pattern(episode)
         self._db.commit()
@@ -631,7 +655,8 @@ class SQLiteBackend:
         _validate_learned_preference(key, source)
         now = _utc_now()
         existing = self._db.fetchone(
-            "SELECT * FROM learned_preferences WHERE user_id = ? AND key = ?", (user_id, key),
+            "SELECT * FROM learned_preferences WHERE user_id = ? AND key = ?",
+            (user_id, key),
         )
         evidence = (existing["evidence_count"] + 1) if existing else 1
         previous_confidence = float(existing["confidence"]) if existing else 0.5
@@ -669,9 +694,17 @@ class SQLiteBackend:
                ON CONFLICT(user_id, pattern_type, pattern_key) DO UPDATE SET
                  evidence_count = excluded.evidence_count, confidence = excluded.confidence,
                  last_seen = excluded.last_seen, data = excluded.data""",
-            (_pattern_id(episode.user_id, "intent_target", episode.intent_target), episode.user_id,
-             "intent_target", episode.intent_target, count, min(0.95, count / 10), first_seen,
-             episode.occurred_at, json.dumps({"tool_id": episode.tool_id, "latest_outcome": episode.outcome})),
+            (
+                _pattern_id(episode.user_id, "intent_target", episode.intent_target),
+                episode.user_id,
+                "intent_target",
+                episode.intent_target,
+                count,
+                min(0.95, count / 10),
+                first_seen,
+                episode.occurred_at,
+                json.dumps({"tool_id": episode.tool_id, "latest_outcome": episode.outcome}),
+            ),
         )
 
     def store_pending_action(self, record: PendingActionRecord) -> None:
@@ -679,15 +712,19 @@ class SQLiteBackend:
             """INSERT OR REPLACE INTO pending_actions
                (action_id, tool_id, params, reason, created_at, ttl_seconds, confirmed)
                VALUES (?, ?, ?, ?, ?, ?, 0)""",
-            (record.action_id, record.tool_id, json.dumps(_sanitize(record.params)),
-             record.reason, record.created_at, record.ttl_seconds),
+            (
+                record.action_id,
+                record.tool_id,
+                json.dumps(_sanitize(record.params)),
+                record.reason,
+                record.created_at,
+                record.ttl_seconds,
+            ),
         )
         self._db.commit()
 
     def get_pending_action(self, action_id: str) -> Optional[PendingActionRecord]:
-        row = self._db.fetchone(
-            "SELECT * FROM pending_actions WHERE action_id = ?", (action_id,)
-        )
+        row = self._db.fetchone("SELECT * FROM pending_actions WHERE action_id = ?", (action_id,))
         return self._row_to_pending(row) if row else None
 
     def remove_pending_action(self, action_id: str) -> Optional[PendingActionRecord]:
@@ -706,9 +743,7 @@ class SQLiteBackend:
         return bool(row["value"]) if row else False
 
     def set_emergency_stop(self, value: bool) -> None:
-        self._db.execute(
-            "UPDATE emergency_stop SET value = ? WHERE id = 1", (1 if value else 0,)
-        )
+        self._db.execute("UPDATE emergency_stop SET value = ? WHERE id = 1", (1 if value else 0,))
         self._db.commit()
 
     def clear(self) -> None:
@@ -752,28 +787,46 @@ class SQLiteBackend:
     @staticmethod
     def _row_to_episode(row: dict) -> EpisodicMemory:
         return EpisodicMemory(
-            memory_id=row["memory_id"], user_id=row["user_id"], execution_id=row["execution_id"],
-            occurred_at=row["occurred_at"], summary=row["summary"],
-            intent_action=row["intent_action"], intent_target=row["intent_target"],
-            tool_id=row["tool_id"], outcome=row["outcome"], risk_score=row["risk_score"],
-            tags=json.loads(row["tags"]), metadata=json.loads(row["metadata"]), expires_at=row["expires_at"],
+            memory_id=row["memory_id"],
+            user_id=row["user_id"],
+            execution_id=row["execution_id"],
+            occurred_at=row["occurred_at"],
+            summary=row["summary"],
+            intent_action=row["intent_action"],
+            intent_target=row["intent_target"],
+            tool_id=row["tool_id"],
+            outcome=row["outcome"],
+            risk_score=row["risk_score"],
+            tags=json.loads(row["tags"]),
+            metadata=json.loads(row["metadata"]),
+            expires_at=row["expires_at"],
         )
 
     @staticmethod
     def _row_to_pattern(row: dict) -> MemoryPattern:
         return MemoryPattern(
-            pattern_id=row["pattern_id"], user_id=row["user_id"], pattern_type=row["pattern_type"],
-            pattern_key=row["pattern_key"], evidence_count=row["evidence_count"],
-            confidence=row["confidence"], first_seen=row["first_seen"], last_seen=row["last_seen"],
+            pattern_id=row["pattern_id"],
+            user_id=row["user_id"],
+            pattern_type=row["pattern_type"],
+            pattern_key=row["pattern_key"],
+            evidence_count=row["evidence_count"],
+            confidence=row["confidence"],
+            first_seen=row["first_seen"],
+            last_seen=row["last_seen"],
             data=json.loads(row["data"]),
         )
 
     @staticmethod
     def _row_to_preference(row: dict) -> LearnedPreference:
         return LearnedPreference(
-            user_id=row["user_id"], key=row["key"], value=json.loads(row["value"]),
-            source=row["source"], evidence_count=row["evidence_count"],
-            confidence=row["confidence"], created_at=row["created_at"], updated_at=row["updated_at"],
+            user_id=row["user_id"],
+            key=row["key"],
+            value=json.loads(row["value"]),
+            source=row["source"],
+            evidence_count=row["evidence_count"],
+            confidence=row["confidence"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
         )
 
 
@@ -807,13 +860,22 @@ def _episode_from_execution(user_id: str, record: ExecutionRecord, config: Opera
     tool_id = str(tool_result.get("tool_id", ""))
     risk_score = plan.get("risk_score")
     tags = [tag for tag in (action, target, outcome) if tag]
-    expires_at = (datetime.now(timezone.utc) + timedelta(days=config.episodic_retention_days)).isoformat().replace("+00:00", "Z")
+    expires_at = (
+        (datetime.now(timezone.utc) + timedelta(days=config.episodic_retention_days)).isoformat().replace("+00:00", "Z")
+    )
     summary = f"{action or 'action'} → {target or tool_id or 'unknown'}: {outcome}"
     return EpisodicMemory(
         memory_id=hashlib.sha256(f"episode:{user_id}:{record.execution_id}".encode("utf-8")).hexdigest()[:24],
-        user_id=user_id, execution_id=record.execution_id, occurred_at=record.timestamp,
-        summary=summary, intent_action=action, intent_target=target, tool_id=tool_id,
-        outcome=outcome, risk_score=float(risk_score) if risk_score is not None else None,
-        tags=tags, metadata={"duration_ms": record.duration_ms, "has_error": bool(record.error)},
+        user_id=user_id,
+        execution_id=record.execution_id,
+        occurred_at=record.timestamp,
+        summary=summary,
+        intent_action=action,
+        intent_target=target,
+        tool_id=tool_id,
+        outcome=outcome,
+        risk_score=float(risk_score) if risk_score is not None else None,
+        tags=tags,
+        metadata={"duration_ms": record.duration_ms, "has_error": bool(record.error)},
         expires_at=expires_at,
     )

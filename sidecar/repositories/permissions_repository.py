@@ -3,6 +3,7 @@ import os
 
 from .database import DatabaseManager
 
+
 class PermissionsRepository:
     def __init__(self, db=None):
         self._db = db or DatabaseManager()

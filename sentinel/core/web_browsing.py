@@ -15,7 +15,9 @@ from .content_security import scan_untrusted_content, wrap_untrusted_content
 
 logger = logging.getLogger(__name__)
 
-USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+)
 DEFAULT_TIMEOUT = 15
 MAX_CONTENT_SIZE = 512 * 1024
 
@@ -62,8 +64,7 @@ class WebBrowsingService:
             "last_error": None,
         }
 
-    def navigate(self, url: str, *, timeout: int = DEFAULT_TIMEOUT,
-                 extract_links: bool = True) -> WebResult:
+    def navigate(self, url: str, *, timeout: int = DEFAULT_TIMEOUT, extract_links: bool = True) -> WebResult:
         start = time.perf_counter()
         parsed = urlparse(url)
         if not parsed.scheme:
@@ -78,8 +79,8 @@ class WebBrowsingService:
 
         try:
             import httpx
-            with httpx.Client(timeout=timeout, follow_redirects=False,
-                              headers={"User-Agent": USER_AGENT}) as client:
+
+            with httpx.Client(timeout=timeout, follow_redirects=False, headers={"User-Agent": USER_AGENT}) as client:
                 current_url = url
                 for _ in range(6):
                     self._validate_public_url(current_url)
@@ -197,13 +198,15 @@ class WebBrowsingService:
     def _extract_content(self, result: WebResult, html: str, extract_links: bool):
         try:
             from bs4 import BeautifulSoup
+
             soup = BeautifulSoup(html, "html.parser")
 
             if soup.title and soup.title.string:
                 result.title = soup.title.string.strip()
 
-            for tag in soup(["script", "style", "nav", "footer", "header", "aside",
-                             "noscript", "iframe", "svg", "form", "button"]):
+            for tag in soup(
+                ["script", "style", "nav", "footer", "header", "aside", "noscript", "iframe", "svg", "form", "button"]
+            ):
                 tag.decompose()
 
             if extract_links:
@@ -214,9 +217,9 @@ class WebBrowsingService:
                         result.links.append({"href": href, "text": text})
 
             text_parts = []
-            for tag in soup.find_all(["p", "h1", "h2", "h3", "h4", "h5", "h6",
-                                       "li", "td", "th", "blockquote", "pre",
-                                       "code", "div", "span"]):
+            for tag in soup.find_all(
+                ["p", "h1", "h2", "h3", "h4", "h5", "h6", "li", "td", "th", "blockquote", "pre", "code", "div", "span"]
+            ):
                 t = tag.get_text(strip=True)
                 if t and len(t) > 1:
                     text_parts.append(t)

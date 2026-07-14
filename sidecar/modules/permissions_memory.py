@@ -20,11 +20,12 @@ class PendingActionsDict(MutableMapping):
         self._memory: Optional[MemoryBackend] = None
         self._fallback: Dict[str, Any] = {}
 
-    def set_memory(self, memory: 'MemoryBackend') -> None:
+    def set_memory(self, memory: "MemoryBackend") -> None:
         self._memory = memory
         if self._fallback:
             from sentinel.core.operational_memory import PendingActionRecord
             from datetime import datetime, timezone
+
             for action_id, data in self._fallback.items():
                 try:
                     rec = PendingActionRecord(
@@ -57,6 +58,7 @@ class PendingActionsDict(MutableMapping):
         if self._memory:
             from sentinel.core.operational_memory import PendingActionRecord
             from datetime import datetime, timezone
+
             rec = PendingActionRecord(
                 action_id=action_id,
                 tool_id=value.get("classification", "unknown"),
@@ -119,7 +121,7 @@ class EmergencyStopFlag:
         self._memory: Optional[MemoryBackend] = None
         self._fallback: bool = False
 
-    def set_memory(self, memory: 'MemoryBackend') -> None:
+    def set_memory(self, memory: "MemoryBackend") -> None:
         self._memory = memory
         if self._fallback:
             memory.set_emergency_stop(self._fallback)

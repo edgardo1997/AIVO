@@ -22,11 +22,22 @@ def _load_security_config() -> Dict[str, Any]:
                 "admin": {"write": "allow", "read": "allow", "dangerous": "allow"},
             },
             "dangerous_tools": [
-                "executor.command", "executor.kill", "executor.launch",
-                "filesystem.write", "filesystem.delete",
-                "permissions.set_level", "permissions.emergency", "permissions.confirm",
-                "fleet.generate_pairing", "fleet.revoke_pairing", "fleet.toggle_remote",
-                "plugins.load", "plugins.unload", "plugins.reload", "plugins.toggle", "plugins.create",
+                "executor.command",
+                "executor.kill",
+                "executor.launch",
+                "filesystem.write",
+                "filesystem.delete",
+                "permissions.set_level",
+                "permissions.emergency",
+                "permissions.confirm",
+                "fleet.generate_pairing",
+                "fleet.revoke_pairing",
+                "fleet.toggle_remote",
+                "plugins.load",
+                "plugins.unload",
+                "plugins.reload",
+                "plugins.toggle",
+                "plugins.create",
             ],
         },
     )
@@ -37,10 +48,7 @@ def _load_levels():
     raw = config.get("permission_levels", {})
     levels = {}
     for name, rules in raw.items():
-        levels[name] = {
-            action: EFFECT_MAP.get(effect, PolicyEffect.DENY)
-            for action, effect in rules.items()
-        }
+        levels[name] = {action: EFFECT_MAP.get(effect, PolicyEffect.DENY) for action, effect in rules.items()}
     return levels
 
 
@@ -84,7 +92,9 @@ class PermissionLevelPolicy(Policy):
 
         is_dangerous = any(d in tool_id for d in DANGEROUS_TOOLS)
         is_write = ".write" in tool_id or ".delete" in tool_id or ".create" in tool_id
-        is_read = not is_write and (".read" in tool_id or ".list" in tool_id or ".search" in tool_id or ".info" in tool_id)
+        is_read = not is_write and (
+            ".read" in tool_id or ".list" in tool_id or ".search" in tool_id or ".info" in tool_id
+        )
 
         if is_dangerous:
             effect = rules.get("dangerous", PolicyEffect.DENY)
@@ -100,7 +110,8 @@ class PermissionLevelPolicy(Policy):
             identity = context.get("identity") or {}
             if grant.get("tool_id") == tool_id and grant.get("user_id") == identity.get("user_id"):
                 return PolicyResult(
-                    effect=PolicyEffect.ALLOW, policy_id=self.policy_id(),
+                    effect=PolicyEffect.ALLOW,
+                    policy_id=self.policy_id(),
                     reason=f"Single-use confirmation '{grant.get('action_id')}' accepted",
                     context={"level": level, "confirmed": True, "action_id": grant.get("action_id")},
                 )
@@ -161,11 +172,15 @@ class IdentityPermissionPolicy(Policy):
 
 class GranularPermissionPolicy(Policy):
     """Applies user/tool/permission rules that can further restrict baseline access."""
+
     def __init__(self, get_rules):
         self._get_rules = get_rules
 
-    def policy_id(self) -> str: return "granular_permissions"
-    def description(self) -> str: return "User, tool, capability, and path-scoped permission rules"
+    def policy_id(self) -> str:
+        return "granular_permissions"
+
+    def description(self) -> str:
+        return "User, tool, capability, and path-scoped permission rules"
 
     async def evaluate(self, tool_id: str, params: Dict[str, Any], context: Dict[str, Any]) -> PolicyResult:
         identity = context.get("identity") or {}
@@ -174,12 +189,16 @@ class GranularPermissionPolicy(Policy):
         path = str(params.get("path") or params.get("root") or "")
         matches = []
         for rule in self._get_rules():
-            if rule.get("user_id", "*") not in ("*", user_id): continue
-            if not fnmatch(tool_id, rule.get("tool", "*")): continue
+            if rule.get("user_id", "*") not in ("*", user_id):
+                continue
+            if not fnmatch(tool_id, rule.get("tool", "*")):
+                continue
             permission = rule.get("permission", "*")
-            if permission != "*" and permission not in required: continue
+            if permission != "*" and permission not in required:
+                continue
             scope = rule.get("path_prefix") or ""
-            if scope and not path.lower().startswith(str(scope).lower()): continue
+            if scope and not path.lower().startswith(str(scope).lower()):
+                continue
             matches.append(rule)
         for effect in ("deny", "require_confirm"):
             matched = next((rule for rule in matches if rule.get("effect") == effect), None)
@@ -187,9 +206,12 @@ class GranularPermissionPolicy(Policy):
                 grant = context.get("_confirmation_grant") or {}
                 if effect == "require_confirm" and grant.get("tool_id") == tool_id and grant.get("user_id") == user_id:
                     continue
-                return PolicyResult(PolicyEffect.DENY if effect == "deny" else PolicyEffect.REQUIRE_CONFIRM,
-                                    self.policy_id(), f"Granular rule '{matched.get('id')}' -> {effect}",
-                                    {"rule": matched})
+                return PolicyResult(
+                    PolicyEffect.DENY if effect == "deny" else PolicyEffect.REQUIRE_CONFIRM,
+                    self.policy_id(),
+                    f"Granular rule '{matched.get('id')}' -> {effect}",
+                    {"rule": matched},
+                )
         return PolicyResult(PolicyEffect.ALLOW, self.policy_id(), "No restrictive granular rule matched")
 
 

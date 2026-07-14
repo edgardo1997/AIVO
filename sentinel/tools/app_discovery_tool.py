@@ -68,10 +68,16 @@ class AppDiscoveryTool(Tool):
         if action == "capabilities":
             cap_registry = (context or {}).get("_capability_registry")
             if cap_registry:
-                caps = [{"id": c.id, "name": c.name, "category": c.category,
-                         "risk_level": c.risk_level.value if hasattr(c.risk_level, 'value') else str(c.risk_level),
-                         "tags": list(c.tags) if c.tags else []}
-                        for c in cap_registry.list_all()]
+                caps = [
+                    {
+                        "id": c.id,
+                        "name": c.name,
+                        "category": c.category,
+                        "risk_level": c.risk_level.value if hasattr(c.risk_level, "value") else str(c.risk_level),
+                        "tags": list(c.tags) if c.tags else [],
+                    }
+                    for c in cap_registry.list_all()
+                ]
             else:
                 caps = []
             return ToolResult.ok(data={"capabilities": caps, "total": len(caps)}, tool_id="app.discovery")

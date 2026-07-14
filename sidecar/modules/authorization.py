@@ -42,6 +42,4 @@ def check_level(identity: IdentityContext, minimum: str) -> None:
     identity_rank = LEVEL_RANK.get(identity.level, 0)
     required_rank = LEVEL_RANK.get(minimum, 0)
     if identity_rank < required_rank:
-        raise PermissionError(
-            f"Requires level '{minimum}', identity has level '{identity.level}'"
-        )
+        raise PermissionError(f"Requires level '{minimum}', identity has level '{identity.level}'")

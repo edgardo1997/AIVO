@@ -12,9 +12,12 @@ client = TestClient(app)
 
 class TestChatPipeline:
     def test_chat_endpoint_returns_response_shape(self):
-        resp = client.post("/api/sentinel/chat", json={
-            "message": "show me cpu usage",
-        })
+        resp = client.post(
+            "/api/sentinel/chat",
+            json={
+                "message": "show me cpu usage",
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert "response" in data
@@ -23,9 +26,12 @@ class TestChatPipeline:
         assert data["pipeline"]["intent"]["target"] == "system.cpu"
 
     def test_chat_with_conversational_message(self):
-        resp = client.post("/api/sentinel/chat", json={
-            "message": "hello, how are you?",
-        })
+        resp = client.post(
+            "/api/sentinel/chat",
+            json={
+                "message": "hello, how are you?",
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert "response" in data
@@ -33,18 +39,24 @@ class TestChatPipeline:
         assert data["pipeline"]["intent"]["confidence"] < 0.6
 
     def test_chat_with_empty_message(self):
-        resp = client.post("/api/sentinel/chat", json={
-            "message": "",
-        })
+        resp = client.post(
+            "/api/sentinel/chat",
+            json={
+                "message": "",
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["response"] == "Please provide a message."
         assert data["pipeline"] is None
 
     def test_chat_includes_pipeline_trace(self):
-        resp = client.post("/api/sentinel/chat", json={
-            "message": "show my memory",
-        })
+        resp = client.post(
+            "/api/sentinel/chat",
+            json={
+                "message": "show my memory",
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         trace = data["pipeline"]
@@ -56,40 +68,52 @@ class TestChatPipeline:
         assert trace["intent"]["target"] in ("system.memory", "system.info")
 
     def test_chat_with_context_history(self):
-        resp = client.post("/api/sentinel/chat", json={
-            "message": "and the disk too",
-            "context": [
-                {"role": "user", "content": "show me cpu"},
-                {"role": "ai", "content": "CPU is at 23%"},
-            ],
-        })
+        resp = client.post(
+            "/api/sentinel/chat",
+            json={
+                "message": "and the disk too",
+                "context": [
+                    {"role": "user", "content": "show me cpu"},
+                    {"role": "ai", "content": "CPU is at 23%"},
+                ],
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert "response" in data
 
     def test_chat_with_session_id(self):
-        resp = client.post("/api/sentinel/chat", json={
-            "message": "list processes",
-            "session_id": "test-session-001",
-        })
+        resp = client.post(
+            "/api/sentinel/chat",
+            json={
+                "message": "list processes",
+                "session_id": "test-session-001",
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert "response" in data
         assert len(data["response"]) > 0
 
     def test_chat_actionable_intent_runs_tool(self):
-        resp = client.post("/api/sentinel/chat", json={
-            "message": "what is my disk space",
-        })
+        resp = client.post(
+            "/api/sentinel/chat",
+            json={
+                "message": "what is my disk space",
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["pipeline"]["tool_result"]["success"] is True
         assert data["pipeline"]["intent"]["confidence"] >= 0.6
 
     def test_chat_provider_and_model_included(self):
-        resp = client.post("/api/sentinel/chat", json={
-            "message": "system status",
-        })
+        resp = client.post(
+            "/api/sentinel/chat",
+            json={
+                "message": "system status",
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert "provider" in data

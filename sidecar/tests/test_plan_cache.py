@@ -1,4 +1,6 @@
-import os, sys
+import os
+import sys
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from unittest.mock import MagicMock, patch
@@ -113,8 +115,11 @@ class TestPlanCache:
         cache = PlanCache()
         intent = self.make_intent()
         md = RouterDecision(
-            provider_id="ollama", model="llama3",
-            task_type=TaskType.QUICK, strategy="priority", reason="test",
+            provider_id="ollama",
+            model="llama3",
+            task_type=TaskType.QUICK,
+            strategy="priority",
+            reason="test",
         )
         step = PlanStep(id="s0", tool_id="system.info", model_decision=md)
         plan = Plan(steps=[step], intent=intent, description="with md")
@@ -128,11 +133,13 @@ class TestPlanCache:
 class TestPlanCacheAPI:
     def setup_method(self):
         from modules.sentinel_bridge import reset_bridge
+
         reset_bridge()
 
     def test_cache_stats(self):
         from fastapi.testclient import TestClient
         from main import app
+
         client = TestClient(app)
         resp = client.get("/api/sentinel/cache/stats")
         assert resp.status_code == 200
@@ -142,6 +149,7 @@ class TestPlanCacheAPI:
     def test_cache_clear(self):
         from fastapi.testclient import TestClient
         from main import app
+
         client = TestClient(app)
         resp = client.post("/api/sentinel/cache/clear")
         assert resp.status_code == 200

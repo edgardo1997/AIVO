@@ -149,19 +149,19 @@ class CostTracker:
 
     def _load_budgets(self) -> None:
         conn = self._get_conn()
-        cursor = conn.execute(
-            "SELECT name, max_cost_usd, period, provider_id, max_tokens, enabled FROM budgets"
-        )
+        cursor = conn.execute("SELECT name, max_cost_usd, period, provider_id, max_tokens, enabled FROM budgets")
         self._budgets = []
         for row in cursor:
-            self._budgets.append(BudgetConfig(
-                name=row["name"],
-                max_cost_usd=row["max_cost_usd"],
-                period=row["period"],
-                provider_id=row["provider_id"],
-                max_tokens=row["max_tokens"],
-                enabled=bool(row["enabled"]),
-            ))
+            self._budgets.append(
+                BudgetConfig(
+                    name=row["name"],
+                    max_cost_usd=row["max_cost_usd"],
+                    period=row["period"],
+                    provider_id=row["provider_id"],
+                    max_tokens=row["max_tokens"],
+                    enabled=bool(row["enabled"]),
+                )
+            )
 
     def get_model_price(self, provider_id: str, model: str) -> float:
         provider_pricing = MODEL_PRICING.get(provider_id, {})
@@ -205,15 +205,30 @@ class CostTracker:
                 "(provider_id, model, task_type, prompt_tokens, completion_tokens, "
                 "total_tokens, cost_usd, estimated, session_id, error, timestamp) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (provider_id, model, task_type.value, prompt_tokens, completion_tokens,
-                 total_tokens, cost_usd, int(estimated), session_id, error, ts),
+                (
+                    provider_id,
+                    model,
+                    task_type.value,
+                    prompt_tokens,
+                    completion_tokens,
+                    total_tokens,
+                    cost_usd,
+                    int(estimated),
+                    session_id,
+                    error,
+                    ts,
+                ),
             )
             conn.commit()
         except Exception as e:
             logger.warning("Failed to persist cost record: %s", e)
         logger.debug(
             "Cost recorded: %s/%s %s tokens=%d cost=$%.6f",
-            provider_id, model, task_type.value, total_tokens, cost_usd,
+            provider_id,
+            model,
+            task_type.value,
+            total_tokens,
+            cost_usd,
         )
         return record
 
@@ -247,15 +262,17 @@ class CostTracker:
         )
         result = []
         for row in cursor:
-            result.append(CostSummary(
-                provider_id=row["provider_id"],
-                model=row["model"],
-                total_calls=row["total_calls"],
-                total_prompt_tokens=row["total_prompt"],
-                total_completion_tokens=row["total_completion"],
-                total_tokens=row["total_tokens"],
-                total_cost_usd=round(row["total_cost"], 6),
-            ))
+            result.append(
+                CostSummary(
+                    provider_id=row["provider_id"],
+                    model=row["model"],
+                    total_calls=row["total_calls"],
+                    total_prompt_tokens=row["total_prompt"],
+                    total_completion_tokens=row["total_completion"],
+                    total_tokens=row["total_tokens"],
+                    total_cost_usd=round(row["total_cost"], 6),
+                )
+            )
         return result
 
     def get_total_cost(self, provider_id: Optional[str] = None, since: Optional[str] = None) -> float:
@@ -271,8 +288,14 @@ class CostTracker:
         conn.execute(
             "INSERT OR REPLACE INTO budgets (name, max_cost_usd, period, provider_id, max_tokens, enabled) "
             "VALUES (?, ?, ?, ?, ?, ?)",
-            (config.name, config.max_cost_usd, config.period,
-             config.provider_id, config.max_tokens, int(config.enabled)),
+            (
+                config.name,
+                config.max_cost_usd,
+                config.period,
+                config.provider_id,
+                config.max_tokens,
+                int(config.enabled),
+            ),
         )
         conn.commit()
         self._load_budgets()
@@ -298,18 +321,19 @@ class CostTracker:
             if budget.max_tokens is not None:
                 current_tokens = self.get_total_tokens(provider_id=budget.provider_id, since=since)
             if current_cost >= budget.max_cost_usd or (
-                budget.max_tokens is not None and current_tokens is not None
-                and current_tokens >= budget.max_tokens
+                budget.max_tokens is not None and current_tokens is not None and current_tokens >= budget.max_tokens
             ):
-                alerts.append(BudgetAlert(
-                    budget_name=budget.name,
-                    provider_id=budget.provider_id,
-                    current_cost=current_cost,
-                    max_cost=budget.max_cost_usd,
-                    current_tokens=current_tokens,
-                    max_tokens=budget.max_tokens,
-                    period=budget.period,
-                ))
+                alerts.append(
+                    BudgetAlert(
+                        budget_name=budget.name,
+                        provider_id=budget.provider_id,
+                        current_cost=current_cost,
+                        max_cost=budget.max_cost_usd,
+                        current_tokens=current_tokens,
+                        max_tokens=budget.max_tokens,
+                        period=budget.period,
+                    )
+                )
         return alerts
 
     @staticmethod

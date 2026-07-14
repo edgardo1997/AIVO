@@ -205,7 +205,7 @@ class ModelRouter:
         self._availability_cache: Dict[str, ProviderAvailability] = {}
         self._routing_history: List[Dict[str, Any]] = []
 
-        for p in (providers or BUILTIN_PROVIDERS):
+        for p in providers or BUILTIN_PROVIDERS:
             self._providers[p.id] = p
 
     def set_feedback_store(self, store: Any) -> None:
@@ -257,8 +257,11 @@ class ModelRouter:
             else:
                 health = self.check_health(provider_id, timeout=0.75)
                 result = ProviderAvailability(
-                    provider_id, bool(health.get("available")),
-                    "local_service_reachable" if health.get("available") else health.get("error", "local_service_unreachable"),
+                    provider_id,
+                    bool(health.get("available")),
+                    "local_service_reachable"
+                    if health.get("available")
+                    else health.get("error", "local_service_unreachable"),
                     now,
                 )
         else:
@@ -273,7 +276,7 @@ class ModelRouter:
         }
 
     def routing_history(self, limit: int = 50) -> List[Dict[str, Any]]:
-        return list(self._routing_history[-max(1, limit):])
+        return list(self._routing_history[-max(1, limit) :])
 
     def _record_decision(self, decision: RouterDecision) -> RouterDecision:
         self._routing_history.append({"timestamp": time.time(), **decision.to_dict()})
@@ -335,13 +338,15 @@ class ModelRouter:
                     spec = self._providers[pid]
                     if not self.provider_availability(pid).available:
                         continue
-                    result.append(RouterDecision(
-                        provider_id=pid,
-                        model=spec.default_model,
-                        task_type=task_type,
-                        strategy=self._strategy,
-                        reason=f"Fallback chain: {pid}",
-                    ))
+                    result.append(
+                        RouterDecision(
+                            provider_id=pid,
+                            model=spec.default_model,
+                            task_type=task_type,
+                            strategy=self._strategy,
+                            reason=f"Fallback chain: {pid}",
+                        )
+                    )
                     seen.add(pid)
                 if len(result) - 1 >= self._max_fallbacks:
                     break
@@ -369,8 +374,7 @@ class ModelRouter:
         if not candidates:
             snapshot = self.availability_snapshot()
             raise RuntimeError(
-                f"No available provider supports task type '{task_type.value}'. "
-                f"Availability: {snapshot}"
+                f"No available provider supports task type '{task_type.value}'. Availability: {snapshot}"
             )
 
         if self._strategy == "local_first":
@@ -389,18 +393,21 @@ class ModelRouter:
         reason = f"Selected {best.id} for {task_type.value} (strategy={self._strategy}, priority={best.priority}, availability=verified)"
         logger.info(reason)
 
-        return self._record_decision(RouterDecision(
-            provider_id=best.id,
-            model=best.default_model,
-            task_type=task_type,
-            strategy=self._strategy,
-            reason=reason,
-            selection_trace={"eligible": [p.id for p in candidates], "excluded": excluded},
-        ))
+        return self._record_decision(
+            RouterDecision(
+                provider_id=best.id,
+                model=best.default_model,
+                task_type=task_type,
+                strategy=self._strategy,
+                reason=reason,
+                selection_trace={"eligible": [p.id for p in candidates], "excluded": excluded},
+            )
+        )
 
     def _filter_candidates(self, task_type: TaskType) -> List[ProviderSpec]:
         return [
-            p for p in self._providers.values()
+            p
+            for p in self._providers.values()
             if task_type in p.task_types and self.provider_availability(p.id).available
         ]
 
@@ -415,9 +422,10 @@ class ModelRouter:
         perm_level = context.get("permission_level", "confirm")
         battery = sys_sum.get("battery", None)
 
-        is_high_load = (isinstance(cpu, (int, float)) and cpu > 80) or \
-                       (isinstance(mem, (int, float)) and mem > 85)
-        is_battery_low = isinstance(battery, dict) and battery.get("percent", 100) < 20 and not battery.get("power_plugged", True)
+        is_high_load = (isinstance(cpu, (int, float)) and cpu > 80) or (isinstance(mem, (int, float)) and mem > 85)
+        is_battery_low = (
+            isinstance(battery, dict) and battery.get("percent", 100) < 20 and not battery.get("power_plugged", True)
+        )
         is_restricted = perm_level in ("emergency", "restricted")
         prefers_local_for_privacy = perm_level in ("high", "emergency")
 
@@ -482,14 +490,16 @@ class ModelRouter:
         reason = f"Smart-selected {best.id} for {task_type.value} (score={dynamic_score(best):.0f}, {factors})"
         logger.info(reason)
 
-        return self._record_decision(RouterDecision(
-            provider_id=best.id,
-            model=best.default_model,
-            task_type=task_type,
-            strategy="smart",
-            reason=reason,
-            selection_trace={"eligible": [p.id for p in candidates], "score": dynamic_score(best)},
-        ))
+        return self._record_decision(
+            RouterDecision(
+                provider_id=best.id,
+                model=best.default_model,
+                task_type=task_type,
+                strategy="smart",
+                reason=reason,
+                selection_trace={"eligible": [p.id for p in candidates], "score": dynamic_score(best)},
+            )
+        )
 
     def select_all(self, task_type: TaskType, context: Optional[Dict[str, Any]] = None) -> List[RouterDecision]:
         candidates = self._filter_candidates(task_type)
@@ -499,8 +509,7 @@ class ModelRouter:
             sys_sum = ctx.get("system_summary", {}) or {}
             cpu = sys_sum.get("cpu_percent", 50)
             mem = sys_sum.get("memory_percent", 50)
-            is_high_load = (isinstance(cpu, (int, float)) and cpu > 80) or \
-                           (isinstance(mem, (int, float)) and mem > 85)
+            is_high_load = (isinstance(cpu, (int, float)) and cpu > 80) or (isinstance(mem, (int, float)) and mem > 85)
 
             def dyn_score(p):
                 s = float(p.priority)
@@ -521,8 +530,10 @@ class ModelRouter:
 
         return [
             RouterDecision(
-                provider_id=p.id, model=p.default_model,
-                task_type=task_type, strategy=self._strategy,
+                provider_id=p.id,
+                model=p.default_model,
+                task_type=task_type,
+                strategy=self._strategy,
                 reason=f"Candidate {p.id} (priority={p.priority})",
             )
             for p in candidates
@@ -558,13 +569,15 @@ class ModelRouter:
             for pid in chain_ids:
                 if pid not in seen and pid in self._providers and self.provider_availability(pid).available:
                     spec = self._providers[pid]
-                    chain.append(RouterDecision(
-                        provider_id=pid,
-                        model=spec.default_model,
-                        task_type=task_type,
-                        strategy=self._strategy,
-                        reason=f"Fallback override: {pid}",
-                    ))
+                    chain.append(
+                        RouterDecision(
+                            provider_id=pid,
+                            model=spec.default_model,
+                            task_type=task_type,
+                            strategy=self._strategy,
+                            reason=f"Fallback override: {pid}",
+                        )
+                    )
                     seen.add(pid)
                 if len(chain) - 1 >= self._max_fallbacks:
                     break
@@ -591,19 +604,24 @@ class ModelRouter:
                 self._circuit_breaker.record_success(candidate.provider_id)
                 if candidate.provider_id != primary_id:
                     self._record_fallback(candidate.provider_id)
-                    self._fallback_history.append({
-                        "primary": primary_id,
-                        "used": candidate.provider_id,
-                        "model": candidate.model,
-                        "attempt": idx + 1,
-                    })
+                    self._fallback_history.append(
+                        {
+                            "primary": primary_id,
+                            "used": candidate.provider_id,
+                            "model": candidate.model,
+                            "attempt": idx + 1,
+                        }
+                    )
                 return result
             except Exception as e:
                 last_error = str(e)
                 self._circuit_breaker.record_failure(candidate.provider_id)
                 logger.warning(
                     "Provider %s failed (attempt %d/%d): %s",
-                    candidate.provider_id, idx + 1, len(candidates), e,
+                    candidate.provider_id,
+                    idx + 1,
+                    len(candidates),
+                    e,
                 )
                 continue
 
@@ -659,9 +677,7 @@ class ModelRouter:
             )
         availability = self.provider_availability(provider_id)
         if not availability.available:
-            raise RuntimeError(
-                f"Provider '{provider_id}' is unavailable: {availability.reason}"
-            )
+            raise RuntimeError(f"Provider '{provider_id}' is unavailable: {availability.reason}")
         decision = RouterDecision(
             provider_id=provider_id,
             model=model or provider.default_model,
@@ -677,6 +693,7 @@ class ModelRouter:
             return {"available": False, "error": f"Unknown provider '{provider_id}'"}
         try:
             import httpx
+
             base_url = provider.config.get("base_url") or PROVIDER_URLS.get(provider_id, "")
             api_key = self._key_map.get(provider_id, "")
             headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}

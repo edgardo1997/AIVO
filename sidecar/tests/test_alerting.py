@@ -1,4 +1,6 @@
-import os, sys
+import os
+import sys
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from unittest.mock import MagicMock
@@ -16,8 +18,14 @@ class TestAlertSeverity:
 
 class TestAlert:
     def test_to_dict(self):
-        a = Alert(id="a1", alert_type="test", severity=AlertSeverity.WARNING,
-                   title="Test Alert", message="Something happened", source="test")
+        a = Alert(
+            id="a1",
+            alert_type="test",
+            severity=AlertSeverity.WARNING,
+            title="Test Alert",
+            message="Something happened",
+            source="test",
+        )
         d = a.to_dict()
         assert d["id"] == "a1"
         assert d["severity"] == "warning"
@@ -122,8 +130,10 @@ class TestAlertManager:
 
     def test_handler_exception_does_not_break(self):
         am = AlertManager()
+
         def bad_handler(a):
             raise RuntimeError("handler failed")
+
         am.register_handler(bad_handler)
         a = am.emit("t", AlertSeverity.INFO, "T", "M")
         assert a is not None
@@ -150,8 +160,7 @@ class TestAlertManager:
 
     def test_emit_with_data(self):
         am = AlertManager()
-        a = am.emit("test", AlertSeverity.CRITICAL, "Critical", "Something broke",
-                      source="system", data={"code": 500})
+        a = am.emit("test", AlertSeverity.CRITICAL, "Critical", "Something broke", source="system", data={"code": 500})
         assert a.data["code"] == 500
         d = a.to_dict()
         assert d["data"]["code"] == 500
@@ -173,11 +182,13 @@ class TestAlertManager:
 class TestAlertingAPI:
     def setup_method(self):
         from modules.sentinel_bridge import reset_bridge
+
         reset_bridge()
 
     def test_list_alerts(self):
         from fastapi.testclient import TestClient
         from main import app
+
         client = TestClient(app)
         resp = client.get("/api/sentinel/alerts")
         assert resp.status_code == 200
@@ -188,6 +199,7 @@ class TestAlertingAPI:
     def test_acknowledge_alert(self):
         from fastapi.testclient import TestClient
         from main import app
+
         client = TestClient(app)
         resp = client.post("/api/sentinel/alerts/acknowledge", json={})
         assert resp.status_code == 200
@@ -196,6 +208,7 @@ class TestAlertingAPI:
     def test_check_alerts(self):
         from fastapi.testclient import TestClient
         from main import app
+
         client = TestClient(app)
         resp = client.post("/api/sentinel/alerts/check")
         assert resp.status_code == 200
@@ -207,6 +220,7 @@ class TestAlertingAPI:
     def test_clear_alerts(self):
         from fastapi.testclient import TestClient
         from main import app
+
         client = TestClient(app)
         resp = client.post("/api/sentinel/alerts/clear")
         assert resp.status_code == 200

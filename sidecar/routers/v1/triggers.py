@@ -111,8 +111,7 @@ async def create_trigger(body: CreateTriggerRequest):
     if _engine.get_rule(body.id):
         raise HTTPException(status_code=409, detail=f"Trigger '{body.id}' already exists")
     conditions = [
-        TriggerCondition(metric=c.metric, operator=TriggerOperator(c.operator), value=c.value)
-        for c in body.conditions
+        TriggerCondition(metric=c.metric, operator=TriggerOperator(c.operator), value=c.value) for c in body.conditions
     ]
     action = TriggerAction(tool_id=body.action.tool_id, params=body.action.params) if body.action else None
     rule = TriggerRule(
@@ -143,8 +142,7 @@ async def update_trigger(trigger_id: str, body: UpdateTriggerRequest):
             updates[field] = val
     if body.conditions is not None:
         updates["conditions"] = [
-            {"metric": c.metric, "operator": c.operator, "value": c.value}
-            for c in body.conditions
+            {"metric": c.metric, "operator": c.operator, "value": c.value} for c in body.conditions
         ]
     if body.action is not None:
         updates["action"] = {"tool_id": body.action.tool_id, "params": body.action.params}

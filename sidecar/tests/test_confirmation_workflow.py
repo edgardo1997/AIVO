@@ -94,6 +94,7 @@ class TestPolicyConfirmedCheck:
         )
         result = result  # awaits already-completed coroutine
         import asyncio
+
         result = asyncio.run(result)
         assert result.effect == PolicyEffect.ALLOW
 
@@ -104,11 +105,14 @@ class TestPolicyConfirmedCheck:
             is_confirmed=perm_svc.is_confirmed,
         )
         import asyncio
-        result = asyncio.run(policy.evaluate(
-            tool_id="executor.command",
-            params={"command": "rm -rf /", "confirmed": False},
-            context={},
-        ))
+
+        result = asyncio.run(
+            policy.evaluate(
+                tool_id="executor.command",
+                params={"command": "rm -rf /", "confirmed": False},
+                context={},
+            )
+        )
         assert result.effect == PolicyEffect.REQUIRE_CONFIRM
 
     def test_policy_confirmed_wrong_action_id(self, perm_svc):
@@ -117,21 +121,27 @@ class TestPolicyConfirmedCheck:
             is_confirmed=perm_svc.is_confirmed,
         )
         import asyncio
-        result = asyncio.run(policy.evaluate(
-            tool_id="executor.command",
-            params={"command": "rm -rf /", "confirmed": True, "action_id": "fake-id"},
-            context={},
-        ))
+
+        result = asyncio.run(
+            policy.evaluate(
+                tool_id="executor.command",
+                params={"command": "rm -rf /", "confirmed": True, "action_id": "fake-id"},
+                context={},
+            )
+        )
         assert result.effect == PolicyEffect.REQUIRE_CONFIRM
 
     def test_policy_without_is_confirmed_still_works(self):
         policy = PermissionLevelPolicy(get_level=lambda: "confirm")
         import asyncio
-        result = asyncio.run(policy.evaluate(
-            tool_id="executor.command",
-            params={"command": "rm -rf /", "confirmed": True, "action_id": "any"},
-            context={},
-        ))
+
+        result = asyncio.run(
+            policy.evaluate(
+                tool_id="executor.command",
+                params={"command": "rm -rf /", "confirmed": True, "action_id": "any"},
+                context={},
+            )
+        )
         assert result.effect == PolicyEffect.REQUIRE_CONFIRM
 
     def test_policy_denies_at_view_level_even_if_confirmed(self, perm_svc, sample_action):
@@ -141,21 +151,27 @@ class TestPolicyConfirmedCheck:
             is_confirmed=perm_svc.is_confirmed,
         )
         import asyncio
-        result = asyncio.run(policy.evaluate(
-            tool_id="executor.command",
-            params={"command": "rm -rf /", "confirmed": True, "action_id": sample_action},
-            context={},
-        ))
+
+        result = asyncio.run(
+            policy.evaluate(
+                tool_id="executor.command",
+                params={"command": "rm -rf /", "confirmed": True, "action_id": sample_action},
+                context={},
+            )
+        )
         assert result.effect == PolicyEffect.DENY
 
     def test_policy_allows_safe_command_unaffected(self):
         policy = PermissionLevelPolicy(get_level=lambda: "confirm")
         import asyncio
-        result = asyncio.run(policy.evaluate(
-            tool_id="system.info",
-            params={},
-            context={},
-        ))
+
+        result = asyncio.run(
+            policy.evaluate(
+                tool_id="system.info",
+                params={},
+                context={},
+            )
+        )
         assert result.effect == PolicyEffect.ALLOW
 
 
@@ -181,15 +197,18 @@ class TestConsumeOnExecution:
         perm_svc.pending_actions.pop(sample_action)
         assert not perm_svc.is_confirmed(sample_action)
         import asyncio
+
         policy = PermissionLevelPolicy(
             get_level=lambda: "confirm",
             is_confirmed=perm_svc.is_confirmed,
         )
-        result = asyncio.run(policy.evaluate(
-            tool_id="executor.command",
-            params={"command": "rm -rf /", "confirmed": True, "action_id": sample_action},
-            context={},
-        ))
+        result = asyncio.run(
+            policy.evaluate(
+                tool_id="executor.command",
+                params={"command": "rm -rf /", "confirmed": True, "action_id": sample_action},
+                context={},
+            )
+        )
         assert result.effect == PolicyEffect.REQUIRE_CONFIRM
 
     def test_cancelled_action_not_executable(self, perm_svc, sample_action):
@@ -231,21 +250,27 @@ class TestAuditAndNoBypass:
             is_confirmed=perm_svc.is_confirmed,
         )
         import asyncio
-        result = asyncio.run(policy.evaluate(
-            tool_id="executor.command",
-            params={"command": "rm -rf /", "confirmed": True, "action_id": sample_action},
-            context={},
-        ))
+
+        result = asyncio.run(
+            policy.evaluate(
+                tool_id="executor.command",
+                params={"command": "rm -rf /", "confirmed": True, "action_id": sample_action},
+                context={},
+            )
+        )
         assert result.effect == PolicyEffect.ALLOW
 
     def test_read_tool_unaffected(self):
         policy = PermissionLevelPolicy(get_level=lambda: "confirm")
         import asyncio
-        result = asyncio.run(policy.evaluate(
-            tool_id="filesystem.read",
-            params={"path": "/test.txt"},
-            context={},
-        ))
+
+        result = asyncio.run(
+            policy.evaluate(
+                tool_id="filesystem.read",
+                params={"path": "/test.txt"},
+                context={},
+            )
+        )
         assert result.effect == PolicyEffect.ALLOW
 
     def test_write_tool_confirm_flow(self, perm_svc):
@@ -261,17 +286,21 @@ class TestAuditAndNoBypass:
             is_confirmed=perm_svc.is_confirmed,
         )
         import asyncio
-        result = asyncio.run(policy.evaluate(
-            tool_id="filesystem.write",
-            params={"confirmed": True, "action_id": aid},
-            context={},
-        ))
+
+        result = asyncio.run(
+            policy.evaluate(
+                tool_id="filesystem.write",
+                params={"confirmed": True, "action_id": aid},
+                context={},
+            )
+        )
         assert result.effect == PolicyEffect.ALLOW
 
 
 class TestThreadSafety:
     def test_concurrent_confirm(self, perm_svc, sample_action):
         import threading
+
         errors = []
 
         def do_confirm():
@@ -291,6 +320,7 @@ class TestThreadSafety:
 
     def test_concurrent_confirm_and_pop(self, perm_svc, sample_action):
         import threading
+
         errors = []
 
         def confirmer():

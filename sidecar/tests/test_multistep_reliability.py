@@ -15,20 +15,25 @@ def make_plan(steps):
 
 
 def test_dependency_graph_resolves_parallel_levels():
-    plan = make_plan([
-        PlanStep(id="a", tool_id="system.info"),
-        PlanStep(id="b", tool_id="system.cpu"),
-        PlanStep(id="c", tool_id="system.processes", depends_on=["a", "b"]),
-    ])
+    plan = make_plan(
+        [
+            PlanStep(id="a", tool_id="system.info"),
+            PlanStep(id="b", tool_id="system.cpu"),
+            PlanStep(id="c", tool_id="system.processes", depends_on=["a", "b"]),
+        ]
+    )
     levels = Planner().resolve_dependencies(plan)
     assert [[step.id for step in level] for level in levels] == [["a", "b"], ["c"]]
 
 
-@pytest.mark.parametrize("steps", [
-    [PlanStep(id="a", tool_id="x", depends_on=["missing"])],
-    [PlanStep(id="a", tool_id="x", depends_on=["b"]), PlanStep(id="b", tool_id="y", depends_on=["a"])],
-    [PlanStep(id="same", tool_id="x"), PlanStep(id="same", tool_id="y")],
-])
+@pytest.mark.parametrize(
+    "steps",
+    [
+        [PlanStep(id="a", tool_id="x", depends_on=["missing"])],
+        [PlanStep(id="a", tool_id="x", depends_on=["b"]), PlanStep(id="b", tool_id="y", depends_on=["a"])],
+        [PlanStep(id="same", tool_id="x"), PlanStep(id="same", tool_id="y")],
+    ],
+)
 def test_invalid_dependency_graph_is_rejected(steps):
     assert Planner().resolve_dependencies(make_plan(steps)) == []
 
@@ -68,12 +73,20 @@ async def test_transient_step_records_retry_attempts():
 @pytest.mark.asyncio
 async def test_rollback_runs_successful_steps_in_reverse_order():
     calls = []
+
     async def execute(tool_id, params):
         calls.append(tool_id)
         return ToolResult.ok(data={}, tool_id=tool_id)
+
     completed = [
-        (PlanStep(id="one", tool_id="write.one", is_reversible=True, rollback_tool_id="undo.one"), ToolResult.ok(data={}, tool_id="write.one")),
-        (PlanStep(id="two", tool_id="write.two", is_reversible=True, rollback_tool_id="undo.two"), ToolResult.ok(data={}, tool_id="write.two")),
+        (
+            PlanStep(id="one", tool_id="write.one", is_reversible=True, rollback_tool_id="undo.one"),
+            ToolResult.ok(data={}, tool_id="write.one"),
+        ),
+        (
+            PlanStep(id="two", tool_id="write.two", is_reversible=True, rollback_tool_id="undo.two"),
+            ToolResult.ok(data={}, tool_id="write.two"),
+        ),
     ]
     actions = await RollbackManager().rollback(completed, execute)
     assert calls == ["undo.two", "undo.one"]

@@ -250,8 +250,12 @@ class IntentEngine:
             return regex_intent
         llm_intent = self._parse_with_llm(utterance, context)
         if llm_intent and llm_intent.confidence > regex_intent.confidence:
-            logger.info("LLM intent (%.2f) beats regex (%.2f) for: %s",
-                        llm_intent.confidence, regex_intent.confidence, utterance)
+            logger.info(
+                "LLM intent (%.2f) beats regex (%.2f) for: %s",
+                llm_intent.confidence,
+                regex_intent.confidence,
+                utterance,
+            )
             return llm_intent
         return regex_intent
 
@@ -291,16 +295,19 @@ class IntentEngine:
 
     def _parse_with_llm(self, utterance: str, context: Optional[Dict[str, Any]] = None) -> Optional[Intent]:
         from .model_router import TaskType
+
         if not self._model_router:
             return None
-        if not hasattr(self._model_router, '_key_map') or not self._model_router._key_map:
+        if not hasattr(self._model_router, "_key_map") or not self._model_router._key_map:
             return None
         try:
             system_hint = ""
             if context:
                 summary = context.get("system_summary", {})
                 if summary:
-                    system_hint = f"\nSystem context: cpu={summary.get('cpu_percent')}%, mem={summary.get('memory_percent')}%"
+                    system_hint = (
+                        f"\nSystem context: cpu={summary.get('cpu_percent')}%, mem={summary.get('memory_percent')}%"
+                    )
             messages = [
                 {"role": "system", "content": INTENT_LLM_PROMPT + system_hint},
                 {"role": "user", "content": utterance},
@@ -336,10 +343,12 @@ class IntentEngine:
             key = f"{p.action}:{p.target}"
             if key not in seen:
                 seen.add(key)
-                results.append({
-                    "action": p.action,
-                    "target": p.target,
-                    "description": p.description,
-                    "examples": p.patterns[:2],
-                })
+                results.append(
+                    {
+                        "action": p.action,
+                        "target": p.target,
+                        "description": p.description,
+                        "examples": p.patterns[:2],
+                    }
+                )
         return results

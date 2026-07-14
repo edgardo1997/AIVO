@@ -6,6 +6,7 @@ from typing import Optional
 @dataclass
 class AuthContext:
     """Deprecated: use IdentityContext from modules.auth instead."""
+
     user_id: str = "local"
     client_id: str = "unknown"
     session_id: str = ""
@@ -13,7 +14,8 @@ class AuthContext:
     def __post_init__(self):
         warnings.warn(
             "AuthContext is deprecated, use IdentityContext from modules.auth",
-            DeprecationWarning, stacklevel=3,
+            DeprecationWarning,
+            stacklevel=3,
         )
 
 

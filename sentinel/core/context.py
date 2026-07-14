@@ -15,10 +15,12 @@ _CACHE_TTL = 2.0  # seconds to cache system context
 
 def _run_in_executor(f):
     """Decorator that runs a sync function in the default executor."""
+
     @functools.wraps(f)
     async def wrapper(*args, **kwargs):
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, lambda: f(*args, **kwargs))
+
     return wrapper
 
 
@@ -48,7 +50,9 @@ class SystemContext:
         return {
             "cpu_percent": self.cpu.get("percent"),
             "memory_percent": self.memory.get("virtual", {}).get("percent"),
-            "disk_percent": self.disk.get("partitions", [{}])[0].get("percent") if self.disk.get("partitions") else None,
+            "disk_percent": self.disk.get("partitions", [{}])[0].get("percent")
+            if self.disk.get("partitions")
+            else None,
             "process_count": len(self.processes),
             "boot_time": self.boot_time,
             "timestamp": self.timestamp,
@@ -170,14 +174,16 @@ class ContextEngine:
         for part in psutil.disk_partitions():
             try:
                 usage = psutil.disk_usage(part.mountpoint)
-                partitions.append({
-                    "mountpoint": part.mountpoint,
-                    "fstype": part.fstype,
-                    "total": usage.total,
-                    "used": usage.used,
-                    "free": usage.free,
-                    "percent": usage.percent,
-                })
+                partitions.append(
+                    {
+                        "mountpoint": part.mountpoint,
+                        "fstype": part.fstype,
+                        "total": usage.total,
+                        "used": usage.used,
+                        "free": usage.free,
+                        "percent": usage.percent,
+                    }
+                )
             except (PermissionError, FileNotFoundError):
                 continue
         io = psutil.disk_io_counters()
@@ -186,7 +192,9 @@ class ContextEngine:
             "io": {
                 "read_bytes": io.read_bytes if io else 0,
                 "write_bytes": io.write_bytes if io else 0,
-            } if io else {},
+            }
+            if io
+            else {},
         }
 
     def _collect_network(self) -> Dict[str, Any]:
@@ -196,15 +204,17 @@ class ContextEngine:
             for conn in psutil.net_connections():
                 laddr = f"{conn.laddr.ip}:{conn.laddr.port}" if conn.laddr else ""
                 raddr = f"{conn.raddr.ip}:{conn.raddr.port}" if conn.raddr else ""
-                connections.append({
-                    "fd": conn.fd,
-                    "family": str(conn.family),
-                    "type": str(conn.type),
-                    "laddr": laddr,
-                    "raddr": raddr,
-                    "status": conn.status,
-                    "pid": conn.pid,
-                })
+                connections.append(
+                    {
+                        "fd": conn.fd,
+                        "family": str(conn.family),
+                        "type": str(conn.type),
+                        "laddr": laddr,
+                        "raddr": raddr,
+                        "status": conn.status,
+                        "pid": conn.pid,
+                    }
+                )
         except (psutil.AccessDenied, PermissionError):
             connections = []
 

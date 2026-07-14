@@ -1,4 +1,7 @@
-import os, sys, pytest
+import os
+import sys
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch, ANY
@@ -20,10 +23,13 @@ from sentinel.core.operational_memory import PendingActionRecord
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def make_intent(action="query", target="system.info", params=None, conf=0.95):
     return Intent(
-        action=action, target=target,
-        parameters=params or {}, confidence=conf,
+        action=action,
+        target=target,
+        parameters=params or {},
+        confidence=conf,
         raw_input=f"{action} {target}",
     )
 
@@ -34,36 +40,48 @@ def make_plan(intent=None, n_steps=1, step_ids=None):
     step_ids = step_ids or [f"s{i}" for i in range(n_steps)]
     steps = []
     for sid in step_ids:
-        steps.append(PlanStep(
-            id=sid, tool_id=intent.target,
-            params={}, description=f"step {sid}",
-            is_reversible=True,
-        ))
+        steps.append(
+            PlanStep(
+                id=sid,
+                tool_id=intent.target,
+                params={},
+                description=f"step {sid}",
+                is_reversible=True,
+            )
+        )
     return Plan(steps=steps, intent=intent, description="test plan")
 
 
 def make_router_decision(provider="ollama", model="llama3", strategy="priority"):
     return RouterDecision(
-        provider_id=provider, model=model,
-        task_type=TaskType.QUICK, strategy=strategy,
+        provider_id=provider,
+        model=model,
+        task_type=TaskType.QUICK,
+        strategy=strategy,
         reason="test",
     )
 
 
 def make_decision_result(decision=Decision.APPROVE, reason="ok", risk=0.3):
     return DecisionResult(
-        decision=decision, plan=make_plan(),
-        reason=reason, base_risk_score=risk,
-        final_risk_score=risk, context_modifier=0.0,
+        decision=decision,
+        plan=make_plan(),
+        reason=reason,
+        base_risk_score=risk,
+        final_risk_score=risk,
+        context_modifier=0.0,
         context_factors={},
     )
 
 
 def make_system_context():
     return SystemContext(
-        cpu={"percent": 30}, memory={"percent": 50},
-        disk={"percent": 40}, network={},
-        processes=[], boot_time=1000,
+        cpu={"percent": 30},
+        memory={"percent": 50},
+        disk={"percent": 40},
+        network={},
+        processes=[],
+        boot_time=1000,
         timestamp=datetime.now(timezone.utc).isoformat(),
     )
 
@@ -71,6 +89,7 @@ def make_system_context():
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def mock_gateway():
@@ -97,9 +116,11 @@ def mock_intent_engine():
 def mock_planner():
     pl = MagicMock()
     pl.plan = MagicMock(return_value=make_plan())
+
     def resolve(plan):
         # return actual plan steps so model_decision flows through
         return [[s] for s in plan.steps] if plan.steps else [[PlanStep(id="s0", tool_id="system.info")]]
+
     pl.resolve_dependencies = MagicMock(side_effect=resolve)
     return pl
 
@@ -212,12 +233,23 @@ def mock_audit():
 
 
 @pytest.fixture
-def orchestrator(mock_gateway, mock_intent_engine, mock_planner,
-                  mock_context_engine, mock_model_router,
-                  mock_decision_engine, mock_simulation,
-                  mock_memory, mock_profile, mock_deep_context,
-                  mock_feedback, mock_cost_tracker, mock_perf_tracker,
-                  mock_plan_cache, mock_audit):
+def orchestrator(
+    mock_gateway,
+    mock_intent_engine,
+    mock_planner,
+    mock_context_engine,
+    mock_model_router,
+    mock_decision_engine,
+    mock_simulation,
+    mock_memory,
+    mock_profile,
+    mock_deep_context,
+    mock_feedback,
+    mock_cost_tracker,
+    mock_perf_tracker,
+    mock_plan_cache,
+    mock_audit,
+):
     return Orchestrator(
         intent_engine=mock_intent_engine,
         tool_gateway=mock_gateway,
@@ -245,6 +277,7 @@ def planner_step():
 # process() - main pipeline
 # ===================================================================
 
+
 class TestProcessPipeline:
     """Tests for Orchestrator.process() — the main pipeline."""
 
@@ -261,7 +294,7 @@ class TestProcessPipeline:
     @pytest.mark.asyncio
     async def test_success_path_stores_memory(self, orchestrator, mock_memory):
         """On success, execution is stored in memory."""
-        result = await orchestrator.process("show system info")
+        await orchestrator.process("show system info")
         assert mock_memory.store_execution.called
 
     @pytest.mark.asyncio
@@ -278,7 +311,8 @@ class TestProcessPipeline:
     async def test_rejected_by_decision_engine(self, orchestrator, mock_decision_engine):
         """Decision.REJECT returns blocked result with error."""
         mock_decision_engine.evaluate.return_value = make_decision_result(
-            decision=Decision.REJECT, reason="too risky",
+            decision=Decision.REJECT,
+            reason="too risky",
         )
         result = await orchestrator.process("format drive")
         assert result.tool_result is None or result.tool_result.success is False
@@ -286,18 +320,22 @@ class TestProcessPipeline:
         assert "rejected" in result.error.lower()
 
     @pytest.mark.asyncio
-    async def test_require_confirm_blocks_and_stores_pending(self, orchestrator,
-                                                              mock_decision_engine, mock_memory,
-                                                              mock_simulation):
+    async def test_require_confirm_blocks_and_stores_pending(
+        self, orchestrator, mock_decision_engine, mock_memory, mock_simulation
+    ):
         """Decision.REQUIRE_CONFIRM blocks execution and stores pending action."""
         sim_result = SimulationResult(
-            plan_id="test", impacts=[], pre_snapshot={},
-            overall_risk="high", requires_confirmation=True,
+            plan_id="test",
+            impacts=[],
+            pre_snapshot={},
+            overall_risk="high",
+            requires_confirmation=True,
             summary="requires review",
         )
         mock_simulation.simulate.return_value = sim_result
         mock_decision_engine.evaluate.return_value = make_decision_result(
-            decision=Decision.REQUIRE_CONFIRM, reason="needs approval",
+            decision=Decision.REQUIRE_CONFIRM,
+            reason="needs approval",
         )
         result = await orchestrator.process("delete file")
         assert result.blocked is True
@@ -305,10 +343,9 @@ class TestProcessPipeline:
         assert mock_memory.store_pending_action.called
 
     @pytest.mark.asyncio
-    async def test_plan_cache_hit_skips_intent_parsing_and_planning(self, orchestrator,
-                                                                     mock_plan_cache,
-                                                                     mock_intent_engine,
-                                                                     mock_planner):
+    async def test_plan_cache_hit_skips_intent_parsing_and_planning(
+        self, orchestrator, mock_plan_cache, mock_intent_engine, mock_planner
+    ):
         """A plan cache hit bypasses intent_engine.parse() and planner.plan()."""
         cached = make_plan()
         mock_plan_cache.get.return_value = cached
@@ -318,20 +355,18 @@ class TestProcessPipeline:
         assert result.tool_result is not None
 
     @pytest.mark.asyncio
-    async def test_plan_cache_miss_calls_planner_and_sets_cache(self, orchestrator,
-                                                                 mock_plan_cache,
-                                                                 mock_planner):
+    async def test_plan_cache_miss_calls_planner_and_sets_cache(self, orchestrator, mock_plan_cache, mock_planner):
         """A plan cache miss calls planner.plan() and writes the cache."""
         mock_plan_cache.get.return_value = None
-        result = await orchestrator.process("show system info")
+        await orchestrator.process("show system info")
         assert mock_plan_cache.get.called
         assert mock_plan_cache.set.called
         assert mock_planner.plan.called
 
     @pytest.mark.asyncio
-    async def test_override_plan_skips_intent_parsing_and_cache(self, orchestrator,
-                                                                 mock_intent_engine,
-                                                                 mock_plan_cache):
+    async def test_override_plan_skips_intent_parsing_and_cache(
+        self, orchestrator, mock_intent_engine, mock_plan_cache
+    ):
         """An override_plan bypasses intent parsing and plan cache entirely."""
         plan = make_plan(intent=make_intent())
         result = await orchestrator.process("show system info", override_plan=plan)
@@ -341,12 +376,14 @@ class TestProcessPipeline:
         assert result.tool_result is not None
 
     @pytest.mark.asyncio
-    async def test_step_failure_triggers_rollback(self, orchestrator, mock_gateway,
-                                                   mock_memory):
+    async def test_step_failure_triggers_rollback(self, orchestrator, mock_gateway, mock_memory):
         """When a step fails, completed steps are rolled back."""
-        mock_gateway.execute = AsyncMock(return_value=ToolResult.fail(
-            error="exec failed", tool_id="system.info",
-        ))
+        mock_gateway.execute = AsyncMock(
+            return_value=ToolResult.fail(
+                error="exec failed",
+                tool_id="system.info",
+            )
+        )
         result = await orchestrator.process("show system info")
         assert result.tool_result is not None
         assert result.tool_result.success is False
@@ -360,8 +397,7 @@ class TestProcessPipeline:
             intent_engine=MagicMock(parse=MagicMock(return_value=make_intent())),
             tool_gateway=MagicMock(
                 execute=AsyncMock(return_value=ToolResult.ok(data={}, tool_id="system.info")),
-                _capability_registry=MagicMock(list_all=MagicMock(return_value=[]),
-                                                get=MagicMock(return_value=None)),
+                _capability_registry=MagicMock(list_all=MagicMock(return_value=[]), get=MagicMock(return_value=None)),
                 list_specs=MagicMock(return_value=[]),
             ),
             planner=MagicMock(
@@ -387,8 +423,7 @@ class TestProcessPipeline:
             intent_engine=MagicMock(parse=MagicMock(return_value=make_intent())),
             tool_gateway=MagicMock(
                 execute=AsyncMock(return_value=ToolResult.ok(data={}, tool_id="system.info")),
-                _capability_registry=MagicMock(list_all=MagicMock(return_value=[]),
-                                                get=MagicMock(return_value=None)),
+                _capability_registry=MagicMock(list_all=MagicMock(return_value=[]), get=MagicMock(return_value=None)),
                 list_specs=MagicMock(return_value=[]),
             ),
             planner=MagicMock(
@@ -403,58 +438,61 @@ class TestProcessPipeline:
     @pytest.mark.asyncio
     async def test_skip_simulation(self, orchestrator, mock_simulation):
         """skip_simulation=True avoids calling the simulation engine."""
-        result = await orchestrator.process("show system info", skip_simulation=True)
+        await orchestrator.process("show system info", skip_simulation=True)
         assert mock_simulation.simulate.called is False
 
     @pytest.mark.asyncio
     async def test_context_collected_and_injected(self, orchestrator, mock_context_engine):
         """System context is collected and injected into pipeline."""
-        result = await orchestrator.process("show system info")
+        await orchestrator.process("show system info")
         assert mock_context_engine.collect.called
 
     @pytest.mark.asyncio
     async def test_deep_context_collected(self, orchestrator, mock_deep_context):
         """Deep context engine is called and injected."""
-        result = await orchestrator.process("show system info")
+        await orchestrator.process("show system info")
         assert mock_deep_context.collect.called
 
     @pytest.mark.asyncio
     async def test_model_router_selects_for_each_step(self, orchestrator, mock_model_router):
         """Model router selects a model for the plan and each step."""
-        result = await orchestrator.process("show system info")
+        await orchestrator.process("show system info")
         assert mock_model_router.select.called
 
     @pytest.mark.asyncio
     async def test_feedback_recorded_at_end(self, orchestrator, mock_feedback):
         """Model feedback is recorded after step execution."""
-        result = await orchestrator.process("show system info")
+        await orchestrator.process("show system info")
         assert mock_feedback.record.called
 
     @pytest.mark.asyncio
-    async def test_cost_recorded_when_usage_present(self, orchestrator, mock_cost_tracker,
-                                                     mock_gateway):
+    async def test_cost_recorded_when_usage_present(self, orchestrator, mock_cost_tracker, mock_gateway):
         """Cost is recorded only when token usage data is present in result."""
-        mock_gateway.execute = AsyncMock(return_value=ToolResult.ok(
-            data={"usage": {"prompt_tokens": 100, "completion_tokens": 20}},
-            tool_id="system.info",
-        ))
-        result = await orchestrator.process("show system info")
+        mock_gateway.execute = AsyncMock(
+            return_value=ToolResult.ok(
+                data={"usage": {"prompt_tokens": 100, "completion_tokens": 20}},
+                tool_id="system.info",
+            )
+        )
+        await orchestrator.process("show system info")
         assert mock_cost_tracker.record_cost.called
 
     @pytest.mark.asyncio
-    async def test_cost_not_recorded_without_usage(self, orchestrator, mock_cost_tracker,
-                                                    mock_gateway):
+    async def test_cost_not_recorded_without_usage(self, orchestrator, mock_cost_tracker, mock_gateway):
         """Without token usage in result data, cost recording is skipped."""
-        mock_gateway.execute = AsyncMock(return_value=ToolResult.ok(
-            data={"result": "plain"}, tool_id="system.info",
-        ))
-        result = await orchestrator.process("show system info")
+        mock_gateway.execute = AsyncMock(
+            return_value=ToolResult.ok(
+                data={"result": "plain"},
+                tool_id="system.info",
+            )
+        )
+        await orchestrator.process("show system info")
         assert mock_cost_tracker.record_cost.called is False
 
     @pytest.mark.asyncio
     async def test_performance_recorded(self, orchestrator, mock_perf_tracker):
         """Performance tracker records step duration."""
-        result = await orchestrator.process("show system info")
+        await orchestrator.process("show system info")
         assert mock_perf_tracker.record.called
 
     @pytest.mark.asyncio
@@ -470,12 +508,11 @@ class TestProcessPipeline:
                 resolve_dependencies=MagicMock(return_value=[plan.steps]),
             ),
         )
-        result = await orch.process("test parallel")
+        await orch.process("test parallel")
         assert mock_gateway.execute.call_count == 2
 
     @pytest.mark.asyncio
-    async def test_error_in_context_collection_does_not_crash(self, orchestrator,
-                                                               mock_context_engine):
+    async def test_error_in_context_collection_does_not_crash(self, orchestrator, mock_context_engine):
         """If context collection fails, the pipeline continues."""
         mock_context_engine.collect.side_effect = RuntimeError("context fail")
         result = await orchestrator.process("show system info")
@@ -486,6 +523,7 @@ class TestProcessPipeline:
 # approve_with_modifications
 # ===================================================================
 
+
 class TestApproveWithModifications:
     @pytest.mark.asyncio
     async def test_no_memory_returns_error(self, orchestrator):
@@ -494,8 +532,7 @@ class TestApproveWithModifications:
             intent_engine=MagicMock(parse=MagicMock(return_value=make_intent())),
             tool_gateway=MagicMock(
                 execute=AsyncMock(return_value=ToolResult.ok(data={}, tool_id="system.info")),
-                _capability_registry=MagicMock(list_all=MagicMock(return_value=[]),
-                                                get=MagicMock(return_value=None)),
+                _capability_registry=MagicMock(list_all=MagicMock(return_value=[]), get=MagicMock(return_value=None)),
                 list_specs=MagicMock(return_value=[]),
             ),
             memory=None,
@@ -516,11 +553,23 @@ class TestApproveWithModifications:
     async def test_empty_modified_steps(self, orchestrator, mock_memory):
         """Empty modified steps list returns error."""
         mock_memory.get_pending_action.return_value = PendingActionRecord(
-            action_id="a1", tool_id="sys.info",
-            params={"intent": {"action": "query", "target": "sys.info",
-                               "parameters": {}, "confidence": 0.9, "raw_input": "info"},
-                     "utterance": "info", "identity": None, "session_id": None},
-            reason="test", created_at="now", ttl_seconds=600,
+            action_id="a1",
+            tool_id="sys.info",
+            params={
+                "intent": {
+                    "action": "query",
+                    "target": "sys.info",
+                    "parameters": {},
+                    "confidence": 0.9,
+                    "raw_input": "info",
+                },
+                "utterance": "info",
+                "identity": None,
+                "session_id": None,
+            },
+            reason="test",
+            created_at="now",
+            ttl_seconds=600,
         )
         result = await orchestrator.approve_with_modifications("a1", [])
         assert result.error is not None
@@ -530,25 +579,50 @@ class TestApproveWithModifications:
     async def test_approve_with_modifications_success(self, orchestrator, mock_memory):
         """Successful modification creates steps and executes."""
         mock_memory.get_pending_action.return_value = PendingActionRecord(
-            action_id="a1", tool_id="sys.info",
+            action_id="a1",
+            tool_id="sys.info",
             params={
-                "intent": {"action": "query", "target": "system.info",
-                           "parameters": {}, "confidence": 0.9, "raw_input": "info"},
-                "plan": {
-                    "intent": {"action": "query", "target": "system.info",
-                               "parameters": {}, "confidence": 0.9, "raw_input": "info"},
-                    "steps": [{"id": "sys", "tool_id": "system.info", "params": {},
-                               "description": "Get system info", "estimated_impact": "low"}],
-                    "risk_score": 0.0, "description": "Stored plan",
+                "intent": {
+                    "action": "query",
+                    "target": "system.info",
+                    "parameters": {},
+                    "confidence": 0.9,
+                    "raw_input": "info",
                 },
-                "utterance": "info", "identity": None, "session_id": None,
-                "plan": {"steps": [], "intent": {}, "description": ""},
+                "plan": {
+                    "intent": {
+                        "action": "query",
+                        "target": "system.info",
+                        "parameters": {},
+                        "confidence": 0.9,
+                        "raw_input": "info",
+                    },
+                    "steps": [
+                        {
+                            "id": "sys",
+                            "tool_id": "system.info",
+                            "params": {},
+                            "description": "Get system info",
+                            "estimated_impact": "low",
+                        }
+                    ],
+                    "risk_score": 0.0,
+                    "description": "Stored plan",
+                },
+                "utterance": "info",
+                "identity": None,
+                "session_id": None,
             },
-            reason="needs review", created_at="now", ttl_seconds=600,
+            reason="needs review",
+            created_at="now",
+            ttl_seconds=600,
         )
-        result = await orchestrator.approve_with_modifications("a1", [
-            {"tool_id": "system.info", "params": {}, "description": "check info"},
-        ])
+        result = await orchestrator.approve_with_modifications(
+            "a1",
+            [
+                {"tool_id": "system.info", "params": {}, "description": "check info"},
+            ],
+        )
         assert result.error is None or result.tool_result is not None
         assert mock_memory.remove_pending_action.called
 
@@ -557,17 +631,23 @@ class TestApproveWithModifications:
 # approve_execution (simple approve/deny)
 # ===================================================================
 
+
 class TestApproveExecution:
     @pytest.mark.asyncio
     async def test_different_user_cannot_approve(self, orchestrator, mock_memory):
         mock_memory.get_pending_action.return_value = PendingActionRecord(
-            action_id="a1", tool_id="system.info",
+            action_id="a1",
+            tool_id="system.info",
             params={"identity": {"user_id": "owner"}, "plan": {"steps": []}},
-            reason="test", created_at="now", ttl_seconds=600,
+            reason="test",
+            created_at="now",
+            ttl_seconds=600,
         )
 
         result = await orchestrator.approve_execution(
-            "a1", True, approver_identity={"user_id": "other-user"},
+            "a1",
+            True,
+            approver_identity={"user_id": "other-user"},
         )
 
         assert "identity" in result.error.lower()
@@ -579,8 +659,7 @@ class TestApproveExecution:
             intent_engine=MagicMock(),
             tool_gateway=MagicMock(
                 execute=AsyncMock(return_value=ToolResult.ok(data={})),
-                _capability_registry=MagicMock(list_all=MagicMock(return_value=[]),
-                                                get=MagicMock(return_value=None)),
+                _capability_registry=MagicMock(list_all=MagicMock(return_value=[]), get=MagicMock(return_value=None)),
                 list_specs=MagicMock(return_value=[]),
             ),
             memory=None,
@@ -598,34 +677,68 @@ class TestApproveExecution:
     @pytest.mark.asyncio
     async def test_denied(self, orchestrator, mock_memory):
         mock_memory.get_pending_action.return_value = PendingActionRecord(
-            action_id="a1", tool_id="sys.info",
-            params={"intent": {"action": "query", "target": "sys.info",
-                               "parameters": {}, "confidence": 0.9, "raw_input": "info"},
-                     "utterance": "info", "identity": None, "session_id": None},
-            reason="test", created_at="now", ttl_seconds=600,
+            action_id="a1",
+            tool_id="sys.info",
+            params={
+                "intent": {
+                    "action": "query",
+                    "target": "sys.info",
+                    "parameters": {},
+                    "confidence": 0.9,
+                    "raw_input": "info",
+                },
+                "utterance": "info",
+                "identity": None,
+                "session_id": None,
+            },
+            reason="test",
+            created_at="now",
+            ttl_seconds=600,
         )
         result = await orchestrator.approve_execution("a1", False)
         assert result.error is not None
         assert "rejected" in result.error.lower()
 
     @pytest.mark.asyncio
-    async def test_approved_executes(self, orchestrator, mock_memory,
-                                      mock_gateway, mock_intent_engine):
+    async def test_approved_executes(self, orchestrator, mock_memory, mock_gateway, mock_intent_engine):
         mock_memory.get_pending_action.return_value = PendingActionRecord(
-            action_id="a1", tool_id="sys.info",
+            action_id="a1",
+            tool_id="sys.info",
             params={
-                "intent": {"action": "query", "target": "system.info",
-                           "parameters": {}, "confidence": 0.9, "raw_input": "info"},
-                "plan": {
-                    "intent": {"action": "query", "target": "system.info",
-                               "parameters": {}, "confidence": 0.9, "raw_input": "info"},
-                    "steps": [{"id": "sys", "tool_id": "system.info", "params": {},
-                               "description": "Get system info", "estimated_impact": "low"}],
-                    "risk_score": 0.0, "description": "Stored plan",
+                "intent": {
+                    "action": "query",
+                    "target": "system.info",
+                    "parameters": {},
+                    "confidence": 0.9,
+                    "raw_input": "info",
                 },
-                "utterance": "info", "identity": None, "session_id": None,
+                "plan": {
+                    "intent": {
+                        "action": "query",
+                        "target": "system.info",
+                        "parameters": {},
+                        "confidence": 0.9,
+                        "raw_input": "info",
+                    },
+                    "steps": [
+                        {
+                            "id": "sys",
+                            "tool_id": "system.info",
+                            "params": {},
+                            "description": "Get system info",
+                            "estimated_impact": "low",
+                        }
+                    ],
+                    "risk_score": 0.0,
+                    "description": "Stored plan",
+                },
+                "utterance": "info",
+                "identity": None,
+                "session_id": None,
             },
-            reason="test", created_at="now", ttl_seconds=600,
+            reason="test",
+            created_at="now",
+            ttl_seconds=600,
         )
         mock_intent_engine.parse.reset_mock()
         result = await orchestrator.approve_execution("a1", True)
@@ -637,6 +750,7 @@ class TestApproveExecution:
 # ===================================================================
 # execute_direct
 # ===================================================================
+
 
 class TestExecuteDirect:
     @pytest.mark.asyncio
@@ -652,11 +766,11 @@ class TestExecuteDirect:
         assert result.simulated is True
 
     @pytest.mark.asyncio
-    async def test_execute_direct_with_decision_engine(self, orchestrator,
-                                                        mock_decision_engine):
+    async def test_execute_direct_with_decision_engine(self, orchestrator, mock_decision_engine):
         """Direct execution is evaluated by decision engine if available."""
         mock_decision_engine.evaluate.return_value = make_decision_result(
-            decision=Decision.REJECT, reason="not allowed",
+            decision=Decision.REJECT,
+            reason="not allowed",
         )
         result = await orchestrator.execute_direct("system.info", {})
         # even with reject, execute_direct does not check decision
@@ -666,6 +780,7 @@ class TestExecuteDirect:
 # ===================================================================
 # Utility methods
 # ===================================================================
+
 
 class TestUtilities:
     def test_get_capabilities(self, orchestrator):
@@ -692,8 +807,7 @@ class TestUtilities:
             intent_engine=MagicMock(),
             tool_gateway=MagicMock(
                 execute=AsyncMock(),
-                _capability_registry=MagicMock(list_all=MagicMock(return_value=[]),
-                                                get=MagicMock(return_value=None)),
+                _capability_registry=MagicMock(list_all=MagicMock(return_value=[]), get=MagicMock(return_value=None)),
                 list_specs=MagicMock(return_value=[]),
             ),
         )
@@ -704,8 +818,7 @@ class TestUtilities:
             intent_engine=MagicMock(),
             tool_gateway=MagicMock(
                 execute=AsyncMock(),
-                _capability_registry=MagicMock(list_all=MagicMock(return_value=[]),
-                                                get=MagicMock(return_value=None)),
+                _capability_registry=MagicMock(list_all=MagicMock(return_value=[]), get=MagicMock(return_value=None)),
                 list_specs=MagicMock(return_value=[]),
             ),
             memory=None,

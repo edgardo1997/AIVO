@@ -54,8 +54,9 @@ class UpdateAgentRequest(BaseModel):
 @router.get("/agents", response_model=List[AgentInfoResponse])
 async def list_agents(request: Request):
     from modules.sentinel_bridge import get_orchestrator
+
     orch = get_orchestrator()
-    if hasattr(orch, '_tool_gateway') and hasattr(orch._tool_gateway, '_agent_registry'):
+    if hasattr(orch, "_tool_gateway") and hasattr(orch._tool_gateway, "_agent_registry"):
         registry = orch._tool_gateway._agent_registry
         if registry:
             return [AgentInfoResponse(agent_id=a.id, **a.to_dict()) for a in registry.list_all()]
@@ -65,8 +66,9 @@ async def list_agents(request: Request):
 @router.get("/agents/{agent_id}", response_model=AgentInfoResponse)
 async def get_agent(agent_id: str, request: Request):
     from modules.sentinel_bridge import get_orchestrator
+
     orch = get_orchestrator()
-    if hasattr(orch, '_tool_gateway') and hasattr(orch._tool_gateway, '_agent_registry'):
+    if hasattr(orch, "_tool_gateway") and hasattr(orch._tool_gateway, "_agent_registry"):
         registry = orch._tool_gateway._agent_registry
         if registry:
             agent = registry.get(agent_id)
@@ -79,8 +81,9 @@ async def get_agent(agent_id: str, request: Request):
 async def create_agent(body: CreateAgentRequest, request: Request):
     from modules.sentinel_bridge import get_orchestrator
     from sentinel.core.agent import AgentSpec, AgentStatus
+
     orch = get_orchestrator()
-    if not (hasattr(orch, '_tool_gateway') and hasattr(orch._tool_gateway, '_agent_registry')):
+    if not (hasattr(orch, "_tool_gateway") and hasattr(orch._tool_gateway, "_agent_registry")):
         raise HTTPException(status_code=500, detail="Agent registry not available")
     registry = orch._tool_gateway._agent_registry
     if registry.get(body.agent_id):
@@ -108,8 +111,9 @@ async def create_agent(body: CreateAgentRequest, request: Request):
 @router.patch("/agents/{agent_id}")
 async def update_agent(agent_id: str, body: UpdateAgentRequest, request: Request):
     from modules.sentinel_bridge import get_orchestrator
+
     orch = get_orchestrator()
-    if not (hasattr(orch, '_tool_gateway') and hasattr(orch._tool_gateway, '_agent_registry')):
+    if not (hasattr(orch, "_tool_gateway") and hasattr(orch._tool_gateway, "_agent_registry")):
         raise HTTPException(status_code=500, detail="Agent registry not available")
     registry = orch._tool_gateway._agent_registry
     if registry.get(agent_id) is None:
@@ -124,8 +128,9 @@ async def update_agent(agent_id: str, body: UpdateAgentRequest, request: Request
 @router.delete("/agents/{agent_id}")
 async def delete_agent(agent_id: str, request: Request):
     from modules.sentinel_bridge import get_orchestrator
+
     orch = get_orchestrator()
-    if not (hasattr(orch, '_tool_gateway') and hasattr(orch._tool_gateway, '_agent_registry')):
+    if not (hasattr(orch, "_tool_gateway") and hasattr(orch._tool_gateway, "_agent_registry")):
         raise HTTPException(status_code=500, detail="Agent registry not available")
     registry = orch._tool_gateway._agent_registry
     try:

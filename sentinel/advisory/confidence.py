@@ -14,9 +14,20 @@ class ConfidenceAssessment:
 class ConfidenceEngine:
     """Transparent heuristic estimate; intentionally not a probability model."""
 
-    def assess(self, *, intent_confidence: float, successful_steps: int, failed_steps: int,
-               retries: int, fallbacks: int, has_error: bool, verified_outputs: int,
-               conflicts: int, source_count: int = 0, stale_sources: int = 0) -> ConfidenceAssessment:
+    def assess(
+        self,
+        *,
+        intent_confidence: float,
+        successful_steps: int,
+        failed_steps: int,
+        retries: int,
+        fallbacks: int,
+        has_error: bool,
+        verified_outputs: int,
+        conflicts: int,
+        source_count: int = 0,
+        stale_sources: int = 0,
+    ) -> ConfidenceAssessment:
         score = 0.45
         positives: List[str] = []
         negatives: List[str] = []

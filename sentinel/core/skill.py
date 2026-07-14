@@ -188,7 +188,11 @@ BUILTIN_SKILLS: List[SkillSpec] = [
             "type": "object",
             "properties": {
                 "path": {"type": "string", "description": "Path to data file (CSV or JSON)"},
-                "analysis_type": {"type": "string", "enum": ["overview", "stats", "trends", "anomalies", "full"], "default": "full"},
+                "analysis_type": {
+                    "type": "string",
+                    "enum": ["overview", "stats", "trends", "anomalies", "full"],
+                    "default": "full",
+                },
             },
             "required": ["path"],
         },

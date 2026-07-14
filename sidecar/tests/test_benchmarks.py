@@ -23,7 +23,7 @@ perm_svc.set_level("admin")
 # Create an unlimited rate limiter for benchmarks
 _unlimited = SlidingWindowRateLimiter(window_seconds=1, max_buckets=1)
 _original_allow = _rate_limiter.allow
-_rate_limiter.allow = lambda key, limit=999999: type('_', (), {'allowed': True, 'remaining': 999, 'retry_after': 0})()
+_rate_limiter.allow = lambda key, limit=999999: type("_", (), {"allowed": True, "remaining": 999, "retry_after": 0})()
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -46,9 +46,14 @@ class TestPipelineBenchmarks:
         assert resp.status_code == 200
 
     def test_dry_run_skip_simulation(self, benchmark):
-        resp = benchmark(client.post, "/api/sentinel/process", json={
-            "utterance": "cpu usage", "dry_run": True,
-        })
+        resp = benchmark(
+            client.post,
+            "/api/sentinel/process",
+            json={
+                "utterance": "cpu usage",
+                "dry_run": True,
+            },
+        )
         assert resp.status_code == 200
 
     def test_v1_execute_cpu(self, benchmark):
@@ -60,9 +65,14 @@ class TestPipelineBenchmarks:
         assert resp.status_code == 200
 
     def test_v1_execute_app_discovery(self, benchmark):
-        resp = benchmark(client.post, "/v1/execute", json={
-            "tool_id": "app.discovery", "params": {"action": "list"},
-        })
+        resp = benchmark(
+            client.post,
+            "/v1/execute",
+            json={
+                "tool_id": "app.discovery",
+                "params": {"action": "list"},
+            },
+        )
         assert resp.status_code == 200
 
 
@@ -119,6 +129,7 @@ class TestContextEngineBenchmarks:
 
     def test_context_collect_no_processes(self, benchmark):
         from sentinel.core.context import ContextEngine
+
         engine = ContextEngine(collect_processes=False)
 
         def run():
@@ -129,6 +140,7 @@ class TestContextEngineBenchmarks:
 
     def test_context_collect_with_processes(self, benchmark):
         from sentinel.core.context import ContextEngine
+
         engine = ContextEngine(collect_processes=True, process_limit=10)
 
         def run():
@@ -143,10 +155,13 @@ class TestDbBenchmarks:
 
     def test_config_get_set(self, benchmark):
         from repositories.database import DatabaseManager
+
         db = DatabaseManager()
+
         def ops():
             db.config_set_json("bench_test", {"value": time.time()})
             return db.config_get_json("bench_test")
+
         result = benchmark(ops)
         assert result is not None
         db.config_delete("bench_test")
@@ -162,6 +177,7 @@ class TestMemoryBenchmarks:
     def test_sqlite_memory_store_execution(self, benchmark):
         from sentinel.core.operational_memory import SQLiteBackend, ExecutionRecord
         from datetime import datetime, timezone
+
         mem = SQLiteBackend()
         record = ExecutionRecord(
             execution_id="bench-exec-1",
@@ -181,5 +197,6 @@ class TestMemoryBenchmarks:
 
     def test_sqlite_memory_get_session_history(self, benchmark):
         from sentinel.core.operational_memory import SQLiteBackend
+
         mem = SQLiteBackend()
         benchmark(mem.get_session_history, "bench-session", 5)

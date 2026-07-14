@@ -89,9 +89,14 @@ class AsyncUserProfileManager:
 
     async def preference_exists(self, user_id: str, key: str) -> bool:
         from sqlalchemy import func
-        stmt = select(func.count()).select_from(UserPreferenceV2).where(
-            UserPreferenceV2.user_id == user_id,
-            UserPreferenceV2.key == key,
+
+        stmt = (
+            select(func.count())
+            .select_from(UserPreferenceV2)
+            .where(
+                UserPreferenceV2.user_id == user_id,
+                UserPreferenceV2.key == key,
+            )
         )
         result = await self._session.execute(stmt)
         return (result.scalar() or 0) > 0
@@ -110,9 +115,14 @@ class AsyncUserProfileManager:
             existing.updated_at = now
             self._session.add(existing)
         else:
-            self._session.add(UserPreferenceV2(
-                user_id=user_id, key=key, value=serialized, updated_at=now,
-            ))
+            self._session.add(
+                UserPreferenceV2(
+                    user_id=user_id,
+                    key=key,
+                    value=serialized,
+                    updated_at=now,
+                )
+            )
         await self._session.flush()
 
     async def get_all_preferences(self, user_id: str) -> Dict[str, Any]:

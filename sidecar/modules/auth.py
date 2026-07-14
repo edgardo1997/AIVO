@@ -156,6 +156,7 @@ async def auth_middleware(request: Request, call_next):
     if scheme.lower() == "bearer" and presented_token:
         try:
             from .jwt_auth import token_to_identity
+
             identity = token_to_identity(presented_token)
             if identity is not None:
                 request.state.identity = identity

@@ -1,5 +1,6 @@
 import os
 import sys
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import pytest
@@ -83,10 +84,13 @@ class TestAppDiscoveryTool:
 
 class TestAppDiscoveryCapabilities:
     def test_capabilities_has_registry_through_api(self):
-        resp = client.post("/v1/execute", json={
-            "tool_id": "app.discovery",
-            "params": {"action": "capabilities"},
-        })
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "app.discovery",
+                "params": {"action": "capabilities"},
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["success"] is True
@@ -102,10 +106,13 @@ class TestAppDiscoveryCapabilities:
     def test_capabilities_count_matches_gateway(self):
         resp_gw = client.get("/api/sentinel/capabilities")
         gw_tools = resp_gw.json()["tools"]
-        resp_caps = client.post("/v1/execute", json={
-            "tool_id": "app.discovery",
-            "params": {"action": "capabilities"},
-        })
+        resp_caps = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "app.discovery",
+                "params": {"action": "capabilities"},
+            },
+        )
         caps = resp_caps.json()["data"]["capabilities"]
         cap_ids = {c["id"] for c in caps}
         gw_ids = {t["id"] for t in gw_tools}
@@ -121,10 +128,13 @@ class TestAppDiscoveryViaApi:
         assert "app.discovery" in ids
 
     def test_v1_execute_lookup(self):
-        resp = client.post("/v1/execute", json={
-            "tool_id": "app.discovery",
-            "params": {"action": "lookup", "name": "python"},
-        })
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "app.discovery",
+                "params": {"action": "lookup", "name": "python"},
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["success"] is True
@@ -132,39 +142,51 @@ class TestAppDiscoveryViaApi:
         assert data["data"]["found"] is True
 
     def test_v1_execute_list(self):
-        resp = client.post("/v1/execute", json={
-            "tool_id": "app.discovery",
-            "params": {"action": "list", "limit": 5},
-        })
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "app.discovery",
+                "params": {"action": "list", "limit": 5},
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["success"] is True
         assert len(data["data"]["apps"]) >= 1
 
     def test_v1_execute_search(self):
-        resp = client.post("/v1/execute", json={
-            "tool_id": "app.discovery",
-            "params": {"action": "search", "query": "python"},
-        })
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "app.discovery",
+                "params": {"action": "search", "query": "python"},
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["success"] is True
 
     def test_unknown_tool_returns_error(self):
-        resp = client.post("/v1/execute", json={
-            "tool_id": "app.nonexistent",
-            "params": {},
-        })
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "app.nonexistent",
+                "params": {},
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["success"] is False
 
     def test_v1_execute_dry_run_app_discovery(self):
-        resp = client.post("/v1/execute", json={
-            "tool_id": "app.discovery",
-            "params": {"action": "list", "limit": 5},
-            "dry_run": True,
-        })
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "app.discovery",
+                "params": {"action": "list", "limit": 5},
+                "dry_run": True,
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["simulated"] is True

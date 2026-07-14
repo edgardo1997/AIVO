@@ -12,7 +12,9 @@ ANALYZE_PROMPT = """You are a system analysis AI. Analyze the provided metrics a
 
 
 class AIService:
-    def __init__(self, repo: AIRepository = None, router: ModelRouter = None, context_manager: ContextWindowManager = None):
+    def __init__(
+        self, repo: AIRepository = None, router: ModelRouter = None, context_manager: ContextWindowManager = None
+    ):
         self.repo = repo or AIRepository()
         self._router = router
         self._context_manager = context_manager or ContextWindowManager()
@@ -29,7 +31,7 @@ class AIService:
             "api_key": "set" if cfg.get("api_key") else "",
             "model": model,
             "base_url": cfg.get("base_url") or "",
-            "strategy": getattr(self._router, '_strategy', 'priority') if self._router else 'priority',
+            "strategy": getattr(self._router, "_strategy", "priority") if self._router else "priority",
         }
 
     def set_config(self, cfg: dict) -> dict:
@@ -66,14 +68,21 @@ class AIService:
         if managed["trimmed"] > 0 or managed["summarized"]:
             log.info(
                 "Context window: %d→%d msgs, %d tokens, trimmed=%d summarized=%s",
-                managed["original_count"], managed["final_count"],
-                managed.get("total_tokens", 0), managed["trimmed"], managed["summarized"],
+                managed["original_count"],
+                managed["final_count"],
+                managed.get("total_tokens", 0),
+                managed["trimmed"],
+                managed["summarized"],
             )
 
         if self._router:
             try:
                 result = self._router.chat(managed_messages, task_type=task_type)
-                return {"response": result["response"], "provider": result.get("provider"), "model": result.get("model")}
+                return {
+                    "response": result["response"],
+                    "provider": result.get("provider"),
+                    "model": result.get("model"),
+                }
             except RuntimeError as e:
                 log.error("All AI providers failed: %s", e)
                 raise Exception(str(e))
@@ -112,6 +121,7 @@ class AIService:
 
     def get_free_providers(self) -> dict:
         from sentinel.core.model_router import PROVIDER_URLS
+
         return dict(PROVIDER_URLS)
 
     def _task_type_for_message(self, message: str) -> TaskType:
@@ -128,6 +138,7 @@ class AIService:
     @staticmethod
     def _get_default_model(provider: str) -> str:
         from sentinel.core.model_router import BUILTIN_PROVIDERS
+
         for p in BUILTIN_PROVIDERS:
             if p.id == provider:
                 return p.default_model
@@ -136,6 +147,7 @@ class AIService:
     @staticmethod
     def _make_client(cfg: dict):
         from openai import OpenAI
+
         base_url = cfg.get("base_url") or ""
         api_key = cfg.get("api_key", "")
         if cfg.get("provider") == "ollama":

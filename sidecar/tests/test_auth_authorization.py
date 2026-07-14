@@ -133,35 +133,51 @@ class TestCheckLevel:
 
     def test_viewer_meets_view(self):
         identity = IdentityContext(
-            user_id="v", username="V", role="viewer",
-            permissions=frozenset(), authentication_method="local",
-            is_authenticated=True, is_local=True,
+            user_id="v",
+            username="V",
+            role="viewer",
+            permissions=frozenset(),
+            authentication_method="local",
+            is_authenticated=True,
+            is_local=True,
         )
         check_level(identity, "view")
 
     def test_viewer_rejects_admin(self):
         identity = IdentityContext(
-            user_id="v", username="V", role="viewer",
-            permissions=frozenset(), authentication_method="local",
-            is_authenticated=True, is_local=True,
+            user_id="v",
+            username="V",
+            role="viewer",
+            permissions=frozenset(),
+            authentication_method="local",
+            is_authenticated=True,
+            is_local=True,
         )
         with pytest.raises(PermissionError, match="Requires level 'admin'"):
             check_level(identity, "admin")
 
     def test_user_rejects_admin(self):
         identity = IdentityContext(
-            user_id="u", username="U", role="user",
-            permissions=frozenset(), authentication_method="local",
-            is_authenticated=True, is_local=True,
+            user_id="u",
+            username="U",
+            role="user",
+            permissions=frozenset(),
+            authentication_method="local",
+            is_authenticated=True,
+            is_local=True,
         )
         with pytest.raises(PermissionError):
             check_level(identity, "admin")
 
     def test_unauthenticated_still_checked_by_level(self):
         identity = IdentityContext(
-            user_id="anon", username="Anon", role="viewer",
-            permissions=frozenset(), authentication_method="none",
-            is_authenticated=False, is_local=False,
+            user_id="anon",
+            username="Anon",
+            role="viewer",
+            permissions=frozenset(),
+            authentication_method="none",
+            is_authenticated=False,
+            is_local=False,
         )
         with pytest.raises(PermissionError):
             check_level(identity, "admin")
@@ -254,6 +270,7 @@ class TestAuthMiddlewareIntegration:
 
     def test_middleware_works_with_existing_rate_limit(self):
         from main import app
+
         client = TestClient(app)
         resp = client.get("/api/health")
         assert resp.status_code == 200
@@ -261,6 +278,7 @@ class TestAuthMiddlewareIntegration:
 
     def test_middleware_with_info_endpoint(self):
         from main import app
+
         client = TestClient(app)
         resp = client.get("/api/info")
         assert resp.status_code == 200
@@ -269,6 +287,7 @@ class TestAuthMiddlewareIntegration:
 
     def test_middleware_with_permissions_endpoint(self):
         from main import app
+
         client = TestClient(app)
         resp = client.post("/v1/execute", json={"tool_id": "permissions.status", "params": {}})
         assert resp.status_code == 200
@@ -338,16 +357,12 @@ class TestSessionAuthentication:
         monkeypatch.setenv("SENTINEL_SESSION_TOKEN", "a" * 64)
         client = self._client()
         assert client.get("/whoami").status_code == 401
-        assert client.get(
-            "/whoami", headers={"Authorization": "Bearer invalid"}
-        ).status_code == 401
+        assert client.get("/whoami", headers={"Authorization": "Bearer invalid"}).status_code == 401
 
     def test_valid_token_derives_server_side_identity(self, monkeypatch):
         token = "b" * 64
         monkeypatch.setenv("SENTINEL_SESSION_TOKEN", token)
-        response = self._client().get(
-            "/whoami", headers={"Authorization": f"Bearer {token}"}
-        )
+        response = self._client().get("/whoami", headers={"Authorization": f"Bearer {token}"})
         assert response.status_code == 200
         identity = response.json()
         assert identity["user_id"] == "local-user"

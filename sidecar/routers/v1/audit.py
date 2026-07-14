@@ -29,6 +29,7 @@ async def list_audit(
     since: Optional[str] = Query(None),
 ):
     from modules.audit import _svc as audit_svc
+
     entries = audit_svc.get_log(limit=limit, action_filter=action)
     result = entries.get("entries", [])
     if since:
@@ -39,6 +40,5 @@ async def list_audit(
 @router.get("/audit/integrity")
 async def audit_integrity():
     from modules.audit import _svc as audit_svc
+
     return audit_svc.verify_integrity()
-
-

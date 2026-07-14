@@ -69,6 +69,7 @@ def _assert_safe_database_path(db_path: str) -> None:
             "Set SENTINEL_DB_PATH to an isolated test database."
         )
 
+
 class DatabaseManager:
     _instance = None
     _lock = threading.Lock()
@@ -95,6 +96,7 @@ class DatabaseManager:
 
     def _protect_database_files(self):
         from windows_acl import protect_path
+
         for candidate in (self.db_path, f"{self.db_path}-wal", f"{self.db_path}-shm"):
             if os.path.exists(candidate):
                 protect_path(candidate, directory=False)
@@ -360,14 +362,9 @@ class DatabaseManager:
         conn.commit()
 
     def _ensure_column(self, table: str, column: str, declaration: str) -> None:
-        columns = {
-            row["name"]
-            for row in self._get_conn().execute(f"PRAGMA table_info({table})").fetchall()
-        }
+        columns = {row["name"] for row in self._get_conn().execute(f"PRAGMA table_info({table})").fetchall()}
         if column not in columns:
-            self._get_conn().execute(
-                f"ALTER TABLE {table} ADD COLUMN {column} {declaration}"
-            )
+            self._get_conn().execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
 
     def close_connections(self) -> None:
         try:

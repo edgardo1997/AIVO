@@ -1,5 +1,6 @@
 import os
 import sys
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import pytest
@@ -40,7 +41,9 @@ class TestQualityGateSensitivePatterns:
 
     def test_redacts_private_key_block(self):
         qg = QualityGate()
-        tr = ToolResult(success=True, data="-----BEGIN PRIVATE KEY-----\nABC123\n-----END PRIVATE KEY-----", tool_id="test")
+        tr = ToolResult(
+            success=True, data="-----BEGIN PRIVATE KEY-----\nABC123\n-----END PRIVATE KEY-----", tool_id="test"
+        )
         result = qg.scan(tr)
         assert result.passed
         assert result.redacted
@@ -64,7 +67,11 @@ class TestQualityGateSensitivePatterns:
 
     def test_redacts_jwt(self):
         qg = QualityGate()
-        tr = ToolResult(success=True, data="eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8", tool_id="test")
+        tr = ToolResult(
+            success=True,
+            data="eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8",
+            tool_id="test",
+        )
         result = qg.scan(tr)
         assert result.passed
         assert result.redacted
@@ -119,6 +126,8 @@ class TestQualityGateDictData:
 
     def test_handles_list_data(self):
         qg = QualityGate()
-        tr = ToolResult(success=True, data=["line one", "key: ghp_abcdefghijklmnopqrstuvwxyz0123456789abcd"], tool_id="test")
+        tr = ToolResult(
+            success=True, data=["line one", "key: ghp_abcdefghijklmnopqrstuvwxyz0123456789abcd"], tool_id="test"
+        )
         result = qg.scan(tr)
         assert result.redacted

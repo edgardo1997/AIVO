@@ -40,12 +40,11 @@ def isolated_test_database():
     from repositories.database import DatabaseManager, PRODUCTION_DB_PATH
 
     db = DatabaseManager()
-    assert os.path.normcase(os.path.abspath(db.db_path)) != os.path.normcase(
-        PRODUCTION_DB_PATH
-    )
+    assert os.path.normcase(os.path.abspath(db.db_path)) != os.path.normcase(PRODUCTION_DB_PATH)
     yield
     db.close()
     shutil.rmtree(_test_data_dir, ignore_errors=True)
+
 
 @pytest.fixture(autouse=True)
 def clean_state():
@@ -54,6 +53,7 @@ def clean_state():
     _rate_limiter.clear()
     default_perms = {"level": "confirm", "allowlist": [], "blocklist": [], "auto_safe": True}
     from repositories.database import DatabaseManager
+
     db = DatabaseManager()
     db.config_set_json("permissions", default_perms)
     db.config_set_json(
@@ -73,6 +73,7 @@ def clean_state():
     )
     try:
         from modules.sentinel_bridge import get_memory
+
         mem = get_memory()
         if mem is not None:
             mem.clear()
@@ -80,11 +81,13 @@ def clean_state():
         pass
     yield
 
+
 @pytest.fixture
 def client():
     tc = TestClient(app)
     tc.headers.update({"X-Test-Token": "valid-test-token"})
     return tc
+
 
 @pytest.fixture
 def temp_config():

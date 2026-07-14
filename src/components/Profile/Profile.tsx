@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { api } from "../../api";
-import type { ProfilePreset, ProfileHistoryEntry } from "../../types";
+import type { ProfilePreset, ProfileSearchResult, UserProfile } from "../../types";
 
 interface ProfileData {
   user_id: string;
@@ -12,16 +12,9 @@ interface ProfileData {
   locale: string;
 }
 
-interface IdentityData {
-  user_id: string;
-  username: string;
-  role: string;
-  is_local: boolean;
-}
-
 export function Profile() {
   const [profile, setProfile] = useState<ProfileData | null>(null);
-  const [identity, setIdentity] = useState<IdentityData | null>(null);
+  const [identity, setIdentity] = useState<UserProfile["identity"] | null>(null);
   const [preferences, setPreferences] = useState<Record<string, unknown>>({});
   const [displayName, setDisplayName] = useState("");
   const [theme, setTheme] = useState("light");
@@ -34,19 +27,19 @@ export function Profile() {
   const [presetDesc, setPresetDesc] = useState("");
   const [presetMsg, setPresetMsg] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<ProfileHistoryEntry[]>([]);
+  const [searchResults, setSearchResults] = useState<ProfileSearchResult[]>([]);
   const [searching, setSearching] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const refresh = () => {
     api.profile.get().then((data) => {
       setProfile(data.profile as ProfileData);
-      setIdentity(data.identity as IdentityData);
+      setIdentity(data.identity);
       setDisplayName((data.profile as ProfileData).display_name);
       setTheme((data.profile as ProfileData).theme);
       setPreferences(data.preferences as Record<string, unknown>);
     });
-    api.profile.presets().then(setPresets).catch(() => {});
+    api.profile.presets().then((data) => setPresets(data.presets)).catch(() => {});
   };
 
   useEffect(refresh, []);
@@ -116,7 +109,7 @@ export function Profile() {
       setPresetMsg("Preset saved");
       setTimeout(() => setPresetMsg(""), 2000);
       const p = await api.profile.presets();
-      setPresets(p);
+      setPresets(p.presets);
     } catch {
       setPresetMsg("Error saving preset");
       setTimeout(() => setPresetMsg(""), 2000);
@@ -138,7 +131,7 @@ export function Profile() {
     try {
       await api.profile.deletePreset(name);
       const p = await api.profile.presets();
-      setPresets(p);
+      setPresets(p.presets);
     } catch {}
   };
 
@@ -147,7 +140,7 @@ export function Profile() {
     setSearching(true);
     try {
       const res = await api.profile.search(searchQuery.trim(), 20);
-      setSearchResults(res);
+      setSearchResults(res.results);
     } catch {}
     setSearching(false);
   };
@@ -259,9 +252,9 @@ export function Profile() {
 
       {/* History Search */}
       <div className="card">
-        <div className="card-title">History Search</div>
+        <div className="card-title">Profile Search</div>
         <div style={{ display: "flex", gap: 8, marginTop: 12, marginBottom: 12 }}>
-          <input className="input" placeholder="Search profile history..." value={searchQuery}
+          <input className="input" placeholder="Search profiles..." value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSearch()}
             style={{ flex: 1 }} />
@@ -273,8 +266,8 @@ export function Profile() {
           <div style={{ fontSize: 12, maxHeight: 300, overflowY: "auto" }}>
             {searchResults.map((e, i) => (
               <div key={i} style={{ padding: "6px 0", borderBottom: "1px solid #eee" }}>
-                <div><strong>{e.field}:</strong> {e.old_value} → {e.new_value}</div>
-                <div style={{ color: "#aaa", fontSize: 10 }}>{e.changed_at}</div>
+                <div><strong>{e.display_name || e.username}</strong> <span style={{ color: "#888" }}>@{e.username}</span></div>
+                <div style={{ color: "#aaa", fontSize: 10 }}>{e.bio || e.user_id}{e.tags.length > 0 ? ` · ${e.tags.join(", ")}` : ""}</div>
               </div>
             ))}
           </div>

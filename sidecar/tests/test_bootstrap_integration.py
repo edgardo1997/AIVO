@@ -101,16 +101,14 @@ class TestBootstrapIntegration:
         assert reg is None
         get_orchestrator()
         reg = get_goal_registry()
-        for gid in ["system_health_diagnosis", "disk_space_cleanup",
-                     "network_diagnosis", "performance_tuning"]:
+        for gid in ["system_health_diagnosis", "disk_space_cleanup", "network_diagnosis", "performance_tuning"]:
             goal = reg.get(gid)
             assert goal is not None
             assert isinstance(goal.context_rules, dict)
 
     def test_api_goal_matches_endpoint_with_bridge(self):
         reset_bridge()
-        resp = client.get("/api/sentinel/goals/matches",
-                          params={"intent": "system.health"})
+        resp = client.get("/api/sentinel/goals/matches", params={"intent": "system.health"})
         assert resp.status_code == 200
         data = resp.json()
         assert len(data["matches"]) >= 1

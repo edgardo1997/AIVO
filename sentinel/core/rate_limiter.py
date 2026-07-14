@@ -42,7 +42,11 @@ class RateLimiter:
         self._lock = threading.RLock()
 
     def allow(
-        self, key: str, *, limit: int, now: Optional[float] = None,
+        self,
+        key: str,
+        *,
+        limit: int,
+        now: Optional[float] = None,
     ) -> RateLimitDecision:
         """Check and record a request for *key*. Returns the decision."""
         if limit <= 0:

@@ -145,8 +145,7 @@ class DecisionEngine:
         confirm_max = level_thresholds["confirm"]
 
         irreversible_high_risk = any(
-            s.estimated_impact in ("high", "critical") and not s.is_reversible
-            for s in plan.steps
+            s.estimated_impact in ("high", "critical") and not s.is_reversible for s in plan.steps
         )
 
         sim = (context or {}).get("simulation")
@@ -161,16 +160,25 @@ class DecisionEngine:
                 old_risk = final_risk
                 final_risk = min(max(final_risk + modifier, 0.0), 1.0)
                 context_modifier = final_risk - base_risk
-                logger.info("LLM risk adjustment: %.2f -> %.2f (modifier=%.2f): %s",
-                            old_risk, final_risk, modifier, llm_assessment.get("reason", ""))
+                logger.info(
+                    "LLM risk adjustment: %.2f -> %.2f (modifier=%.2f): %s",
+                    old_risk,
+                    final_risk,
+                    modifier,
+                    llm_assessment.get("reason", ""),
+                )
 
         factors_str = f" | context={context_factors}" if context_factors else ""
-        sim_str = f" | sim={sim.get('overall_risk','')}" if sim else ""
+        sim_str = f" | sim={sim.get('overall_risk', '')}" if sim else ""
 
         if forced_decision == Decision.REJECT:
             logger.info(
                 "Plan REJECTED by simulation: risk=%s irreversible=%s level=%s%s%s",
-                sim.get("overall_risk"), sim.get("has_irreversible"), level, factors_str, sim_str,
+                sim.get("overall_risk"),
+                sim.get("has_irreversible"),
+                level,
+                factors_str,
+                sim_str,
             )
             return DecisionResult(
                 decision=Decision.REJECT,
@@ -185,7 +193,10 @@ class DecisionEngine:
         if forced_decision == Decision.REQUIRE_CONFIRM:
             logger.info(
                 "Plan requires confirmation (simulation): risk=%s level=%s%s%s",
-                sim.get("overall_risk"), level, factors_str, sim_str,
+                sim.get("overall_risk"),
+                level,
+                factors_str,
+                sim_str,
             )
             return DecisionResult(
                 decision=Decision.REQUIRE_CONFIRM,
@@ -200,7 +211,12 @@ class DecisionEngine:
         if final_risk <= auto_max and (not irreversible_high_risk or level == "admin"):
             logger.info(
                 "Plan auto-approved: base=%.2f mod=%.2f final=%.2f level=%s%s%s",
-                base_risk, context_modifier, final_risk, level, factors_str, sim_str,
+                base_risk,
+                context_modifier,
+                final_risk,
+                level,
+                factors_str,
+                sim_str,
             )
             return DecisionResult(
                 decision=Decision.APPROVE,
@@ -215,7 +231,12 @@ class DecisionEngine:
         if final_risk <= confirm_max:
             logger.info(
                 "Plan requires confirmation: base=%.2f mod=%.2f final=%.2f level=%s%s%s",
-                base_risk, context_modifier, final_risk, level, factors_str, sim_str,
+                base_risk,
+                context_modifier,
+                final_risk,
+                level,
+                factors_str,
+                sim_str,
             )
             return DecisionResult(
                 decision=Decision.REQUIRE_CONFIRM,
@@ -229,7 +250,13 @@ class DecisionEngine:
 
         logger.info(
             "Plan REJECTED: base=%.2f mod=%.2f final=%.2f > confirm_max=%.2f level=%s%s%s",
-            base_risk, context_modifier, final_risk, confirm_max, level, factors_str, sim_str,
+            base_risk,
+            context_modifier,
+            final_risk,
+            confirm_max,
+            level,
+            factors_str,
+            sim_str,
         )
         return DecisionResult(
             decision=Decision.REJECT,
@@ -243,9 +270,10 @@ class DecisionEngine:
 
     def _assess_risk_with_llm(self, plan: Plan, context: Optional[Dict[str, Any]] = None) -> Optional[Dict]:
         from .model_router import TaskType
+
         if not self._model_router:
             return None
-        if not hasattr(self._model_router, '_key_map') or not self._model_router._key_map:
+        if not hasattr(self._model_router, "_key_map") or not self._model_router._key_map:
             return None
         try:
             steps_text = "\n".join(
@@ -263,6 +291,7 @@ class DecisionEngine:
             ]
             result = self._model_router.chat(messages, task_type=TaskType.ANALYSIS)
             import json
+
             text = result["response"].strip()
             if text.startswith("```"):
                 text = text.split("\n", 1)[1] if "\n" in text else text[3:]

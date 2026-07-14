@@ -27,11 +27,12 @@ _svc = PermissionsService(
 )
 
 
-def set_memory_backend(memory: 'MemoryBackend') -> None:
+def set_memory_backend(memory: "MemoryBackend") -> None:
     """Bind OperationalMemory to the service's pending actions and emergency stop."""
     _pending_actions.set_memory(memory)
     _emergency_stop.set_memory(memory)
     log.info("OperationalMemory bound to permissions service")
+
 
 class PermissionLevel(str, Enum):
     VIEW = "view"
@@ -39,32 +40,40 @@ class PermissionLevel(str, Enum):
     AUTO = "auto"
     ADMIN = "admin"
 
+
 class ConfirmRequest(BaseModel):
     action_id: str
     approved: bool
 
+
 class LevelRequest(BaseModel):
     level: PermissionLevel
+
 
 @router.get("/status")
 def get_permission_status():
     return _svc.get_status()
 
+
 @router.post("/level")
 def set_permission_level(req: LevelRequest):
     return _svc.set_level(req.level.value)
+
 
 @router.post("/emergency/{action}")
 def emergency_action(action: str):
     return _svc.emergency(action)
 
+
 @router.post("/confirm")
 def confirm_action(req: ConfirmRequest):
     return _svc.confirm_action(req.action_id, req.approved)
 
+
 @router.post("/blocklist")
 def add_blocklist(pattern: str):
     return _svc.add_blocklist(pattern)
+
 
 @router.delete("/blocklist/{item}")
 def remove_blocklist(item: str):

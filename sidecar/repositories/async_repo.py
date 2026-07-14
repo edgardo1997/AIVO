@@ -63,6 +63,7 @@ class AsyncRepository(Generic[ModelT]):
 
     async def count(self, **filters: Any) -> int:
         from sqlalchemy import func
+
         stmt = select(func.count()).select_from(self._model).filter_by(**filters)
         result = await self._session.execute(stmt)
         return result.scalar() or 0

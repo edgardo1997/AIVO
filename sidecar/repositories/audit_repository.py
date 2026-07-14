@@ -6,6 +6,7 @@ from .database import DatabaseManager
 
 MAX_ENTRIES = 1000
 
+
 class AuditRepository:
     def __init__(self, db=None):
         self._db = db or DatabaseManager()
@@ -29,9 +30,14 @@ class AuditRepository:
             ).fetchone()
             previous_hash = row["entry_hash"] if row else ""
             canonical = self._canonical_entry(
-                timestamp=entry["timestamp"], action=entry["action"], details=details,
-                status=status, user=user, event_id=event_id,
-                execution_id=execution_id, payload=payload,
+                timestamp=entry["timestamp"],
+                action=entry["action"],
+                details=details,
+                status=status,
+                user=user,
+                event_id=event_id,
+                execution_id=execution_id,
+                payload=payload,
                 previous_hash=previous_hash,
             )
             entry_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
@@ -40,8 +46,18 @@ class AuditRepository:
                    (timestamp, action, details, status, user, event_id,
                     execution_id, payload, previous_hash, entry_hash)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (entry["timestamp"], entry["action"], details, status, user,
-                 event_id, execution_id, payload_json, previous_hash, entry_hash),
+                (
+                    entry["timestamp"],
+                    entry["action"],
+                    details,
+                    status,
+                    user,
+                    event_id,
+                    execution_id,
+                    payload_json,
+                    previous_hash,
+                    entry_hash,
+                ),
             )
         return {"event_id": event_id, "entry_hash": entry_hash}
 
@@ -74,9 +90,7 @@ class AuditRepository:
         return row["cnt"] if row else 0
 
     def verify_integrity(self) -> dict:
-        rows = self._db.fetchall(
-            "SELECT * FROM audit_log WHERE entry_hash IS NOT NULL ORDER BY id ASC"
-        )
+        rows = self._db.fetchall("SELECT * FROM audit_log WHERE entry_hash IS NOT NULL ORDER BY id ASC")
         previous_hash = ""
         for row in rows:
             try:
@@ -86,10 +100,15 @@ class AuditRepository:
             if row.get("previous_hash", "") != previous_hash:
                 return {"valid": False, "event_id": row.get("event_id"), "reason": "broken_chain"}
             canonical = self._canonical_entry(
-                timestamp=row["timestamp"], action=row["action"], details=row.get("details", ""),
-                status=row.get("status", "info"), user=row.get("user", "unknown"),
-                event_id=row.get("event_id"), execution_id=row.get("execution_id"),
-                payload=payload, previous_hash=previous_hash,
+                timestamp=row["timestamp"],
+                action=row["action"],
+                details=row.get("details", ""),
+                status=row.get("status", "info"),
+                user=row.get("user", "unknown"),
+                event_id=row.get("event_id"),
+                execution_id=row.get("execution_id"),
+                payload=payload,
+                previous_hash=previous_hash,
             )
             calculated = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
             if calculated != row.get("entry_hash"):

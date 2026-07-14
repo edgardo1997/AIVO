@@ -17,9 +17,22 @@ from .agent import AgentRegistry, AgentSpec, AgentStatus
 log = logging.getLogger("sentinel.multi_agent")
 
 _COMPLEX_KEYWORDS = [
-    "design", "architect", "analyze", "compare", "optimize", "refactor",
-    "investigate", "evaluate", "synthesize", "debug", "troubleshoot",
-    "plan", "strategy", "overview", "research", "comprehensive",
+    "design",
+    "architect",
+    "analyze",
+    "compare",
+    "optimize",
+    "refactor",
+    "investigate",
+    "evaluate",
+    "synthesize",
+    "debug",
+    "troubleshoot",
+    "plan",
+    "strategy",
+    "overview",
+    "research",
+    "comprehensive",
 ]
 
 _MULTI_STEP_PATTERNS = [
@@ -99,6 +112,7 @@ class MultiAgentOrchestrator:
             if kw in task_lower:
                 return True
         import re
+
         for pattern in _MULTI_STEP_PATTERNS:
             if re.search(pattern, task_lower):
                 return True
@@ -118,33 +132,47 @@ class MultiAgentOrchestrator:
         sub_tasks = []
 
         if "research" in task_lower or "investigate" in task_lower:
-            sub_tasks.append(SubTask(
-                id="st_research", description="Research and gather information",
-                inputs={}, expected_output="Gathered information and data",
-                required_capabilities=["system.read", "filesystem.read"],
-            ))
+            sub_tasks.append(
+                SubTask(
+                    id="st_research",
+                    description="Research and gather information",
+                    inputs={},
+                    expected_output="Gathered information and data",
+                    required_capabilities=["system.read", "filesystem.read"],
+                )
+            )
         if "analyze" in task_lower or "evaluate" in task_lower:
-            sub_tasks.append(SubTask(
-                id="st_analyze", description="Analyze the gathered information",
-                dependencies=[s.id for s in sub_tasks] if sub_tasks else [],
-                expected_output="Analysis results and insights",
-                required_capabilities=[],
-                agent_strategy="powerful",
-            ))
+            sub_tasks.append(
+                SubTask(
+                    id="st_analyze",
+                    description="Analyze the gathered information",
+                    dependencies=[s.id for s in sub_tasks] if sub_tasks else [],
+                    expected_output="Analysis results and insights",
+                    required_capabilities=[],
+                    agent_strategy="powerful",
+                )
+            )
         if "design" in task_lower or "architect" in task_lower or "plan" in task_lower:
-            sub_tasks.append(SubTask(
-                id="st_design", description="Design or plan the solution",
-                dependencies=[s.id for s in sub_tasks] if sub_tasks else [],
-                expected_output="Design or plan document",
-                required_capabilities=[],
-                agent_strategy="powerful",
-            ))
+            sub_tasks.append(
+                SubTask(
+                    id="st_design",
+                    description="Design or plan the solution",
+                    dependencies=[s.id for s in sub_tasks] if sub_tasks else [],
+                    expected_output="Design or plan document",
+                    required_capabilities=[],
+                    agent_strategy="powerful",
+                )
+            )
         if not sub_tasks:
-            sub_tasks.append(SubTask(
-                id="st_main", description=task,
-                inputs=context or {}, expected_output="Complete response for the task",
-                agent_strategy="powerful",
-            ))
+            sub_tasks.append(
+                SubTask(
+                    id="st_main",
+                    description=task,
+                    inputs=context or {},
+                    expected_output="Complete response for the task",
+                    agent_strategy="powerful",
+                )
+            )
 
         return DecompositionResult(sub_tasks=sub_tasks, decomposition_method="rule")
 
@@ -178,7 +206,8 @@ class MultiAgentOrchestrator:
 
         if not sub_tasks:
             return MultiAgentResult(
-                success=False, sub_task_results=[],
+                success=False,
+                sub_task_results=[],
                 error="Task decomposition produced no sub-tasks",
             )
 
@@ -188,7 +217,11 @@ class MultiAgentOrchestrator:
         return await self._execute_multi(sub_tasks, task, context, start)
 
     async def _execute_single(
-        self, sub_task: SubTask, task: str, context: Dict[str, Any], start: float,
+        self,
+        sub_task: SubTask,
+        task: str,
+        context: Dict[str, Any],
+        start: float,
     ) -> MultiAgentResult:
         result = await self._run_sub_task(sub_task, context)
         duration = (time.monotonic() - start) * 1000
@@ -202,32 +235,39 @@ class MultiAgentOrchestrator:
         )
 
     async def _execute_multi(
-        self, sub_tasks: List[SubTask], task: str, context: Dict[str, Any], start: float,
+        self,
+        sub_tasks: List[SubTask],
+        task: str,
+        context: Dict[str, Any],
+        start: float,
     ) -> MultiAgentResult:
         completed: Dict[str, SubTaskResult] = {}
         dep_map = {st.id: set(st.dependencies) for st in sub_tasks}
-        st_map = {st.id: st for st in sub_tasks}
+        {st.id: st for st in sub_tasks}
 
         while len(completed) < len(sub_tasks):
-            ready = [
-                st for st in sub_tasks
-                if st.id not in completed and not (dep_map[st.id] - set(completed.keys()))
-            ]
+            ready = [st for st in sub_tasks if st.id not in completed and not (dep_map[st.id] - set(completed.keys()))]
             if not ready:
                 remaining = [st.id for st in sub_tasks if st.id not in completed]
                 return MultiAgentResult(
-                    success=False, sub_task_results=list(completed.values()),
+                    success=False,
+                    sub_task_results=list(completed.values()),
                     error=f"Circular dependency or stuck tasks: {remaining}",
                     total_duration_ms=(time.monotonic() - start) * 1000,
                 )
 
-            tasks = [self._run_sub_task(st, {**context, "completed": {k: v.data for k, v in completed.items()}}) for st in ready]
+            tasks = [
+                self._run_sub_task(st, {**context, "completed": {k: v.data for k, v in completed.items()}})
+                for st in ready
+            ]
             results = await asyncio.gather(*tasks, return_exceptions=True)
 
             for st, res in zip(ready, results):
                 if isinstance(res, Exception):
                     completed[st.id] = SubTaskResult(
-                        sub_task_id=st.id, success=False, error=str(res),
+                        sub_task_id=st.id,
+                        success=False,
+                        error=str(res),
                     )
                 else:
                     completed[st.id] = res
@@ -238,8 +278,10 @@ class MultiAgentOrchestrator:
         duration = (time.monotonic() - start) * 1000
         error = next((r.error for r in all_results if r.error), None)
         return MultiAgentResult(
-            success=success, sub_task_results=all_results,
-            merged_output=merged, error=error,
+            success=success,
+            sub_task_results=all_results,
+            merged_output=merged,
+            error=error,
             total_duration_ms=duration,
         )
 
@@ -249,7 +291,8 @@ class MultiAgentOrchestrator:
 
         if not sub_task.agent_id or not self._execute_agent:
             return SubTaskResult(
-                sub_task_id=sub_task.id, success=True,
+                sub_task_id=sub_task.id,
+                success=True,
                 data={"response": f"[passthrough] {sub_task.description}"},
                 duration_ms=(time.monotonic() - sub_start) * 1000,
             )
@@ -263,20 +306,26 @@ class MultiAgentOrchestrator:
             duration = (time.monotonic() - sub_start) * 1000
             if result.get("error"):
                 return SubTaskResult(
-                    sub_task_id=sub_task.id, success=False,
-                    error=result["error"], agent_id=sub_task.agent_id,
+                    sub_task_id=sub_task.id,
+                    success=False,
+                    error=result["error"],
+                    agent_id=sub_task.agent_id,
                     duration_ms=duration,
                 )
             return SubTaskResult(
-                sub_task_id=sub_task.id, success=True,
+                sub_task_id=sub_task.id,
+                success=True,
                 data={"response": result.get("response", ""), "agent_id": sub_task.agent_id},
-                agent_id=sub_task.agent_id, duration_ms=duration,
+                agent_id=sub_task.agent_id,
+                duration_ms=duration,
             )
         except Exception as e:
             log.error("Sub-task %s failed: %s", sub_task.id, e)
             return SubTaskResult(
-                sub_task_id=sub_task.id, success=False,
-                error=str(e), agent_id=sub_task.agent_id,
+                sub_task_id=sub_task.id,
+                success=False,
+                error=str(e),
+                agent_id=sub_task.agent_id,
                 duration_ms=(time.monotonic() - sub_start) * 1000,
             )
 

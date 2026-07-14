@@ -1,4 +1,6 @@
-import os, sys
+import os
+import sys
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from unittest.mock import MagicMock, patch
@@ -123,7 +125,6 @@ class TestCircuitBreakerIntegration:
     def test_router_records_success_on_success(self):
         mr = ModelRouter()
         # patch _call_provider to succeed
-        original = mr._call_provider
 
         def mock_call(decision, provider, messages, model_override=None):
             return {"response": "ok", "provider": decision.provider_id, "model": decision.model, "usage": None}
@@ -137,6 +138,7 @@ class TestCircuitBreakerIntegration:
     def test_router_records_failure_on_exception(self):
         mr = ModelRouter()
         mr._circuit_breaker = CircuitBreaker(failure_threshold=1)
+
         def mock_call(decision, provider, messages, model_override=None):
             raise ConnectionError("API unavailable")
 
@@ -165,11 +167,13 @@ class TestCircuitBreakerIntegration:
 class TestCircuitBreakerAPI:
     def setup_method(self):
         from modules.sentinel_bridge import reset_bridge
+
         reset_bridge()
 
     def test_get_circuits_empty(self):
         from fastapi.testclient import TestClient
         from main import app
+
         client = TestClient(app)
         resp = client.get("/api/sentinel/circuit-breaker")
         assert resp.status_code == 200
@@ -180,6 +184,7 @@ class TestCircuitBreakerAPI:
     def test_reset_circuits(self):
         from fastapi.testclient import TestClient
         from main import app
+
         client = TestClient(app)
         resp = client.post("/api/sentinel/circuit-breaker/reset")
         assert resp.status_code == 200

@@ -72,10 +72,20 @@ def _install_permission_boundary(plugin_dir: str) -> None:
 
     def audit(event: str, args: tuple) -> None:
         if event in {
-            "subprocess.Popen", "os.system", "os.startfile", "os.startfile/2",
-            "os.kill", "os.killpg",
-            "socket.connect", "socket.connect_ex", "socket.bind", "socket.getaddrinfo",
-            "ctypes.dlopen", "winreg.OpenKey", "winreg.CreateKey", "winreg.SetValue",
+            "subprocess.Popen",
+            "os.system",
+            "os.startfile",
+            "os.startfile/2",
+            "os.kill",
+            "os.killpg",
+            "socket.connect",
+            "socket.connect_ex",
+            "socket.bind",
+            "socket.getaddrinfo",
+            "ctypes.dlopen",
+            "winreg.OpenKey",
+            "winreg.CreateKey",
+            "winreg.SetValue",
         }:
             raise PermissionError(f"Plugin capability denied: {event}")
         if event == "open" and args and isinstance(args[0], (str, bytes, os.PathLike)):
@@ -130,7 +140,9 @@ def _worker(connection, plugin_id: str, main_path: str) -> None:
         pass
     except Exception as exc:
         try:
-            connection.send_bytes(_json_bytes({"type": "fatal", "error": f"{type(exc).__name__}: {exc}"}, MAX_RESPONSE_BYTES))
+            connection.send_bytes(
+                _json_bytes({"type": "fatal", "error": f"{type(exc).__name__}: {exc}"}, MAX_RESPONSE_BYTES)
+            )
         except Exception:
             pass
     finally:
@@ -138,8 +150,15 @@ def _worker(connection, plugin_id: str, main_path: str) -> None:
 
 
 class PluginSandbox:
-    def __init__(self, plugin_id: str, main_path: str, *, timeout: float = DEFAULT_TIMEOUT_SECONDS,
-                 memory_bytes: int = DEFAULT_MEMORY_BYTES, cpu_seconds: float = DEFAULT_CPU_SECONDS):
+    def __init__(
+        self,
+        plugin_id: str,
+        main_path: str,
+        *,
+        timeout: float = DEFAULT_TIMEOUT_SECONDS,
+        memory_bytes: int = DEFAULT_MEMORY_BYTES,
+        cpu_seconds: float = DEFAULT_CPU_SECONDS,
+    ):
         self.plugin_id = plugin_id
         self.main_path = str(Path(main_path).resolve())
         self.timeout = max(0.1, min(float(timeout), 30.0))
@@ -159,8 +178,12 @@ class PluginSandbox:
             return self.hooks
         context = multiprocessing.get_context("spawn")
         parent, child = context.Pipe(duplex=True)
-        process = context.Process(target=_worker, args=(child, self.plugin_id, self.main_path),
-                                  name=f"sentinel-plugin-{self.plugin_id}", daemon=True)
+        process = context.Process(
+            target=_worker,
+            args=(child, self.plugin_id, self.main_path),
+            name=f"sentinel-plugin-{self.plugin_id}",
+            daemon=True,
+        )
         process.start()
         child.close()
         self._process, self._connection = process, parent

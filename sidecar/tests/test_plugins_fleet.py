@@ -12,6 +12,7 @@ client = TestClient(app)
 def clean_plugin_state():
     from modules.plugins import ACTIVE_PLUGINS, PLUGIN_STATES, PLUGIN_METADATA, PLUGIN_DIR
     import shutil
+
     ACTIVE_PLUGINS.clear()
     PLUGIN_STATES.clear()
     PLUGIN_METADATA.clear()
@@ -22,12 +23,14 @@ def clean_plugin_state():
             shutil.rmtree(path, ignore_errors=True)
     yield
 
+
 def test_list_plugins():
     resp = client.post("/v1/execute", json={"tool_id": "plugins.list", "params": {}})
     assert resp.status_code == 200
     data = resp.json()["data"]
     assert "plugins" in data
     assert isinstance(data["plugins"], list)
+
 
 def test_list_templates():
     resp = client.post("/v1/execute", json={"tool_id": "plugins.templates", "params": {}})
@@ -38,8 +41,11 @@ def test_list_templates():
     assert "system_health" in data["templates"]
     assert "media_control" in data["templates"]
 
+
 def test_create_and_load_plugin():
-    resp = client.post("/v1/execute", json={"tool_id": "plugins.create", "params": {"name": "test_plugin", "template": "minimal"}})
+    resp = client.post(
+        "/v1/execute", json={"tool_id": "plugins.create", "params": {"name": "test_plugin", "template": "minimal"}}
+    )
     assert resp.status_code == 200
     assert resp.json()["success"] == True
     data = resp.json()["data"]
@@ -55,22 +61,30 @@ def test_create_and_load_plugin():
     resp = client.post("/v1/execute", json={"tool_id": "plugins.toggle", "params": {"plugin_id": "test_plugin"}})
     assert resp.status_code == 200
 
+
 def test_create_duplicate_plugin():
-    resp = client.post("/v1/execute", json={"tool_id": "plugins.create", "params": {"name": "dup_plugin", "template": "minimal"}})
+    resp = client.post(
+        "/v1/execute", json={"tool_id": "plugins.create", "params": {"name": "dup_plugin", "template": "minimal"}}
+    )
     assert resp.json()["success"] == True
-    resp = client.post("/v1/execute", json={"tool_id": "plugins.create", "params": {"name": "dup_plugin", "template": "minimal"}})
+    resp = client.post(
+        "/v1/execute", json={"tool_id": "plugins.create", "params": {"name": "dup_plugin", "template": "minimal"}}
+    )
     assert resp.status_code == 200
     assert resp.json()["success"] == False
+
 
 def test_load_nonexistent_plugin():
     resp = client.post("/v1/execute", json={"tool_id": "plugins.load", "params": {"plugin_id": "nonexistent"}})
     assert resp.status_code == 200
     assert resp.json()["success"] == False
 
+
 def test_unload_nonexistent_plugin():
     resp = client.post("/v1/execute", json={"tool_id": "plugins.unload", "params": {"plugin_id": "nonexistent"}})
     assert resp.status_code == 200
     assert resp.json()["success"] == True
+
 
 def test_fleet_status():
     resp = client.post("/v1/execute", json={"tool_id": "fleet.status", "params": {}})
@@ -80,6 +94,7 @@ def test_fleet_status():
     assert "local_ip" in data
     assert "api_port" in data
 
+
 def test_fleet_generate_and_revoke():
     resp = client.post("/v1/execute", json={"tool_id": "fleet.generate_pairing", "params": {}})
     assert resp.status_code == 200
@@ -88,6 +103,7 @@ def test_fleet_generate_and_revoke():
     token = data["token"]
     assert len(token) == 64
     from modules.fleet import _svc as fleet_service
+
     stored = fleet_service.repo.load()
     assert stored["pairing_token"] == ""
     assert len(stored["pairing_token_hash"]) == 64
@@ -96,11 +112,13 @@ def test_fleet_generate_and_revoke():
     assert resp.status_code == 200
     assert resp.json()["data"]["status"] == "revoked"
 
+
 def test_fleet_toggle_remote():
     resp = client.post("/v1/execute", json={"tool_id": "fleet.toggle_remote", "params": {}})
     assert resp.status_code == 200
     data = resp.json()["data"]
     assert "enabled" in data
+
 
 def test_fleet_qr():
     client.post("/v1/execute", json={"tool_id": "fleet.generate_pairing", "params": {}})

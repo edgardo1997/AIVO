@@ -65,21 +65,24 @@ class SkillEngine:
         skill = self._registry.get(skill_id)
         if not skill:
             return SkillResult(
-                skill_id=skill_id, success=False,
+                skill_id=skill_id,
+                success=False,
                 error=f"Skill '{skill_id}' not found",
             )
 
         validation_error = self._validate_params(skill, params)
         if validation_error:
             return SkillResult(
-                skill_id=skill_id, success=False,
+                skill_id=skill_id,
+                success=False,
                 error=validation_error,
             )
 
         plan = await self._build_plan(skill, params, context)
         if not plan or not plan.steps:
             return SkillResult(
-                skill_id=skill_id, success=False,
+                skill_id=skill_id,
+                success=False,
                 error="Failed to build execution plan from skill",
                 plan_summary=skill.description,
             )
@@ -90,11 +93,13 @@ class SkillEngine:
 
         for step in plan.steps:
             if not self._tool_gateway:
-                tool_results.append({
-                    "step_id": step.id,
-                    "success": False,
-                    "error": "ToolGateway not available",
-                })
+                tool_results.append(
+                    {
+                        "step_id": step.id,
+                        "success": False,
+                        "error": "ToolGateway not available",
+                    }
+                )
                 overall_success = False
                 continue
 
@@ -138,13 +143,14 @@ class SkillEngine:
     ) -> Optional[Plan]:
         if not self._tool_gateway:
             return Plan(
-                steps=[], intent=Intent(action="execute", target=skill.id, parameters=params),
+                steps=[],
+                intent=Intent(action="execute", target=skill.id, parameters=params),
                 description=skill.description,
             )
 
         steps: List[PlanStep] = []
         for idx, tool_id in enumerate(skill.tools):
-            spec = self._tool_gateway.get_spec(tool_id)
+            self._tool_gateway.get_spec(tool_id)
             step_params = dict(params)
             step = PlanStep(
                 id=f"{skill.id.replace('.', '_')}_{idx}",

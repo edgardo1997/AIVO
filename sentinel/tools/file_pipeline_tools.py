@@ -15,7 +15,7 @@ class PipelineIngestTool(Tool):
             id="pipeline.ingest",
             name="Ingest File",
             description="Ingest a file, directory, or git repository into the knowledge base. "
-                        "Supported: text, code, PDF, images (OCR optional), DOCX, CSV, EPUB, git repos.",
+            "Supported: text, code, PDF, images (OCR optional), DOCX, CSV, EPUB, git repos.",
             version="0.1.0",
             category="pipeline",
             parameters={
@@ -67,22 +67,32 @@ class PipelineReportTool(Tool):
 
     def spec(self) -> ToolSpec:
         return ToolSpec(
-            id="pipeline.report", name="Generate Report from Files",
+            id="pipeline.report",
+            name="Generate Report from Files",
             description="Read bounded local sources and generate a sourced report with an available model.",
-            version="0.1.0", category="pipeline", timeout_seconds=120,
-            parameters={"type": "object", "properties": {
-                "path": {"type": "string"}, "objective": {"type": "string"},
-                "recursive": {"type": "boolean"},
-                "max_files": {"type": "integer", "minimum": 1, "maximum": 100},
-            }, "required": ["path"]},
+            version="0.1.0",
+            category="pipeline",
+            timeout_seconds=120,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "objective": {"type": "string"},
+                    "recursive": {"type": "boolean"},
+                    "max_files": {"type": "integer", "minimum": 1, "maximum": 100},
+                },
+                "required": ["path"],
+            },
             required_permissions=["filesystem.read", "ai.chat"],
         )
 
     async def execute(self, params: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> ToolResult:
         try:
             data = self._pipeline.generate_report(
-                params.get("path", ""), objective=params.get("objective", "Create a concise executive report"),
-                recursive=params.get("recursive", True), max_files=int(params.get("max_files", 25)),
+                params.get("path", ""),
+                objective=params.get("objective", "Create a concise executive report"),
+                recursive=params.get("recursive", True),
+                max_files=int(params.get("max_files", 25)),
             )
             return ToolResult.ok(data=data, tool_id="pipeline.report")
         except Exception as exc:

@@ -172,8 +172,9 @@ class TestContextAwareRiskScoring:
         assert result.base_risk_score == 0.3
         assert result.context_modifier == 0.15
         assert result.final_risk_score == pytest.approx(0.45)
-        assert result.decision == Decision.REQUIRE_CONFIRM, \
+        assert result.decision == Decision.REQUIRE_CONFIRM, (
             f"Context modifier pushed risk to require confirm, got {result.decision}"
+        )
 
     def test_context_modifier_pushes_to_reject(self):
         engine = DecisionEngine(get_permission_level=lambda: "view")
@@ -181,8 +182,9 @@ class TestContextAwareRiskScoring:
         ctx = {"system_summary": {"memory_percent": 95}}
         result = engine.evaluate(plan, ctx)
         assert result.final_risk_score == 0.25
-        assert result.decision == Decision.REJECT, \
+        assert result.decision == Decision.REJECT, (
             "View level rejects at risk > 0.10, context pushed base 0.10 to 0.25 > 0.10"
+        )
 
     def test_no_modifier_unrelated_factors(self):
         engine = DecisionEngine(get_permission_level=lambda: "confirm")
@@ -212,6 +214,7 @@ class TestDecisionFlowIntegration:
     def test_context_factors_in_sentinel_bridge_response(self):
         from fastapi.testclient import TestClient
         from main import app
+
         client = TestClient(app)
         resp = client.post("/api/sentinel/process", json={"utterance": "cpu usage"})
         assert resp.status_code == 200
@@ -221,30 +224,37 @@ class TestDecisionFlowIntegration:
 
     def test_orchestrator_passes_context_to_decision(self):
         from modules import get_gateway, init_sentinel_orchestrator
+
         gw = get_gateway()
         orch = init_sentinel_orchestrator(gw)
         import asyncio
+
         result = asyncio.run(orch.process("show system info", identity=TEST_IDENTITY))
         if result.decision is not None:
-            assert hasattr(result.decision, "context_factors"), \
-                "Decision must include context_factors field"
+            assert hasattr(result.decision, "context_factors"), "Decision must include context_factors field"
 
     def test_decision_with_execute_intent_includes_context_factors(self):
         from modules import get_gateway, init_sentinel_orchestrator
+
         gw = get_gateway()
         orch = init_sentinel_orchestrator(gw)
         import asyncio
+
         result = asyncio.run(orch.process("run command echo hello", identity=TEST_IDENTITY))
-        assert result.decision is not None, \
+        assert result.decision is not None, (
             "Execute intents must go through DecisionEngine (should_skip_decision returns False)"
-        assert hasattr(result.decision, "context_factors"), \
+        )
+        assert hasattr(result.decision, "context_factors"), (
             "Decision must include context_factors even for execute intents"
+        )
 
     def test_whole_intent_plan_decision_flow(self):
         from modules import get_gateway, init_sentinel_orchestrator
+
         gw = get_gateway()
         orch = init_sentinel_orchestrator(gw)
         import asyncio
+
         result = asyncio.run(orch.process("cpu usage", identity=TEST_IDENTITY))
         assert result.plan is not None
         assert result.plan.intent.target == "system.cpu"

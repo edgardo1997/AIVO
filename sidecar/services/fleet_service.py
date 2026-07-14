@@ -8,6 +8,7 @@ from repositories.fleet_repository import FleetRepository
 
 log = logging.getLogger("sentinel.fleet_service")
 
+
 class FleetService:
     def __init__(self, repo: FleetRepository = None):
         self.repo = repo or FleetRepository()
@@ -75,6 +76,7 @@ class FleetService:
         if self._fleet_thread is None or not self._fleet_thread.is_alive():
             try:
                 from fleet_server import run_fleet_thread
+
                 self._fleet_thread = run_fleet_thread()
             except Exception as e:
                 log.warning("Failed to start fleet server: %s", e)
@@ -82,6 +84,7 @@ class FleetService:
     def _stop_fleet_server(self):
         try:
             from fleet_server import stop_fleet_server
+
             stop_fleet_server()
         except Exception as e:
             log.warning("Failed to stop fleet server: %s", e)

@@ -16,6 +16,7 @@ router = APIRouter()
 
 def _file_pipeline():
     from modules import get_gateway
+
     get_orchestrator()
     pipeline = getattr(get_gateway(), "_file_pipeline", None)
     if pipeline is None:
@@ -26,7 +27,8 @@ def _file_pipeline():
 @router.post("/reports/preview")
 async def preview_report(body: dict, request: Request):
     return _file_pipeline().preview_report(
-        body.get("path", ""), recursive=body.get("recursive", True),
+        body.get("path", ""),
+        recursive=body.get("recursive", True),
         max_files=int(body.get("max_files", 25)),
         expected_output_tokens=int(body.get("expected_output_tokens", 1200)),
     )
@@ -35,14 +37,17 @@ async def preview_report(body: dict, request: Request):
 @router.post("/reports/export")
 async def export_report(body: dict, request: Request):
     content, media_type, filename = _file_pipeline().export_report(
-        str(body.get("report", "")), str(body.get("format", "markdown")),
+        str(body.get("report", "")),
+        str(body.get("format", "markdown")),
     )
-    return Response(content=content, media_type=media_type,
-                    headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+    return Response(
+        content=content, media_type=media_type, headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
 
 
 def _require_admin() -> None:
     from modules.permissions import _svc as perm_svc
+
     level = perm_svc.repo.load().get("level", "confirm")
     if level != "admin":
         raise HTTPException(status_code=403, detail=f"Admin level required, current level: {level}")
@@ -61,29 +66,36 @@ def _validate_capabilities(caps: List[str]) -> List[str]:
 
 def get_orchestrator():
     from modules import get_sentinel_orchestrator
+
     return get_sentinel_orchestrator()
 
 
 def reset_bridge():
     from modules import reset_sentinel
+
     reset_sentinel()
 
 
 def get_goal_registry():
     from modules import get_sentinel_goal_registry
+
     return get_sentinel_goal_registry()
 
 
 def get_memory():
     from modules import get_sentinel_memory
+
     return get_sentinel_memory()
 
 
 def _memory_record(record) -> Dict[str, Any]:
     return {
-        "execution_id": record.execution_id, "timestamp": record.timestamp,
-        "utterance": record.utterance, "intent": record.intent,
-        "tool_result": record.tool_result, "error": record.error,
+        "execution_id": record.execution_id,
+        "timestamp": record.timestamp,
+        "utterance": record.utterance,
+        "intent": record.intent,
+        "tool_result": record.tool_result,
+        "error": record.error,
         "duration_ms": record.duration_ms,
         "session_id": record.context_summary.get("session_id"),
     }
@@ -91,10 +103,16 @@ def _memory_record(record) -> Dict[str, Any]:
 
 def _step_result(step) -> Dict[str, Any]:
     return {
-        "step_id": step.step_id, "tool_id": step.tool_id, "success": step.success,
-        "data": step.data, "error": step.error, "duration_ms": step.duration_ms,
-        "attempts": step.attempts, "recovery_strategy": step.recovery_strategy,
-        "executed_tool_id": step.executed_tool_id, "status": step.status,
+        "step_id": step.step_id,
+        "tool_id": step.tool_id,
+        "success": step.success,
+        "data": step.data,
+        "error": step.error,
+        "duration_ms": step.duration_ms,
+        "attempts": step.attempts,
+        "recovery_strategy": step.recovery_strategy,
+        "executed_tool_id": step.executed_tool_id,
+        "status": step.status,
     }
 
 
@@ -106,6 +124,7 @@ async def create_memory_session(body: dict, request: Request):
 @router.get("/memory/sessions")
 async def list_memory_sessions(request: Request, limit: int = Query(50, ge=1, le=200)):
     from modules.auth import request_identity
+
     identity = request_identity(request).to_dict()
     memory = get_memory() or get_orchestrator()._memory
     return {"sessions": memory.list_sessions(identity["user_id"], limit=limit)}
@@ -114,6 +133,7 @@ async def list_memory_sessions(request: Request, limit: int = Query(50, ge=1, le
 @router.get("/memory/sessions/{session_id}")
 async def get_memory_session(session_id: str, request: Request, limit: int = Query(100, ge=1, le=200)):
     from modules.auth import request_identity
+
     identity = request_identity(request).to_dict()
     memory = get_memory() or get_orchestrator()._memory
     owned = {item["session_id"] for item in memory.list_sessions(identity["user_id"], limit=200)}
@@ -126,6 +146,7 @@ async def get_memory_session(session_id: str, request: Request, limit: int = Que
 @router.get("/memory/search")
 async def search_memory(request: Request, q: str = Query("", min_length=1), limit: int = Query(50, ge=1, le=200)):
     from modules.auth import request_identity
+
     identity = request_identity(request).to_dict()
     memory = get_memory() or get_orchestrator()._memory
     return {"results": [_memory_record(record) for record in memory.search_memory(identity["user_id"], q, limit)]}
@@ -134,6 +155,7 @@ async def search_memory(request: Request, q: str = Query("", min_length=1), limi
 @router.delete("/memory/sessions/{session_id}")
 async def delete_memory_session(session_id: str, request: Request):
     from modules.auth import request_identity
+
     identity = request_identity(request).to_dict()
     memory = get_memory() or get_orchestrator()._memory
     deleted = memory.delete_session(session_id, identity["user_id"])
@@ -141,6 +163,7 @@ async def delete_memory_session(session_id: str, request: Request):
         return JSONResponse(status_code=404, content={"error": "Session not found"})
     try:
         from modules.audit import _svc as audit_service
+
         audit_service.log_action("memory_session_delete", session_id, "success", user=identity["user_id"])
     except Exception:
         pass
@@ -150,6 +173,7 @@ async def delete_memory_session(session_id: str, request: Request):
 @router.get("/permissions/rules")
 async def list_granular_permission_rules(request: Request):
     from modules.permissions import _svc
+
     return {"rules": _svc.list_rules()}
 
 
@@ -157,6 +181,7 @@ async def list_granular_permission_rules(request: Request):
 async def add_granular_permission_rule(body: dict, request: Request):
     _require_admin()
     from modules.permissions import _svc
+
     try:
         return {"rule": _svc.add_rule(body)}
     except ValueError as exc:
@@ -167,6 +192,7 @@ async def add_granular_permission_rule(body: dict, request: Request):
 async def delete_granular_permission_rule(rule_id: str, request: Request):
     _require_admin()
     from modules.permissions import _svc
+
     if not _svc.remove_rule(rule_id):
         return JSONResponse(status_code=404, content={"error": "Rule not found"})
     return {"deleted": True, "rule_id": rule_id}
@@ -238,7 +264,9 @@ async def process_utterance(body: dict, request: Request):
             "error": result.tool_result.error if result.tool_result else None,
             "requires_confirmation": result.tool_result.requires_confirmation if result.tool_result else False,
             "duration_ms": result.tool_result.duration_ms if result.tool_result else None,
-        } if result.tool_result else None,
+        }
+        if result.tool_result
+        else None,
         "step_results": [_step_result(s) for s in result.step_results] if result.step_results else None,
         "rollback_actions": result.rollback_actions,
         "advisory": result.advisory.to_dict() if result.advisory else None,
@@ -247,6 +275,7 @@ async def process_utterance(body: dict, request: Request):
 
 def get_vault_manager():
     from modules import get_sentinel_vault
+
     return get_sentinel_vault()
 
 
@@ -275,7 +304,9 @@ async def process_multi_agent(body: dict, request: Request):
                 "duration_ms": s.duration_ms,
             }
             for s in result.step_results
-        ] if result.step_results else [],
+        ]
+        if result.step_results
+        else [],
     }
 
 
@@ -299,6 +330,7 @@ async def vault_get(vault_id: str):
 @router.post("/vault/entries")
 async def vault_create(body: dict):
     from sentinel.core.vault import VaultEntry
+
     vault = get_vault_manager()
     entry = VaultEntry.from_dict(body)
     result = vault.create_entry(entry)
@@ -400,12 +432,16 @@ def _build_chat_pipeline_trace(result) -> Dict[str, Any]:
             "decision": result.decision.decision if result.decision else None,
             "final_risk_score": result.decision.final_risk_score if result.decision else None,
             "reason": result.decision.reason if result.decision else None,
-        } if result.decision else None,
+        }
+        if result.decision
+        else None,
         "advisory": result.advisory.to_dict() if result.advisory else None,
         "tool_result": {
             "success": result.tool_result.success if result.tool_result else None,
             "tool_id": result.tool_result.tool_id if result.tool_result else None,
-        } if result.tool_result else None,
+        }
+        if result.tool_result
+        else None,
         "simulated": result.simulated,
         "approved": result.approved,
         "blocked": result.blocked,
@@ -519,9 +555,7 @@ def get_goals():
     goal_registry = get_goal_registry()
     if goal_registry is None:
         return {"goals": []}
-    return {
-        "goals": [g.to_dict() for g in goal_registry.list_all()]
-    }
+    return {"goals": [g.to_dict() for g in goal_registry.list_all()]}
 
 
 @router.post("/goals")
@@ -535,6 +569,7 @@ def post_goal(body: dict):
         get_orchestrator()
         goal_registry = get_goal_registry()
     from sentinel.core.goals import GoalDefinition, RiskLevel
+
     gid = body.get("id")
     if not gid:
         return JSONResponse({"error": "id is required"}, status_code=400)
@@ -600,8 +635,17 @@ def patch_goal(goal_id: str, body: dict):
     clen = body.get("priority")
     if clen is not None and not (0 <= clen <= 10):
         return JSONResponse({"error": "priority must be 0-10"}, status_code=400)
-    allowed = {"name", "description", "related_intents", "possible_capabilities",
-               "priority", "base_risk", "keywords", "enabled", "context_rules"}
+    allowed = {
+        "name",
+        "description",
+        "related_intents",
+        "possible_capabilities",
+        "priority",
+        "base_risk",
+        "keywords",
+        "enabled",
+        "context_rules",
+    }
     changes = {k: v for k, v in body.items() if k in allowed and v is not None}
     if not changes:
         return JSONResponse({"error": "no valid fields to update"}, status_code=400)
@@ -610,6 +654,7 @@ def patch_goal(goal_id: str, body: dict):
         if invalid:
             return JSONResponse({"error": f"unknown capabilities: {invalid}"}, status_code=400)
     from sentinel.core.goals import RiskLevel
+
     if "base_risk" in changes:
         rv = changes["base_risk"]
         if rv not in ("low", "medium", "high", "critical"):
@@ -629,11 +674,18 @@ def get_goal_audit():
     if goal_registry is None:
         get_orchestrator()
         goal_registry = get_goal_registry()
-    return {"audit_log": [
-        {"timestamp": e.timestamp, "operation": e.operation,
-         "goal_id": e.goal_id, "source": e.source, "details": e.details}
-        for e in goal_registry.get_audit_log()
-    ]}
+    return {
+        "audit_log": [
+            {
+                "timestamp": e.timestamp,
+                "operation": e.operation,
+                "goal_id": e.goal_id,
+                "source": e.source,
+                "details": e.details,
+            }
+            for e in goal_registry.get_audit_log()
+        ]
+    }
 
 
 @router.get("/goals/matches")
@@ -645,6 +697,7 @@ def get_goal_matches(
     verbose: Optional[bool] = Query(False, description="Include score breakdown"),
 ):
     from sentinel.core.goals import GoalScorer
+
     goal_registry = get_goal_registry()
     if goal_registry is None:
         get_orchestrator()
@@ -691,13 +744,15 @@ def get_goal_matches(
 @router.post("/simulate/approve")
 async def approve_execution(body: dict, request: Request):
     from modules.auth import request_identity
+
     orch = get_orchestrator()
     action_id = body.get("action_id", "")
     if not action_id:
         return JSONResponse({"error": "action_id is required"}, status_code=400)
     approved = body.get("approved", True)
     result = await orch.approve_execution(
-        action_id, approved=approved,
+        action_id,
+        approved=approved,
         approver_identity=request_identity(request).to_dict(),
     )
     plan = result.plan
@@ -722,7 +777,9 @@ async def approve_execution(body: dict, request: Request):
             "error": result.tool_result.error if result.tool_result else None,
             "requires_confirmation": result.tool_result.requires_confirmation if result.tool_result else False,
             "duration_ms": result.tool_result.duration_ms if result.tool_result else None,
-        } if result.tool_result else None,
+        }
+        if result.tool_result
+        else None,
         "step_results": [_step_result(s) for s in result.step_results] if result.step_results else None,
         "rollback_actions": result.rollback_actions,
     }
@@ -731,6 +788,7 @@ async def approve_execution(body: dict, request: Request):
 @router.post("/simulate/modify-and-approve")
 async def modify_and_approve(body: dict, request: Request):
     from modules.auth import request_identity
+
     orch = get_orchestrator()
     action_id = body.get("action_id", "")
     if not action_id:
@@ -739,7 +797,8 @@ async def modify_and_approve(body: dict, request: Request):
     if not steps:
         return {"error": "steps are required", "approved": False, "action_id": action_id}
     result = await orch.approve_with_modifications(
-        action_id, steps,
+        action_id,
+        steps,
         approver_identity=request_identity(request).to_dict(),
     )
     return {
@@ -757,12 +816,14 @@ async def modify_and_approve(body: dict, request: Request):
 @router.post("/simulate/reject")
 async def reject_execution(body: dict, request: Request):
     from modules.auth import request_identity
+
     orch = get_orchestrator()
     action_id = body.get("action_id", "")
     if not action_id:
         return JSONResponse({"error": "action_id is required"}, status_code=400)
     result = await orch.approve_execution(
-        action_id, approved=False,
+        action_id,
+        approved=False,
         approver_identity=request_identity(request).to_dict(),
     )
     return {
@@ -785,6 +846,7 @@ def get_feedback_stats(
     tt = None
     if task_type:
         from sentinel.core.model_router import TaskType
+
         try:
             tt = TaskType(task_type)
         except ValueError:
@@ -819,6 +881,7 @@ def get_feedback_records(
     tt = None
     if task_type:
         from sentinel.core.model_router import TaskType
+
         try:
             tt = TaskType(task_type)
         except ValueError:
@@ -909,6 +972,7 @@ def get_budgets():
 @router.post("/cost/budgets")
 def create_budget(body: dict):
     from sentinel.core.cost_tracker import BudgetConfig
+
     orch = get_orchestrator()
     ct = orch.cost_tracker
     if ct is None:
@@ -916,14 +980,16 @@ def create_budget(body: dict):
     name = body.get("name", "")
     if not name:
         return JSONResponse({"error": "name is required"}, status_code=400)
-    ct.set_budget(BudgetConfig(
-        name=name,
-        max_cost_usd=float(body.get("max_cost_usd", 0)),
-        period=body.get("period", "monthly"),
-        provider_id=body.get("provider_id"),
-        max_tokens=body.get("max_tokens"),
-        enabled=body.get("enabled", True),
-    ))
+    ct.set_budget(
+        BudgetConfig(
+            name=name,
+            max_cost_usd=float(body.get("max_cost_usd", 0)),
+            period=body.get("period", "monthly"),
+            provider_id=body.get("provider_id"),
+            max_tokens=body.get("max_tokens"),
+            enabled=body.get("enabled", True),
+        )
+    )
     return {"success": True, "name": name}
 
 
@@ -1091,25 +1157,23 @@ def get_observability_overview():
             "total_calls": sum(row.total_calls for row in cost_rows),
             "by_model": [asdict(row) for row in cost_rows],
         },
-        "latency_baselines": [
-            {**asdict(row), "task_type": row.task_type.value} for row in baselines[:50]
-        ],
-        "alerts": alert_manager.stats() if alert_manager is not None else {
-            "total": 0, "unacknowledged": 0, "by_source": {}
-        },
+        "latency_baselines": [{**asdict(row), "task_type": row.task_type.value} for row in baselines[:50]],
+        "alerts": alert_manager.stats()
+        if alert_manager is not None
+        else {"total": 0, "unacknowledged": 0, "by_source": {}},
     }
 
 
 @router.get("/observability/traces")
 def get_observability_traces(
-    limit: int = Query(100, ge=1, le=500), tool_id: Optional[str] = Query(None),
+    limit: int = Query(100, ge=1, le=500),
+    tool_id: Optional[str] = Query(None),
 ):
     orch = get_orchestrator()
     service = getattr(orch._tool_gateway, "_observability", None)
     if service is None:
         return {"traces": [], "summary": {}}
-    return {"traces": service.traces(limit=limit, tool_id=tool_id),
-            "summary": service.summary()}
+    return {"traces": service.traces(limit=limit, tool_id=tool_id), "summary": service.summary()}
 
 
 @router.post("/recovery/circuit-breaker/reset")
@@ -1164,25 +1228,27 @@ def get_last_execution():
     record = orch.get_last_execution()
     if record is None:
         return {"execution": None}
-    return {"execution": {
-        "execution_id": record.execution_id,
-        "timestamp": record.timestamp,
-        "utterance": record.utterance,
-        "intent": record.intent,
-        "plan": record.plan,
-        "decision": record.decision,
-        "context_summary": record.context_summary,
-        "step_results": record.step_results,
-        "tool_result": record.tool_result,
-        "error": record.error,
-        "duration_ms": record.duration_ms,
-    }}
+    return {
+        "execution": {
+            "execution_id": record.execution_id,
+            "timestamp": record.timestamp,
+            "utterance": record.utterance,
+            "intent": record.intent,
+            "plan": record.plan,
+            "decision": record.decision,
+            "context_summary": record.context_summary,
+            "step_results": record.step_results,
+            "tool_result": record.tool_result,
+            "error": record.error,
+            "duration_ms": record.duration_ms,
+        }
+    }
 
 
 @router.get("/rate-limiter/stats")
 def get_rate_limiter_stats():
     orch = get_orchestrator()
-    rl = getattr(orch, '_rate_limiter', None)
+    rl = getattr(orch, "_rate_limiter", None)
     if rl is None:
         return {"enabled": False}
     return {"enabled": True, **rl.stats()}
@@ -1191,7 +1257,7 @@ def get_rate_limiter_stats():
 @router.post("/rate-limiter/clear")
 def clear_rate_limiter():
     orch = get_orchestrator()
-    rl = getattr(orch, '_rate_limiter', None)
+    rl = getattr(orch, "_rate_limiter", None)
     if rl is None:
         return {"cleared": False}
     count = rl.clear()
@@ -1201,6 +1267,7 @@ def clear_rate_limiter():
 @router.post("/process/offline")
 async def process_offline(body: dict, request: Request):
     from modules.auth import request_identity
+
     orch = get_orchestrator()
     utterance = body.get("utterance", "")
     if not utterance:
@@ -1221,10 +1288,11 @@ async def process_offline(body: dict, request: Request):
 @router.get("/offline-queue")
 def get_offline_queue(status: Optional[str] = Query(None), operation_type: Optional[str] = Query(None)):
     orch = get_orchestrator()
-    q = getattr(orch, '_offline_queue', None)
+    q = getattr(orch, "_offline_queue", None)
     if q is None:
         return {"enabled": False, "items": []}
     from sentinel.core.offline_queue import QueueStatus
+
     st = QueueStatus(status) if status else None
     items = q.list_items(status=st, operation_type=operation_type)
     stats = q.stats()
@@ -1234,7 +1302,7 @@ def get_offline_queue(status: Optional[str] = Query(None), operation_type: Optio
 @router.post("/offline-queue/sync")
 async def sync_offline_queue():
     orch = get_orchestrator()
-    q = getattr(orch, '_offline_queue', None)
+    q = getattr(orch, "_offline_queue", None)
     if q is None:
         return {"synced": 0}
     stats = await orch._process_offline_queue()
@@ -1244,10 +1312,11 @@ async def sync_offline_queue():
 @router.post("/offline-queue/clear")
 def clear_offline_queue(status: Optional[str] = Query(None)):
     orch = get_orchestrator()
-    q = getattr(orch, '_offline_queue', None)
+    q = getattr(orch, "_offline_queue", None)
     if q is None:
         return {"cleared": 0}
     from sentinel.core.offline_queue import QueueStatus
+
     st = QueueStatus(status) if status else None
     count = q.clear(status=st)
     return {"cleared": count}
@@ -1256,7 +1325,7 @@ def clear_offline_queue(status: Optional[str] = Query(None)):
 @router.get("/network/status")
 async def get_network_status():
     orch = get_orchestrator()
-    nm = getattr(orch, '_network_monitor', None)
+    nm = getattr(orch, "_network_monitor", None)
     if nm is None:
         return {"monitored": False}
     online = await nm.check()
@@ -1266,7 +1335,7 @@ async def get_network_status():
 @router.get("/fallback/stats")
 def get_fallback_stats():
     orch = get_orchestrator()
-    mr = getattr(orch, '_model_router', None)
+    mr = getattr(orch, "_model_router", None)
     if mr is None:
         return {"enabled": False}
     return {"enabled": True, **mr.fallback_stats()}
@@ -1275,7 +1344,7 @@ def get_fallback_stats():
 @router.post("/fallback/reset-stats")
 def reset_fallback_stats():
     orch = get_orchestrator()
-    mr = getattr(orch, '_model_router', None)
+    mr = getattr(orch, "_model_router", None)
     if mr is None:
         return {"reset": 0}
     count = mr.reset_fallback_stats()
@@ -1285,7 +1354,7 @@ def reset_fallback_stats():
 @router.get("/skills")
 def list_skills(category: Optional[str] = Query(None)):
     orch = get_orchestrator()
-    se = getattr(orch, '_skill_engine', None)
+    se = getattr(orch, "_skill_engine", None)
     if se is None:
         return {"enabled": False, "skills": []}
     skills = se.registry.list(category=category)
@@ -1295,7 +1364,7 @@ def list_skills(category: Optional[str] = Query(None)):
 @router.get("/skills/find")
 def find_skills(q: str = Query("")):
     orch = get_orchestrator()
-    se = getattr(orch, '_skill_engine', None)
+    se = getattr(orch, "_skill_engine", None)
     if se is None:
         return {"enabled": False, "skills": []}
     if not q:
@@ -1307,7 +1376,7 @@ def find_skills(q: str = Query("")):
 @router.post("/skills/suggest")
 async def suggest_skill(body: dict):
     orch = get_orchestrator()
-    se = getattr(orch, '_skill_engine', None)
+    se = getattr(orch, "_skill_engine", None)
     if se is None:
         return {"success": False, "error": "Skill engine not configured"}
     task = body.get("task", "")
@@ -1320,8 +1389,9 @@ async def suggest_skill(body: dict):
 @router.post("/skills/execute")
 async def execute_skill(body: dict, request: Request):
     from modules.auth import request_identity
+
     orch = get_orchestrator()
-    se = getattr(orch, '_skill_engine', None)
+    se = getattr(orch, "_skill_engine", None)
     if se is None:
         return {"success": False, "error": "Skill engine not configured"}
     skill_id = body.get("skill_id", "")
@@ -1341,10 +1411,11 @@ def list_alerts(
     limit: int = Query(100),
 ):
     orch = get_orchestrator()
-    am = getattr(orch, '_alert_manager', None)
+    am = getattr(orch, "_alert_manager", None)
     if am is None:
         return {"enabled": False, "alerts": []}
     from sentinel.core.alerting import AlertSeverity
+
     sev = AlertSeverity(severity) if severity else None
     alerts = am.list(source=source, severity=sev, acknowledged=acknowledged, limit=limit)
     return {"alerts": alerts, "stats": am.stats()}
@@ -1353,7 +1424,7 @@ def list_alerts(
 @router.post("/alerts/acknowledge")
 def acknowledge_alert(body: dict):
     orch = get_orchestrator()
-    am = getattr(orch, '_alert_manager', None)
+    am = getattr(orch, "_alert_manager", None)
     if am is None:
         return {"acknowledged": 0}
     alert_id = body.get("alert_id", "")
@@ -1368,7 +1439,7 @@ def acknowledge_alert(body: dict):
 @router.post("/alerts/check")
 async def check_alerts():
     orch = get_orchestrator()
-    am = getattr(orch, '_alert_manager', None)
+    am = getattr(orch, "_alert_manager", None)
     if am is None:
         return {"checked": False}
     count = am.check_all()
@@ -1378,7 +1449,7 @@ async def check_alerts():
 @router.post("/alerts/clear")
 def clear_alerts(acknowledged_only: bool = Query(True)):
     orch = get_orchestrator()
-    am = getattr(orch, '_alert_manager', None)
+    am = getattr(orch, "_alert_manager", None)
     if am is None:
         return {"cleared": 0}
     count = am.clear(acknowledged_only=acknowledged_only)
@@ -1387,8 +1458,9 @@ def clear_alerts(acknowledged_only: bool = Query(True)):
 
 # ── Knowledge Base endpoints ────────────────────────────────────────────────
 
+
 def _get_kb(orch):
-    return getattr(orch, '_knowledge_base', None) or getattr(orch._tool_gateway, '_knowledge_base', None)
+    return getattr(orch, "_knowledge_base", None) or getattr(orch._tool_gateway, "_knowledge_base", None)
 
 
 @router.post("/kb/search")
@@ -1447,8 +1519,7 @@ def kb_list():
     docs = kb.list_documents()
     return {
         "documents": [
-            {"doc_id": d.doc_id, "source": d.source, "chunks": d.chunks, "created_at": d.created_at}
-            for d in docs
+            {"doc_id": d.doc_id, "source": d.source, "chunks": d.chunks, "created_at": d.created_at} for d in docs
         ],
         "total": len(docs),
     }
@@ -1509,8 +1580,9 @@ def kb_query(body: dict):
 
 # ── File Pipeline endpoints ─────────────────────────────────────────────────
 
+
 def _get_pipeline(orch):
-    return getattr(orch, '_file_pipeline', None) or getattr(orch._tool_gateway, '_file_pipeline', None)
+    return getattr(orch, "_file_pipeline", None) or getattr(orch._tool_gateway, "_file_pipeline", None)
 
 
 @router.post("/pipeline/ingest")
@@ -1554,8 +1626,9 @@ def pipeline_reset_stats():
 
 # ── Web Browsing endpoints ──────────────────────────────────────────────────
 
+
 def _get_web(orch):
-    return getattr(orch, '_web_browsing', None) or getattr(orch._tool_gateway, '_web_browsing', None)
+    return getattr(orch, "_web_browsing", None) or getattr(orch._tool_gateway, "_web_browsing", None)
 
 
 @router.post("/web/navigate")
@@ -1610,8 +1683,9 @@ def web_status():
 
 # ── Hardening / Health endpoints ────────────────────────────────────────────
 
+
 def _get_hardening(orch):
-    return getattr(orch, '_hardening', None) or getattr(orch._tool_gateway, '_hardening', None)
+    return getattr(orch, "_hardening", None) or getattr(orch._tool_gateway, "_hardening", None)
 
 
 @router.get("/hardening/config")
@@ -1630,8 +1704,12 @@ def hardening_update_config(body: dict):
     if h is None:
         return {"enabled": False}
     settable = {}
-    for key in ("default_timeout_seconds", "default_circuit_breaker_threshold",
-                 "default_circuit_breaker_cooldown", "default_retry_jitter"):
+    for key in (
+        "default_timeout_seconds",
+        "default_circuit_breaker_threshold",
+        "default_circuit_breaker_cooldown",
+        "default_retry_jitter",
+    ):
         if key in body:
             settable[key] = body[key]
     if settable:
@@ -1646,8 +1724,7 @@ def hardening_tool_override(tool_id: str, body: dict):
     if h is None:
         return {"enabled": False}
     overrides = {}
-    for key in ("timeout_seconds", "circuit_breaker_threshold",
-                 "circuit_breaker_cooldown", "retry_jitter"):
+    for key in ("timeout_seconds", "circuit_breaker_threshold", "circuit_breaker_cooldown", "retry_jitter"):
         if key in body:
             overrides[key] = body[key]
     if overrides:
@@ -1687,9 +1764,11 @@ def hardening_health():
 
 # ── Enhanced Profile endpoints ──────────────────────────────────────────────
 
+
 def _get_profile_mgr():
     try:
         from modules.profile import _svc
+
         return _svc
     except Exception:
         return None

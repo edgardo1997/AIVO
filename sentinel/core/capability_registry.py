@@ -94,9 +94,7 @@ class CapabilityRegistry:
     def register(self, capability: Capability) -> None:
         with self._lock:
             if capability.id in self._capabilities:
-                raise ValueError(
-                    f"Capability '{capability.id}' already registered"
-                )
+                raise ValueError(f"Capability '{capability.id}' already registered")
             self._capabilities[capability.id] = capability
 
     def get(self, capability_id: str) -> Optional[Capability]:
@@ -109,40 +107,25 @@ class CapabilityRegistry:
 
     def find_by_category(self, category: str) -> List[Capability]:
         with self._lock:
-            return [
-                c for c in self._capabilities.values()
-                if c.category == category
-            ]
+            return [c for c in self._capabilities.values() if c.category == category]
 
     def find_by_tag(self, tag: str) -> List[Capability]:
         with self._lock:
-            return [
-                c for c in self._capabilities.values()
-                if tag in c.tags
-            ]
+            return [c for c in self._capabilities.values() if tag in c.tags]
 
     def find_by_risk(self, risk_level: RiskLevel) -> List[Capability]:
         with self._lock:
-            return [
-                c for c in self._capabilities.values()
-                if c.risk_level == risk_level
-            ]
+            return [c for c in self._capabilities.values() if c.risk_level == risk_level]
 
     def find_by_permission(self, permission: str) -> List[Capability]:
         with self._lock:
-            return [
-                c for c in self._capabilities.values()
-                if permission in c.permissions
-            ]
+            return [c for c in self._capabilities.values() if permission in c.permissions]
 
     def find_by_min_risk(self, min_risk: RiskLevel) -> List[Capability]:
         levels = [RiskLevel.LOW, RiskLevel.MEDIUM, RiskLevel.HIGH, RiskLevel.CRITICAL]
         min_idx = levels.index(min_risk)
         with self._lock:
-            return [
-                c for c in self._capabilities.values()
-                if levels.index(c.risk_level) >= min_idx
-            ]
+            return [c for c in self._capabilities.values() if levels.index(c.risk_level) >= min_idx]
 
     def clear(self) -> None:
         with self._lock:
@@ -183,10 +166,7 @@ def capability_from_spec(
         resolved_impact = resolved_risk.value
 
     if resolved_impact not in _VALID_IMPACTS:
-        raise ValueError(
-            f"Invalid estimated_impact '{resolved_impact}'. "
-            f"Must be one of {sorted(_VALID_IMPACTS)}"
-        )
+        raise ValueError(f"Invalid estimated_impact '{resolved_impact}'. Must be one of {sorted(_VALID_IMPACTS)}")
 
     if reversible is not None:
         resolved_reversible = reversible

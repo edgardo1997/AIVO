@@ -67,10 +67,21 @@ class AgentRepository:
                capabilities, allowed_tools, system_prompt, status,
                max_concurrency, config, created_at, updated_at)
                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (row["agent_id"], row["name"], row["description"], row["provider"],
-             row["model"], row["capabilities"], row["allowed_tools"],
-             row["system_prompt"], row["status"], row["max_concurrency"],
-             row["config"], row["created_at"], row["updated_at"]),
+            (
+                row["agent_id"],
+                row["name"],
+                row["description"],
+                row["provider"],
+                row["model"],
+                row["capabilities"],
+                row["allowed_tools"],
+                row["system_prompt"],
+                row["status"],
+                row["max_concurrency"],
+                row["config"],
+                row["created_at"],
+                row["updated_at"],
+            ),
         )
         return spec
 
@@ -93,10 +104,20 @@ class AgentRepository:
                capabilities=?, allowed_tools=?, system_prompt=?, status=?,
                max_concurrency=?, config=?, updated_at=?
                WHERE agent_id=?""",
-            (row["name"], row["description"], row["provider"], row["model"],
-             row["capabilities"], row["allowed_tools"], row["system_prompt"],
-             row["status"], row["max_concurrency"], row["config"],
-             row["updated_at"], agent_id),
+            (
+                row["name"],
+                row["description"],
+                row["provider"],
+                row["model"],
+                row["capabilities"],
+                row["allowed_tools"],
+                row["system_prompt"],
+                row["status"],
+                row["max_concurrency"],
+                row["config"],
+                row["updated_at"],
+                agent_id,
+            ),
         )
         return spec
 
@@ -111,13 +132,24 @@ class AgentRepository:
     def upsert(self, spec: AgentSpec) -> AgentSpec:
         existing = self._db.fetchone("SELECT agent_id FROM agents WHERE agent_id = ?", (spec.id,))
         if existing:
-            return self.update(spec.id, {
-                "name": spec.name, "description": spec.description,
-                "provider": spec.provider, "model": spec.model,
-                "capabilities": spec.capabilities, "allowed_tools": spec.allowed_tools,
-                "system_prompt": spec.system_prompt, "status": spec.status,
-                "max_concurrency": spec.max_concurrency, "config": spec.config,
-            }) or spec
+            return (
+                self.update(
+                    spec.id,
+                    {
+                        "name": spec.name,
+                        "description": spec.description,
+                        "provider": spec.provider,
+                        "model": spec.model,
+                        "capabilities": spec.capabilities,
+                        "allowed_tools": spec.allowed_tools,
+                        "system_prompt": spec.system_prompt,
+                        "status": spec.status,
+                        "max_concurrency": spec.max_concurrency,
+                        "config": spec.config,
+                    },
+                )
+                or spec
+            )
         return self.create(spec)
 
 

@@ -13,18 +13,52 @@ PLUGIN_ID_PATTERN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$")
 
 PLUGIN_TEMPLATES = {
     "minimal": {
-        "manifest.json": json.dumps({"id": "my_plugin", "name": "My Plugin", "version": "1.0.0", "author": "You", "description": "My first AIVO plugin", "hooks": ["on_ready"], "enabled": True}, indent=2),
+        "manifest.json": json.dumps(
+            {
+                "id": "my_plugin",
+                "name": "My Plugin",
+                "version": "1.0.0",
+                "author": "You",
+                "description": "My first AIVO plugin",
+                "hooks": ["on_ready"],
+                "enabled": True,
+            },
+            indent=2,
+        ),
         "main.py": "def on_ready(ctx):\n    print(f\"Plugin {ctx['plugin_id']} is ready!\")\n",
     },
     "system_health": {
-        "manifest.json": json.dumps({"id": "system_health", "name": "System Health", "version": "1.0.0", "author": "AIVO", "description": "Custom system health checks and custom alerts", "hooks": ["on_metrics", "on_schedule"], "enabled": True}, indent=2),
+        "manifest.json": json.dumps(
+            {
+                "id": "system_health",
+                "name": "System Health",
+                "version": "1.0.0",
+                "author": "AIVO",
+                "description": "Custom system health checks and custom alerts",
+                "hooks": ["on_metrics", "on_schedule"],
+                "enabled": True,
+            },
+            indent=2,
+        ),
         "main.py": "import psutil\n\ndef on_metrics(ctx):\n    cpu = ctx.get('cpu', {}).get('percent', 0)\n    mem = ctx.get('memory', {}).get('percent', 0)\n    alerts = []\n    if cpu > 90:\n        alerts.append({'type': 'cpu', 'severity': 'critical', 'message': f'CPU at {cpu}%'})\n    if mem > 95:\n        alerts.append({'type': 'memory', 'severity': 'critical', 'message': f'RAM at {mem}%'})\n    return {'alerts': alerts}\n\ndef on_schedule(ctx):\n    return {'status': 'health_check_ok'}\n",
     },
     "media_control": {
-        "manifest.json": json.dumps({"id": "media_control", "name": "Media Control", "version": "1.0.0", "author": "AIVO", "description": "Control media playback via commands", "hooks": ["on_command"], "enabled": True}, indent=2),
+        "manifest.json": json.dumps(
+            {
+                "id": "media_control",
+                "name": "Media Control",
+                "version": "1.0.0",
+                "author": "AIVO",
+                "description": "Control media playback via commands",
+                "hooks": ["on_command"],
+                "enabled": True,
+            },
+            indent=2,
+        ),
         "main.py": "import subprocess\n\ndef on_command(ctx):\n    cmd = ctx.get('command', '').lower()\n    if 'play' in cmd or 'pause' in cmd or 'next' in cmd or 'prev' in cmd or 'volume' in cmd:\n        mapping = {\n            'play': 'play', 'pause': 'pause', 'next': 'next', 'prev': 'prev',\n            'volume up': 'volup', 'volume down': 'voldown', 'mute': 'volm',\n        }\n        for key, nircmd in mapping.items():\n            if key in cmd or key.split()[0] in cmd:\n                subprocess.run(['nircmd.exe', nircmd], capture_output=True, shell=False, timeout=5)\n                return {'handled': True, 'action': nircmd}\n    return {'handled': False}\n",
     },
 }
+
 
 class PluginManifest(BaseModel):
     id: str
@@ -35,9 +69,16 @@ class PluginManifest(BaseModel):
     hooks: list[str] = []
     enabled: bool = True
 
+
 class PluginsService:
-    def __init__(self, plugin_dir: str = None, active_plugins: dict = None,
-                 plugin_metadata: dict = None, plugin_states: dict = None, state_lock=None):
+    def __init__(
+        self,
+        plugin_dir: str = None,
+        active_plugins: dict = None,
+        plugin_metadata: dict = None,
+        plugin_states: dict = None,
+        state_lock=None,
+    ):
         self.plugin_dir = plugin_dir or os.environ.get("SENTINEL_PLUGIN_DIR") or os.path.expanduser("~/.aivo/plugins")
         self._active = active_plugins if active_plugins is not None else {}
         self._metadata = plugin_metadata if plugin_metadata is not None else {}
@@ -64,6 +105,7 @@ class PluginsService:
     def _validate_plugin_id(plugin_id: str) -> str:
         if not isinstance(plugin_id, str) or not PLUGIN_ID_PATTERN.fullmatch(plugin_id):
             from fastapi import HTTPException
+
             raise HTTPException(400, "Invalid plugin identifier")
         return plugin_id
 
@@ -82,7 +124,11 @@ class PluginsService:
                         with open(manifest_path) as f:
                             manifest = PluginManifest(**json.load(f))
                         manifest.id = entry
-                        plugins[entry] = {"path": plugin_path, "manifest": manifest, "has_code": os.path.isfile(main_path)}
+                        plugins[entry] = {
+                            "path": plugin_path,
+                            "manifest": manifest,
+                            "has_code": os.path.isfile(main_path),
+                        }
                     except Exception as e:
                         plugins[entry] = {"path": plugin_path, "error": str(e)}
         return plugins
@@ -99,6 +145,7 @@ class PluginsService:
         try:
             if not is_builtin:
                 from services.plugin_sandbox import PluginSandbox
+
                 sandbox = PluginSandbox(
                     plugin_id,
                     main_path,
@@ -180,23 +227,26 @@ class PluginsService:
         for pid, info in self._metadata.items():
             state = self._states.get(pid, {"loaded": False, "error": None})
             manifest = info.get("manifest")
-            plugins.append({
-                "id": pid,
-                "name": manifest.name if manifest else pid,
-                "version": manifest.version if manifest else "0.0.0",
-                "author": manifest.author if manifest else "unknown",
-                "description": manifest.description if manifest else "",
-                "enabled": manifest.enabled if manifest else False,
-                "has_code": info.get("has_code", False),
-                "loaded": state.get("loaded", False),
-                "error": state.get("error"),
-                "isolated": state.get("isolated", False),
-                "is_builtin": info["path"].startswith(BUILTIN_PLUGINS_DIR),
-            })
+            plugins.append(
+                {
+                    "id": pid,
+                    "name": manifest.name if manifest else pid,
+                    "version": manifest.version if manifest else "0.0.0",
+                    "author": manifest.author if manifest else "unknown",
+                    "description": manifest.description if manifest else "",
+                    "enabled": manifest.enabled if manifest else False,
+                    "has_code": info.get("has_code", False),
+                    "loaded": state.get("loaded", False),
+                    "error": state.get("error"),
+                    "isolated": state.get("isolated", False),
+                    "is_builtin": info["path"].startswith(BUILTIN_PLUGINS_DIR),
+                }
+            )
         return {"plugins": plugins}
 
     def create(self, name: str, template: str = "minimal") -> dict:
         from fastapi import HTTPException
+
         name = self._validate_plugin_id(name)
         root = os.path.realpath(self.plugin_dir)
         plugin_path = os.path.realpath(os.path.join(root, name))
@@ -213,6 +263,7 @@ class PluginsService:
 
     def toggle(self, plugin_id: str) -> dict:
         from fastapi import HTTPException
+
         info = self._metadata.get(plugin_id)
         if not info:
             raise HTTPException(404)
@@ -232,8 +283,11 @@ class PluginsService:
         if not info:
             return {"loaded": False, "hooks": []}
         hooks = info["hooks"]
-        return {"loaded": True, "hooks": list(hooks.keys()) if isinstance(hooks, dict) else list(hooks),
-                "isolated": info.get("isolated", False)}
+        return {
+            "loaded": True,
+            "hooks": list(hooks.keys()) if isinstance(hooks, dict) else list(hooks),
+            "isolated": info.get("isolated", False),
+        }
 
     def get_states(self) -> dict:
         return {"states": self._states, "active_count": len(self._active)}

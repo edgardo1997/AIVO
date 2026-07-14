@@ -1,5 +1,8 @@
 """Tests for sentinel.core.rate_limiter."""
-import os, sys
+
+import os
+import sys
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import time
@@ -120,14 +123,17 @@ class TestRateLimiter:
 
     def test_concurrent_safety(self):
         import threading
+
         rl = RateLimiter(window_seconds=60)
         errors = []
+
         def hammer():
             try:
                 for _ in range(50):
                     rl.allow("shared", limit=1000)
             except Exception as e:
                 errors.append(e)
+
         threads = [threading.Thread(target=hammer) for _ in range(10)]
         for t in threads:
             t.start()
@@ -142,7 +148,7 @@ class TestRateLimiterIntegration:
         from sentinel.core.orchestrator import Orchestrator
         from sentinel.core.intent import IntentEngine
         from sentinel.core.tool_gateway import ToolGateway
-        from sentinel.core.rate_limiter import RateLimiter, DEFAULT_LIMITS
+        from sentinel.core.rate_limiter import RateLimiter
 
         gw = MagicMock(spec=ToolGateway)
         gw.execute = AsyncMock()
@@ -168,7 +174,7 @@ class TestRateLimiterIntegration:
         from sentinel.core.orchestrator import Orchestrator
         from sentinel.core.intent import IntentEngine
         from sentinel.core.tool_gateway import ToolGateway
-        from sentinel.core.rate_limiter import RateLimiter, DEFAULT_LIMITS
+        from sentinel.core.rate_limiter import RateLimiter
 
         gw = MagicMock(spec=ToolGateway)
         gw.execute = AsyncMock()
@@ -234,11 +240,13 @@ class TestRateLimiterIntegration:
 class TestRateLimiterAPI:
     def setup_method(self):
         from modules.sentinel_bridge import reset_bridge
+
         reset_bridge()
 
     def test_rate_limiter_stats(self):
         from fastapi.testclient import TestClient
         from main import app
+
         client = TestClient(app)
         resp = client.get("/api/sentinel/rate-limiter/stats")
         assert resp.status_code == 200
@@ -248,6 +256,7 @@ class TestRateLimiterAPI:
     def test_rate_limiter_clear(self):
         from fastapi.testclient import TestClient
         from main import app
+
         client = TestClient(app)
         resp = client.post("/api/sentinel/rate-limiter/clear")
         assert resp.status_code == 200

@@ -184,7 +184,7 @@ class Memory:
         result = {}
         prefix = f"{session_id}:"
         for row in rows:
-            k = row["key"][len(prefix):]
+            k = row["key"][len(prefix) :]
             try:
                 result[k] = json.loads(row["value"])
             except (json.JSONDecodeError, TypeError):

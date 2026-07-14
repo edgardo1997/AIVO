@@ -1,6 +1,7 @@
 import subprocess
 import os
 
+
 def on_command(ctx):
     cmd = ctx.get("command", "").lower()
     name = ctx.get("classification", "")
@@ -9,8 +10,13 @@ def on_command(ctx):
         return {"handled": False}
 
     targets = {
-        "play": "play", "pause": "pause", "next": "next", "prev": "prev",
-        "volume up": "volup", "volume down": "voldown", "mute": "volm",
+        "play": "play",
+        "pause": "pause",
+        "next": "next",
+        "prev": "prev",
+        "volume up": "volup",
+        "volume down": "voldown",
+        "mute": "volm",
     }
 
     for keyword, action in targets.items():

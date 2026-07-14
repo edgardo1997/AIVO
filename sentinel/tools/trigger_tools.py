@@ -23,10 +23,13 @@ class TriggerListTool(Tool):
         engine: Optional[TriggerEngine] = (context or {}).get("_trigger_engine")
         if engine is None:
             return ToolResult.ok(data={"triggers": [], "total": 0}, tool_id="trigger.list")
-        return ToolResult.ok(data={
-            "triggers": [r.to_dict() for r in engine.list_rules()],
-            "total": engine.count(),
-        }, tool_id="trigger.list")
+        return ToolResult.ok(
+            data={
+                "triggers": [r.to_dict() for r in engine.list_rules()],
+                "total": engine.count(),
+            },
+            tool_id="trigger.list",
+        )
 
 
 class TriggerCreateTool(Tool):
@@ -48,7 +51,10 @@ class TriggerCreateTool(Tool):
                         "items": {
                             "type": "object",
                             "properties": {
-                                "metric": {"type": "string", "description": "Metric name (e.g. cpu_percent, memory_percent)"},
+                                "metric": {
+                                    "type": "string",
+                                    "description": "Metric name (e.g. cpu_percent, memory_percent)",
+                                },
                                 "operator": {"type": "string", "enum": ["gt", "lt", "gte", "lte", "eq", "neq"]},
                                 "value": {"type": "number"},
                             },
@@ -152,10 +158,13 @@ class TriggerHistoryTool(Tool):
             return ToolResult.ok(data={"history": [], "total": 0}, tool_id="trigger.history")
         limit = params.get("limit", 20)
         history = engine.get_history(limit=limit)
-        return ToolResult.ok(data={
-            "history": [h.to_dict() for h in history],
-            "total": len(history),
-        }, tool_id="trigger.history")
+        return ToolResult.ok(
+            data={
+                "history": [h.to_dict() for h in history],
+                "total": len(history),
+            },
+            tool_id="trigger.history",
+        )
 
 
 class TriggerEvaluateTool(Tool):
@@ -171,7 +180,7 @@ class TriggerEvaluateTool(Tool):
                 "properties": {
                     "metrics": {
                         "type": "object",
-                        "description": "Current metric values (e.g. {\"cpu_percent\": 85, \"memory_percent\": 70})",
+                        "description": 'Current metric values (e.g. {"cpu_percent": 85, "memory_percent": 70})',
                         "additionalProperties": {"type": "number"},
                     },
                 },
@@ -188,7 +197,10 @@ class TriggerEvaluateTool(Tool):
         if not metrics:
             return ToolResult.err("metrics object is required", tool_id="trigger.evaluate")
         fires = engine.evaluate(metrics)
-        return ToolResult.ok(data={
-            "fires": [f.to_dict() for f in fires],
-            "total_fired": len(fires),
-        }, tool_id="trigger.evaluate")
+        return ToolResult.ok(
+            data={
+                "fires": [f.to_dict() for f in fires],
+                "total_fired": len(fires),
+            },
+            tool_id="trigger.evaluate",
+        )

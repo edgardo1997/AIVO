@@ -55,10 +55,7 @@ def get_engine():
         Base.metadata.create_all(engine)
 
         with engine.connect() as conn:
-            existing_cols = {
-                row[1]
-                for row in conn.execute(text("PRAGMA table_info(audit_log)")).fetchall()
-            }
+            existing_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(audit_log)")).fetchall()}
             extra_cols = {
                 "event_id": "TEXT",
                 "execution_id": "TEXT",

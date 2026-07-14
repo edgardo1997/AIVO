@@ -7,7 +7,17 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-ALLOWED_PROFILE_FIELDS = {"username", "display_name", "avatar", "theme", "timezone", "locale", "bio", "tags", "custom_fields"}
+ALLOWED_PROFILE_FIELDS = {
+    "username",
+    "display_name",
+    "avatar",
+    "theme",
+    "timezone",
+    "locale",
+    "bio",
+    "tags",
+    "custom_fields",
+}
 
 
 @dataclass
@@ -63,7 +73,9 @@ class UserProfileManager:
     def __init__(self, db: Any):
         self._db = db
 
-    def get_or_create_profile(self, user_id: str, username: str = "local-user", display_name: str = "Local User") -> UserProfile:
+    def get_or_create_profile(
+        self, user_id: str, username: str = "local-user", display_name: str = "Local User"
+    ) -> UserProfile:
         existing = self.get_profile(user_id)
         if existing:
             return existing
@@ -112,9 +124,7 @@ class UserProfileManager:
         )
 
     def get_profile(self, user_id: str) -> Optional[UserProfile]:
-        row = self._db.execute(
-            "SELECT * FROM user_profiles WHERE user_id = ?", (user_id,)
-        ).fetchone()
+        row = self._db.execute("SELECT * FROM user_profiles WHERE user_id = ?", (user_id,)).fetchone()
         if row is None:
             return None
         return self._row_to_profile(row)
@@ -133,7 +143,8 @@ class UserProfileManager:
         values = list(changes.values()) + [user_id]
         # Column names are selected exclusively from ALLOWED_PROFILE_FIELDS.
         self._db.execute(
-            f"UPDATE user_profiles SET {set_clause} WHERE user_id = ?", tuple(values),  # nosec B608
+            f"UPDATE user_profiles SET {set_clause} WHERE user_id = ?",
+            tuple(values),  # nosec B608
         )
         self._db._get_conn().commit()
         self._record_history(user_id, "profile_update", list(changes.keys()))
@@ -166,7 +177,8 @@ class UserProfileManager:
 
     def get_all_preferences(self, user_id: str) -> Dict[str, Any]:
         rows = self._db.execute(
-            "SELECT key, value FROM user_preferences_v2 WHERE user_id = ?", (user_id,),
+            "SELECT key, value FROM user_preferences_v2 WHERE user_id = ?",
+            (user_id,),
         ).fetchall()
         result = {}
         for row in rows:
@@ -229,9 +241,9 @@ class UserProfileManager:
 
     def import_profile(self, user_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
         profile_data = {k: v for k, v in data.items() if k in ALLOWED_PROFILE_FIELDS}
-        profile = self.get_or_create_profile(user_id)
+        self.get_or_create_profile(user_id)
         if profile_data:
-            profile = self.update_profile(user_id, **profile_data)
+            self.update_profile(user_id, **profile_data)
         prefs = data.get("preferences", {})
         pref_count = 0
         for key, value in prefs.items():
@@ -243,12 +255,14 @@ class UserProfileManager:
         prefs = self.get_all_preferences(user_id)
         profile = self.get_profile(user_id)
         now = datetime.now(timezone.utc).isoformat()
-        payload = json.dumps({
-            "profile": {k: getattr(profile, k, "") for k in ALLOWED_PROFILE_FIELDS},
-            "preferences": prefs,
-            "description": description,
-            "created_at": now,
-        })
+        payload = json.dumps(
+            {
+                "profile": {k: getattr(profile, k, "") for k in ALLOWED_PROFILE_FIELDS},
+                "preferences": prefs,
+                "description": description,
+                "created_at": now,
+            }
+        )
         try:
             self._db.execute(
                 "INSERT INTO profile_presets (user_id, preset_name, payload, created_at) VALUES (?, ?, ?, ?)",
@@ -316,13 +330,15 @@ class UserProfileManager:
                 tags = json.loads(raw_tags) if raw_tags else []
             except (json.JSONDecodeError, TypeError, KeyError):
                 pass
-            results.append({
-                "user_id": row["user_id"],
-                "username": row["username"],
-                "display_name": row["display_name"],
-                "avatar": row["avatar"] or "",
-                "theme": row["theme"] or "light",
-                "bio": row["bio"] or "",
-                "tags": tags,
-            })
+            results.append(
+                {
+                    "user_id": row["user_id"],
+                    "username": row["username"],
+                    "display_name": row["display_name"],
+                    "avatar": row["avatar"] or "",
+                    "theme": row["theme"] or "light",
+                    "bio": row["bio"] or "",
+                    "tags": tags,
+                }
+            )
         return results

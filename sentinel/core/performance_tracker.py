@@ -53,9 +53,7 @@ class RegressionAlert:
 
 class PerformanceTracker:
     def __init__(self, max_records_per_key: int = 1000):
-        self._records: Dict[Tuple[str, str, str, str], deque] = defaultdict(
-            lambda: deque(maxlen=max_records_per_key)
-        )
+        self._records: Dict[Tuple[str, str, str, str], deque] = defaultdict(lambda: deque(maxlen=max_records_per_key))
         self._alerts: List[RegressionAlert] = []
         self._max_records = max_records_per_key
         self._total_records = 0
@@ -137,17 +135,19 @@ class PerformanceTracker:
             durations = [r.duration_ms for r in recs]
             if len(durations) < 2:
                 continue
-            result.append(PerformanceBaseline(
-                provider_id=provider_id,
-                model=model,
-                task_type=tt,
-                tool_id=tool_id,
-                avg_duration_ms=round(mean(durations), 1),
-                std_duration_ms=round(stdev(durations), 1) if len(durations) > 1 else 0.0,
-                sample_count=len(durations),
-                min_duration_ms=min(durations),
-                max_duration_ms=max(durations),
-            ))
+            result.append(
+                PerformanceBaseline(
+                    provider_id=provider_id,
+                    model=model,
+                    task_type=tt,
+                    tool_id=tool_id,
+                    avg_duration_ms=round(mean(durations), 1),
+                    std_duration_ms=round(stdev(durations), 1) if len(durations) > 1 else 0.0,
+                    sample_count=len(durations),
+                    min_duration_ms=min(durations),
+                    max_duration_ms=max(durations),
+                )
+            )
         result.sort(key=lambda b: b.avg_duration_ms, reverse=True)
         return result
 

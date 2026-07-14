@@ -626,11 +626,11 @@ export interface PermissionRule {
 }
 
 export interface MemorySession {
-  id: string;
-  label: string;
+  session_id: string;
   created_at: string;
   updated_at: string;
-  data: Record<string, unknown>;
+  execution_count: number;
+  last_utterance: string;
 }
 
 export interface MemoryRecord {
@@ -662,6 +662,8 @@ export interface UserProfile {
   identity: {
     user_id: string;
     username?: string;
+    role: string;
+    is_local: boolean;
     [key: string]: unknown;
   };
   profile: {
@@ -688,5 +690,15 @@ export interface ProfileHistoryEntry {
 export interface ProfilePreset {
   preset_name: string;
   description: string;
-  created_at: string;
+  created_at?: string;
+}
+
+export interface ProfileSearchResult {
+  user_id: string;
+  username: string;
+  display_name: string;
+  avatar: string;
+  theme: string;
+  bio: string;
+  tags: string[];
 }

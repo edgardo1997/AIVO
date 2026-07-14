@@ -3,6 +3,7 @@ import os
 
 CONFIG_FILE_DEFAULT = os.path.expanduser("~/.aivo_config.json")
 
+
 class AIRepository:
     def __init__(self, filepath: str = None, db=None):
         self.filepath = filepath or CONFIG_FILE_DEFAULT

@@ -4,7 +4,7 @@ import { Files } from "../components/Files/Files";
 
 vi.mock("../api", () => ({
   v1Api: {
-    execute: vi.fn().mockImplementation(async (toolId: string, params: any) => {
+    execute: vi.fn().mockImplementation(async (toolId: string, _params: any) => {
       if (toolId === "filesystem.list") {
         return { success: true, data: { path: "C:\\", entries: [
           { name: "Users", path: "C:\\Users", is_dir: true, size: 0 },

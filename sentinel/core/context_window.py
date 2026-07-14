@@ -8,6 +8,7 @@ Handles:
 - Conversation summarization (compress old history into a summary)
 - Full pipeline: count, decide, act
 """
+
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 import logging
@@ -55,11 +56,12 @@ def count_tokens(text: str, model: Optional[str] = None) -> int:
         return 0
     try:
         import tiktoken
+
         encoding_name = _encoding_for_model(model) if model else "cl100k_base"
         enc = tiktoken.get_encoding(encoding_name)
         return len(enc.encode(text))
-    except (ImportError, Exception):
-        pass
+    except Exception as exc:
+        logger.debug("Falling back to heuristic token counting: %s", exc)
     if model and model.startswith("gpt-4") or (model and "claude" in model):
         return (len(text) + 1) // 3
     return (len(text) + 3) // 4
@@ -97,10 +99,12 @@ def count_messages_tokens(messages: List[Dict[str, str]], model: Optional[str] =
         overhead = 4
         msg_tokens = role_tokens + content_tokens + overhead
         total += msg_tokens
-        per_msg.append({
-            "role": m.get("role", "unknown"),
-            "tokens": msg_tokens,
-        })
+        per_msg.append(
+            {
+                "role": m.get("role", "unknown"),
+                "tokens": msg_tokens,
+            }
+        )
     total += 2
     return {"total_tokens": total, "messages": per_msg, "message_count": len(messages)}
 
@@ -161,11 +165,7 @@ def build_summary_message(
         preview = content[:200].replace("\n", " ")
         lines.append(f"[{role}]: {preview}")
 
-    summary = (
-        "Previous conversation summary:\n"
-        + "\n".join(lines)
-        + "\n---"
-    )
+    summary = "Previous conversation summary:\n" + "\n".join(lines) + "\n---"
     summary_tokens = count_tokens(summary, model=model)
     if summary_tokens > 512:
         ratio = 512 / max(summary_tokens, 1)
@@ -232,7 +232,7 @@ class ContextWindowManager:
 
         if force_summarize or should_summarize(messages, max_tokens, self._summarization_threshold):
             sys_msgs = [m for m in messages if m.get("role") == "system"]
-            non_sys = messages[len(sys_msgs):]
+            non_sys = messages[len(sys_msgs) :]
             if len(non_sys) > 4:
                 keep_recent = non_sys[-4:]
                 to_summarize = non_sys[:-4]

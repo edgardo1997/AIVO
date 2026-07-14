@@ -10,8 +10,9 @@ from sentinel.core.goals import GoalRegistry, GoalDefinition
 from sentinel.core.capability_registry import RiskLevel
 
 
-def make_goal(gid: str, intents: list = None, caps: list = None,
-              priority: int = 0, risk: RiskLevel = RiskLevel.LOW) -> GoalDefinition:
+def make_goal(
+    gid: str, intents: list = None, caps: list = None, priority: int = 0, risk: RiskLevel = RiskLevel.LOW
+) -> GoalDefinition:
     return GoalDefinition(
         id=gid,
         name=gid.replace("_", " ").title(),
@@ -74,8 +75,13 @@ class TestPlannerGoalIntegration:
 
     def test_goal_metadata_accessible_on_plan(self):
         registry = GoalRegistry()
-        gd = make_goal("cleanup", intents=["system.disk"], caps=["filesystem.list", "filesystem.write"],
-                       risk=RiskLevel.MEDIUM, priority=5)
+        gd = make_goal(
+            "cleanup",
+            intents=["system.disk"],
+            caps=["filesystem.list", "filesystem.write"],
+            risk=RiskLevel.MEDIUM,
+            priority=5,
+        )
         registry.register(gd)
         planner = Planner(goal_registry=registry)
         plan = planner.plan(Intent(action="query", target="system.disk"))
@@ -107,13 +113,24 @@ class TestPlannerGoalWithRegistryFallback:
 
     def test_goal_with_capability_prefers_capability(self):
         from sentinel.core.capability_registry import CapabilityRegistry, Capability, RiskLevel as RL
+
         cap_registry = CapabilityRegistry()
-        cap_registry.register(Capability(
-            id="system.cpu", name="CPU", description="CPU info",
-            category="system", risk_level=RL.LOW, requires_confirmation=False,
-            permissions=[], parameters={}, result_type="json",
-            tags=[], version="0.1.0", timeout_seconds=10,
-        ))
+        cap_registry.register(
+            Capability(
+                id="system.cpu",
+                name="CPU",
+                description="CPU info",
+                category="system",
+                risk_level=RL.LOW,
+                requires_confirmation=False,
+                permissions=[],
+                parameters={},
+                result_type="json",
+                tags=[],
+                version="0.1.0",
+                timeout_seconds=10,
+            )
+        )
         goal_registry = GoalRegistry()
         goal_registry.register(make_goal("monitor", intents=["system.cpu"]))
         planner = Planner(capability_registry=cap_registry, goal_registry=goal_registry)

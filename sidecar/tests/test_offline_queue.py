@@ -1,5 +1,9 @@
 """Tests for sentinel.core.offline_queue and sentinel.core.network_monitor."""
-import os, sys, pytest
+
+import os
+import sys
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import time
@@ -129,10 +133,13 @@ class TestOfflineQueue:
         q.enqueue("op", {"x": 1})
         q.enqueue("op", {"x": 2})
         results = []
+
         def sync_fn(item):
             results.append(item.id)
             return True
+
         import asyncio
+
         stats = asyncio.run(q.process_queue(sync_fn, max_items=10))
         assert stats["synced"] == 2
         assert stats["failed"] == 0
@@ -141,9 +148,12 @@ class TestOfflineQueue:
     def test_process_queue_with_failures(self):
         q = OfflineQueue(max_retries=1)
         q.enqueue("op", {})
+
         def fail_fn(item):
             raise RuntimeError("fail")
+
         import asyncio
+
         stats = asyncio.run(q.process_queue(fail_fn, max_items=10))
         assert stats["synced"] == 0
         assert stats["failed"] == 1
@@ -180,7 +190,6 @@ class TestNetworkMonitor:
         nm = NetworkMonitor(check_urls=["http://127.0.0.1:1"], timeout=0.1)
         calls = []
         nm.on_transition(lambda o: calls.append(o))
-        prev = nm.is_online
         await nm.check()
         # callback may or may not fire depending on prev state
 
@@ -200,6 +209,7 @@ class TestOrchestratorOfflineIntegration:
         from sentinel.core.intent import IntentEngine
         from sentinel.core.tool_gateway import ToolGateway
         from sentinel.core.offline_queue import OfflineQueue
+
         gw = MagicMock(spec=ToolGateway)
         gw.execute = AsyncMock()
         q = OfflineQueue()
@@ -213,6 +223,7 @@ class TestOrchestratorOfflineIntegration:
         from sentinel.core.orchestrator import Orchestrator
         from sentinel.core.intent import IntentEngine
         from sentinel.core.tool_gateway import ToolGateway
+
         gw = MagicMock(spec=ToolGateway)
         gw.execute = AsyncMock()
         orch = Orchestrator(intent_engine=IntentEngine(), tool_gateway=gw, offline_queue=None)
@@ -226,6 +237,7 @@ class TestOrchestratorOfflineIntegration:
         from sentinel.core.tool_gateway import ToolGateway
         from sentinel.core.offline_queue import OfflineQueue
         from sentinel.core.network_monitor import NetworkMonitor
+
         gw = MagicMock(spec=ToolGateway)
         gw.execute = AsyncMock()
         q = OfflineQueue()
@@ -239,6 +251,7 @@ class TestOrchestratorOfflineIntegration:
         from sentinel.core.intent import IntentEngine
         from sentinel.core.tool_gateway import ToolGateway
         from sentinel.core.offline_queue import OfflineQueue
+
         gw = MagicMock(spec=ToolGateway)
         gw.execute = AsyncMock()
         q = OfflineQueue()
@@ -249,11 +262,13 @@ class TestOrchestratorOfflineIntegration:
 class TestOfflineQueueAPI:
     def setup_method(self):
         from modules.sentinel_bridge import reset_bridge
+
         reset_bridge()
 
     def test_offline_queue_endpoint(self):
         from fastapi.testclient import TestClient
         from main import app
+
         client = TestClient(app)
         resp = client.get("/api/sentinel/offline-queue")
         assert resp.status_code == 200
@@ -263,6 +278,7 @@ class TestOfflineQueueAPI:
     def test_offline_queue_clear(self):
         from fastapi.testclient import TestClient
         from main import app
+
         client = TestClient(app)
         resp = client.post("/api/sentinel/offline-queue/clear")
         assert resp.status_code == 200
@@ -270,6 +286,7 @@ class TestOfflineQueueAPI:
     def test_offline_queue_sync(self):
         from fastapi.testclient import TestClient
         from main import app
+
         client = TestClient(app)
         resp = client.post("/api/sentinel/offline-queue/sync")
         assert resp.status_code == 200
@@ -277,6 +294,7 @@ class TestOfflineQueueAPI:
     def test_network_status(self):
         from fastapi.testclient import TestClient
         from main import app
+
         client = TestClient(app)
         resp = client.get("/api/sentinel/network/status")
         assert resp.status_code == 200

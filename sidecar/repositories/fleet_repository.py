@@ -3,6 +3,7 @@ import os
 
 FLEET_FILE_DEFAULT = os.path.expanduser("~/.aivo_fleet.json")
 
+
 class FleetRepository:
     def __init__(self, filepath: str = None, db=None):
         self.filepath = filepath or FLEET_FILE_DEFAULT

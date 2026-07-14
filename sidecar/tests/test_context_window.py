@@ -1,13 +1,20 @@
-import os, sys
+import os
+import sys
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import pytest
 
 from sentinel.core.context_window import (
-    count_tokens, count_messages_tokens, get_model_window,
-    trim_messages, should_summarize, build_summary_message,
+    count_tokens,
+    count_messages_tokens,
+    get_model_window,
+    trim_messages,
+    should_summarize,
+    build_summary_message,
     ContextWindowManager,
-    MODEL_CONTEXT_WINDOWS, MODEL_FAMILY_DEFAULTS,
+    MODEL_CONTEXT_WINDOWS,
+    MODEL_FAMILY_DEFAULTS,
 )
 
 
@@ -132,10 +139,9 @@ class TestContextWindowManager:
 
     def test_manage_summarizes_long_history(self):
         mgr = ContextWindowManager(default_window=200, summarization_threshold=0.1)
-        msgs = (
-            [{"role": "system", "content": "You are helpful."}]
-            + [{"role": "user", "content": f"msg {i}"} for i in range(20)]
-        )
+        msgs = [{"role": "system", "content": "You are helpful."}] + [
+            {"role": "user", "content": f"msg {i}"} for i in range(20)
+        ]
         result = mgr.manage(msgs, max_tokens=200)
         # Should summarize since 20 user msgs exceed threshold
         assert result["final_count"] < len(msgs)
@@ -178,11 +184,13 @@ class TestContextWindowManager:
 class TestContextWindowAPI:
     def setup_method(self):
         from modules.sentinel_bridge import reset_bridge
+
         reset_bridge()
 
     def test_chat_still_works(self):
         from fastapi.testclient import TestClient
         from main import app
+
         client = TestClient(app)
         resp = client.post("/api/sentinel/chat", json={"message": "hello"})
         assert resp.status_code == 200

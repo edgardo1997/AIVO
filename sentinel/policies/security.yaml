@@ -1,0 +1,52 @@
+# Permission level definitions and dangerous tool mappings.
+# Effect values: allow, deny, require_confirm
+permission_levels:
+  view:
+    write: deny
+    read: allow
+    dangerous: deny
+  confirm:
+    write: allow
+    read: allow
+    dangerous: require_confirm
+  auto:
+    write: allow
+    read: allow
+    dangerous: require_confirm
+  admin:
+    write: allow
+    read: allow
+    dangerous: allow
+
+# Tool IDs (or substrings) considered dangerous.
+dangerous_tools:
+  - "executor.command"
+  - "executor.kill"
+  - "executor.launch"
+  - "filesystem.write"
+  - "filesystem.delete"
+  - "pipeline.report"
+
+# System paths that require special handling.
+critical_paths:
+  - "C:\\Windows\\System32"
+  - "C:\\Windows"
+  - "C:\\Program Files"
+  - "%USERPROFILE%\\AppData"
+
+# Emergency stop default state.
+emergency_stop:
+  default_state: false
+
+# Tool-to-permission mapping for policy evaluation.
+tool_permissions:
+  filesystem.read: ["filesystem.read"]
+  filesystem.write: ["filesystem.write"]
+  filesystem.list: ["filesystem.read"]
+  filesystem.search: ["filesystem.read"]
+  executor.command: ["executor.command"]
+  executor.launch: ["executor.launch"]
+  executor.kill: ["executor.kill"]
+  system.info: ["system.read"]
+  system.cpu: ["system.read"]
+  system.processes: ["system.read"]

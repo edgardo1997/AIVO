@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { api } from "../../api";
+import { AdvisoryNotice } from "../Advisory/AdvisoryNotice";
+import type { AdvisoryReport } from "../../types";
 
 interface Message {
   role: "user" | "ai";
@@ -8,11 +10,12 @@ interface Message {
 
 export function Chat() {
   const [messages, setMessages] = useState<Message[]>([
-    { role: "ai", content: "Hi, I'm AIVO. Ask me anything about your PC or tell me what to do." },
+    { role: "ai", content: "Hi, I'm Sentinel. Ask me anything about your PC or tell me what to do." },
   ]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [listening, setListening] = useState(false);
+  const [advisory, setAdvisory] = useState<AdvisoryReport | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
 
@@ -28,9 +31,10 @@ export function Chat() {
     setLoading(true);
     try {
       const ctx = messages.slice(-6).map((m) => ({ role: m.role, content: m.content }));
-      const res = await api.ai.chat(input, ctx);
+      const res = await api.sentinel.chat(input, ctx);
       setMessages((m) => [...m, { role: "ai", content: res.response }]);
-    } catch (e) {
+      setAdvisory(res.pipeline?.advisory || null);
+    } catch {
       setMessages((m) => [...m, { role: "ai", content: "Error connecting to AI. Check Settings → AI Config." }]);
     }
     setLoading(false);
@@ -89,8 +93,9 @@ export function Chat() {
     setLoading(true);
     try {
       const ctx = messages.slice(-6).map((m) => ({ role: m.role, content: m.content }));
-      const res = await api.ai.chat(q, ctx);
+      const res = await api.sentinel.chat(q, ctx);
       setMessages((m) => [...m, { role: "ai", content: res.response }]);
+      setAdvisory(res.pipeline?.advisory || null);
     } catch {
       setMessages((m) => [...m, { role: "ai", content: "Error connecting to AI." }]);
     }
@@ -99,6 +104,7 @@ export function Chat() {
 
   return (
     <div className="chat-container">
+      <AdvisoryNotice report={advisory} onDismiss={() => setAdvisory(null)} onDelegate={handleQuickAction} />
       <h2 style={{ marginBottom: 16, fontWeight: 600 }}>AI Chat</h2>
       {messages.length <= 1 && (
         <div style={{ marginBottom: 16 }}>

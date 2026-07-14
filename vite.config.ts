@@ -7,6 +7,11 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    // Cargo replaces Windows DLLs while `tauri dev` is compiling. Watching the
+    // Rust target directory makes Node race the linker and fail with EBUSY.
+    watch: {
+      ignored: ['**/src-tauri/target/**'],
+    },
   },
   envPrefix: ['VITE_', 'TAURI_'],
   build: {

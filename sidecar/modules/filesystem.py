@@ -1,10 +1,13 @@
 import logging
-import os
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel
+from services.filesystem_service import FilesystemService
 
-log = logging.getLogger("aivo.filesystem")
+log = logging.getLogger("sentinel.filesystem")
 router = APIRouter()
+
+# Keep _svc for backward compatibility (other modules may reference it)
+_svc = FilesystemService()
 
 class FileReadRequest(BaseModel):
     path: str
@@ -13,53 +16,74 @@ class FileWriteRequest(BaseModel):
     path: str
     content: str
 
+
+def _identity_dict(request: Request) -> dict:
+    identity = getattr(request.state, "identity", None)
+    if identity is None:
+        return {"user_id": "local", "client_id": "unknown", "level": "confirm"}
+    return {
+        "user_id": identity.user_id,
+        "username": getattr(identity, "username", ""),
+        "role": getattr(identity, "role", "user"),
+        "level": identity.level,
+        "is_authenticated": getattr(identity, "is_authenticated", False),
+        "is_local": getattr(identity, "is_local", True),
+    }
+
+
+def _result_or_raise(result, status_code: int = 403):
+    if not result.success:
+        error = result.error or "Unknown error"
+        if "blocked" in error.lower() or "denied" in error.lower() or "blocked" in error.lower():
+            raise HTTPException(status_code=status_code, detail=error)
+        raise HTTPException(status_code=500, detail=error)
+    return result.data
+
+
 @router.post("/read")
-def read_file(req: FileReadRequest):
-    try:
-        with open(req.path, "r", encoding="utf-8") as f:
-            content = f.read()
-        return {"path": req.path, "content": content, "size": len(content)}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+async def read_file(req: FileReadRequest, request: Request):
+    from modules.sentinel_bridge import get_orchestrator
+    orch = get_orchestrator()
+    result = await orch.execute_direct(
+        "filesystem.read", {"path": req.path},
+        identity=_identity_dict(request),
+    )
+    return _result_or_raise(result.tool_result)
+
 
 @router.post("/write")
-def write_file(req: FileWriteRequest):
-    try:
-        with open(req.path, "w", encoding="utf-8") as f:
-            f.write(req.content)
-        return {"path": req.path, "size": len(req.content)}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+async def write_file(req: FileWriteRequest, request: Request):
+    from modules.sentinel_bridge import get_orchestrator
+    orch = get_orchestrator()
+    result = await orch.execute_direct(
+        "filesystem.write", {"path": req.path, "content": req.content},
+        identity=_identity_dict(request),
+    )
+    return _result_or_raise(result.tool_result)
+
 
 @router.get("/list")
-def list_directory(path: str = "."):
-    try:
-        entries = []
-        for entry in os.scandir(path):
-            entries.append({
-                "name": entry.name,
-                "path": entry.path,
-                "is_dir": entry.is_dir(),
-                "size": entry.stat().st_size if entry.is_file() else 0,
-                "modified": entry.stat().st_mtime,
-            })
-        return {"path": os.path.abspath(path), "entries": entries}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+async def list_directory(request: Request, path: str = "."):
+    from modules.sentinel_bridge import get_orchestrator
+    orch = get_orchestrator()
+    result = await orch.execute_direct(
+        "filesystem.list", {"path": path},
+        identity=_identity_dict(request),
+    )
+    return _result_or_raise(result.tool_result)
+
 
 @router.get("/search")
-def search_files(query: str, root: str = "C:\\"):
-    results = []
-    try:
-        for root_dir, dirs, files in os.walk(root):
-            for f in files:
-                if query.lower() in f.lower():
-                    results.append(os.path.join(root_dir, f))
-                if len(results) >= 50:
-                    return {"query": query, "results": results}
-            dirs[:] = [d for d in dirs if not d.startswith(".") and not d.startswith("$")]
-    except PermissionError:
-        log.debug("Permission denied accessing directory during search")
-    except OSError as e:
-        log.warning("Error during file search: %s", e)
-    return {"query": query, "results": results}
+async def search_files(request: Request, query: str, root: str = "C:\\"):
+    from modules.sentinel_bridge import get_orchestrator
+    orch = get_orchestrator()
+    result = await orch.execute_direct(
+        "filesystem.search", {"query": query, "root": root},
+        identity=_identity_dict(request),
+    )
+    return _result_or_raise(result.tool_result)
+
+
+def wire_dependencies(audit_svc=None):
+    if audit_svc:
+        _svc.set_audit_service(audit_svc)

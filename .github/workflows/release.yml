@@ -1,0 +1,197 @@
+name: Release Sentinel for Windows
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+  artifact-metadata: write
+
+jobs:
+  release-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: sidecar/requirements.txt
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Verify release version matches tag
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}" -replace '^v',''
+          $package = (Get-Content package.json | ConvertFrom-Json).version
+          $tauri = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
+          if ($tag -and ($tag -ne $package -or $tag -ne $tauri)) {
+            throw "Tag $tag, package $package and Tauri $tauri must match"
+          }
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip pyinstaller pip-audit cyclonedx-bom==7.3.0
+          pip install -r sidecar/requirements.txt
+          npm ci
+          npm install --global @cyclonedx/cyclonedx-npm@4.2.1
+
+      - name: Audit dependency supply chain
+        run: |
+          python -m pip_audit -r sidecar/requirements.txt
+          npm audit --audit-level=high
+          cargo install cargo-audit --locked
+          cargo audit --file src-tauri/Cargo.lock
+
+      - name: Generate and validate CycloneDX SBOMs
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release-metadata | Out-Null
+          cyclonedx-npm --output-format JSON --output-file release-metadata/sbom-npm.cdx.json package.json
+          cyclonedx-py requirements sidecar/requirements.txt --output-format JSON --output-file release-metadata/sbom-python.cdx.json
+          cargo install cargo-cyclonedx --version 0.5.9 --locked
+          # cargo-cyclonedx appends the selected format extension automatically.
+          cargo cyclonedx --manifest-path src-tauri/Cargo.toml --format json --override-filename sbom-rust.cdx
+          Move-Item src-tauri/sbom-rust.cdx.json release-metadata/sbom-rust.cdx.json
+
+      - name: Test application
+        run: |
+          python -m pytest sidecar/tests -q
+          npm test -- --run
+          npm run build
+
+      - name: Build packaged sidecar
+        working-directory: sidecar
+        run: python -m PyInstaller --clean sidecar.spec
+
+      - name: Smoke-test packaged sidecar
+        shell: pwsh
+        run: ./scripts/smoke-release.ps1
+
+      - name: Require updater and Authenticode signing secrets
+        shell: pwsh
+        env:
+          UPDATER_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          UPDATER_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          foreach ($name in 'UPDATER_KEY','UPDATER_PASSWORD','WINDOWS_CERTIFICATE','WINDOWS_CERTIFICATE_PASSWORD') {
+            if (-not (Get-Item "Env:$name").Value) { throw "Required signing secret $name is missing" }
+          }
+
+      - name: Import and validate Authenticode certificate
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          $encoded = Join-Path $env:RUNNER_TEMP 'sentinel-certificate.txt'
+          $pfx = Join-Path $env:RUNNER_TEMP 'sentinel-certificate.pfx'
+          Set-Content -LiteralPath $encoded -Value $env:WINDOWS_CERTIFICATE
+          certutil -decode $encoded $pfx | Out-Null
+          $securePassword = ConvertTo-SecureString $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
+          $cert = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $securePassword
+          Remove-Item -LiteralPath $encoded, $pfx -Force
+          if (-not $cert.HasPrivateKey -or $cert.NotAfter -le (Get-Date)) { throw 'Invalid or expired signing certificate' }
+          if ('1.3.6.1.5.5.7.3.3' -notin $cert.EnhancedKeyUsageList.ObjectId.Value) { throw 'Certificate lacks Code Signing EKU' }
+          $config = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
+          $windows = [ordered]@{
+            certificateThumbprint = $cert.Thumbprint
+            digestAlgorithm = 'sha256'
+            timestampUrl = 'http://timestamp.digicert.com'
+          }
+          $config.bundle | Add-Member -NotePropertyName windows -NotePropertyValue $windows -Force
+          $config | ConvertTo-Json -Depth 20 | Set-Content src-tauri/tauri.conf.json -Encoding UTF8
+
+      - name: Build, sign and publish installer plus updater manifest
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: v__VERSION__
+          releaseName: Sentinel v__VERSION__
+          releaseBody: See CHANGELOG.md and the generated release notes for this version.
+          releaseDraft: true
+          prerelease: false
+          includeUpdaterJson: true
+
+      - name: Verify Authenticode and updater signatures
+        shell: pwsh
+        run: |
+          $bundles = Get-ChildItem src-tauri/target/release/bundle -Recurse -File -Include *.exe,*.msi
+          if (-not $bundles) { throw 'No Windows bundles were produced' }
+          foreach ($bundle in $bundles) {
+            $signature = Get-AuthenticodeSignature $bundle.FullName
+            if ($signature.Status -ne 'Valid') { throw "Invalid Authenticode signature: $($bundle.FullName)" }
+          }
+          $updaterSignatures = Get-ChildItem src-tauri/target/release/bundle -Recurse -File -Filter *.sig
+          if (-not $updaterSignatures -or ($updaterSignatures | Where-Object Length -le 0)) {
+            throw 'Updater signatures are missing or empty'
+          }
+
+      - name: Generate and verify release hashes
+        shell: pwsh
+        run: |
+          python scripts/release_metadata.py generate --artifact-root src-tauri/target/release/bundle --metadata-dir release-metadata
+          python scripts/release_metadata.py verify --manifest release-metadata/release-manifest.json
+
+      - name: Sign release manifest and checksum list
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          npx tauri signer sign release-metadata/release-manifest.json
+          npx tauri signer sign release-metadata/SHA256SUMS
+          if (-not (Test-Path release-metadata/release-manifest.json.sig) -or -not (Test-Path release-metadata/SHA256SUMS.sig)) {
+            throw 'Signed release metadata was not produced'
+          }
+
+      - name: Attest SLSA build provenance
+        uses: actions/attest@v4
+        with:
+          subject-checksums: release-metadata/SHA256SUMS
+
+      - name: Attest npm SBOM for Windows installers
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            src-tauri/target/release/bundle/**/*.exe
+            src-tauri/target/release/bundle/**/*.msi
+          sbom-path: release-metadata/sbom-npm.cdx.json
+
+      - name: Attest Python SBOM for Windows installers
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            src-tauri/target/release/bundle/**/*.exe
+            src-tauri/target/release/bundle/**/*.msi
+          sbom-path: release-metadata/sbom-python.cdx.json
+
+      - name: Attest Rust SBOM for Windows installers
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            src-tauri/target/release/bundle/**/*.exe
+            src-tauri/target/release/bundle/**/*.msi
+          sbom-path: release-metadata/sbom-rust.cdx.json
+
+      - name: Upload verified supply-chain metadata to draft release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ github.ref_name }}" release-metadata/* --clobber

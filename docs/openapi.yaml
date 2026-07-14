@@ -1,0 +1,209 @@
+openapi: "3.1.0"
+info:
+  title: Sentinel Trust Layer API v1
+  description: |
+    Professional API for the Sentinel Trust Layer — a security layer
+    between AI agents and the operating system.
+  version: "1.0.0"
+  contact:
+    name: Sentinel Team
+servers:
+  - url: http://127.0.0.1:8765
+    description: Local sidecar
+
+paths:
+  /v1/execute:
+    post:
+      summary: Execute a tool
+      description: Execute a registered tool through the full pipeline (Identity → Intent → Decision → Policy → Gateway → Execution → Quality → Audit)
+      operationId: executeTool
+      tags: [Execute]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExecuteRequest"
+      responses:
+        "200":
+          description: Execution result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExecuteResponse"
+        "403":
+          description: Blocked by policy
+        "429":
+          description: Rate limited
+
+  /v1/policies:
+    get:
+      summary: List loaded policies
+      operationId: listPolicies
+      tags: [Policies]
+      responses:
+        "200":
+          description: Policy list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PolicyInfo"
+    post:
+      summary: Reload policies from YAML
+      operationId: reloadPolicies
+      tags: [Policies]
+      responses:
+        "200":
+          description: Reload result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+
+  /v1/audit:
+    get:
+      summary: List audit log entries
+      operationId: listAudit
+      tags: [Audit]
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+        - name: action
+          in: query
+          schema:
+            type: string
+        - name: since
+          in: query
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: Audit entries
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditResponse"
+    delete:
+      summary: Clear audit log
+      operationId: clearAudit
+      tags: [Audit]
+      responses:
+        "200":
+          description: Clear result
+
+  /v1/agents:
+    get:
+      summary: List agents
+      operationId: listAgents
+      tags: [Agents]
+      responses:
+        "200":
+          description: Agent list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AgentInfo"
+
+components:
+  schemas:
+    ExecuteRequest:
+      type: object
+      required: [tool_id, params]
+      properties:
+        tool_id:
+          type: string
+          example: "executor.command"
+        params:
+          type: object
+        identity:
+          type: object
+          properties:
+            user_id:
+              type: string
+            level:
+              type: string
+              enum: [view, confirm, auto, admin]
+
+    ExecuteResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+        error:
+          type: string
+        requires_confirmation:
+          type: boolean
+        action_id:
+          type: string
+        duration_ms:
+          type: number
+        pipeline:
+          type: object
+          properties:
+            intent:
+              type: object
+            decision:
+              type: object
+            policy:
+              type: object
+            quality:
+              type: object
+
+    PolicyInfo:
+      type: object
+      properties:
+        id:
+          type: string
+        description:
+          type: string
+        source:
+          type: string
+
+    AuditEntry:
+      type: object
+      properties:
+        id:
+          type: integer
+        timestamp:
+          type: string
+        action:
+          type: string
+        details:
+          type: string
+        status:
+          type: string
+
+    AuditResponse:
+      type: object
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditEntry"
+        total:
+          type: integer
+
+    AgentInfo:
+      type: object
+      properties:
+        agent_id:
+          type: string
+        name:
+          type: string
+        config:
+          type: object
+        created_at:
+          type: string

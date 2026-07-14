@@ -29,14 +29,15 @@ export function Settings() {
   const [saved, setSaved] = useState(false);
   const [testResult, setTestResult] = useState<string | null>(null);
   const [showKey, setShowKey] = useState(false);
+  const [updateStatus, setUpdateStatus] = useState("");
 
   useEffect(() => {
-    api.ai.config().then(setCfg).catch(() => {});
+    api.ai.config().then((res) => setCfg((prev) => ({ ...prev, ...res, api_key: res.api_key ?? "" }))).catch(() => {});
   }, []);
 
   const save = async () => {
     try {
-      await api.ai.setConfig({ provider: cfg.provider, api_key: cfg.api_key, base_url: cfg.base_url, model: cfg.model });
+      await api.ai.setConfig({ provider: cfg.provider, api_key: cfg.api_key, base_url: cfg.base_url ?? "", model: cfg.model });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch {}
@@ -62,6 +63,23 @@ export function Settings() {
   };
 
   const providers = cfg.free_providers || {};
+
+  const checkForUpdates = async () => {
+    setUpdateStatus("Buscando actualización…");
+    try {
+      const { check } = await import("@tauri-apps/plugin-updater");
+      const update = await check();
+      if (!update) {
+        setUpdateStatus("Sentinel está actualizado.");
+        return;
+      }
+      setUpdateStatus(`Instalando ${update.version}…`);
+      await update.downloadAndInstall();
+      setUpdateStatus("Actualización instalada. Reinicia Sentinel para aplicarla.");
+    } catch (error) {
+      setUpdateStatus(`No se pudo comprobar: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
 
   return (
     <div style={{ maxWidth: 700 }}>
@@ -160,11 +178,13 @@ export function Settings() {
       </div>
 
       <div className="card">
-        <div className="card-title">About AIVO</div>
+        <div className="card-title">About Sentinel</div>
         <div style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.6 }}>
-          <div>Version: 0.1.0 · Stack: Tauri + React + Python</div>
+          <div>Version: 1.0.0 · Stack: Tauri + React + Python</div>
           <div>Free models supported: OpenRouter, DeepSeek, Groq, Gemini, GitHub, Cerebras, Mistral, Ollama</div>
           <div>Paid options: OpenAI, Anthropic, or any OpenAI-compatible API</div>
+          <button className="btn btn-ghost" onClick={checkForUpdates} style={{ marginTop: 10 }}>Buscar actualizaciones</button>
+          {updateStatus && <div style={{ marginTop: 6, fontSize: 12 }}>{updateStatus}</div>}
         </div>
       </div>
     </div>

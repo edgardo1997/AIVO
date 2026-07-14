@@ -1,13 +1,11 @@
 import { useState, useRef, useEffect } from "react";
-import { api } from "../../api";
+import { v1Api } from "../../api";
+import { useAppState } from "../../contexts/AppContext";
 import { ConfirmDialog } from "../ConfirmDialog";
 
 export function Console() {
-  const [output, setOutput] = useState<string[]>([
-    "AIVO Console v0.1.0 — Permission level: Confirm",
-    "----------------------------------------",
-    "",
-  ]);
+  const { permissionLevel } = useAppState();
+  const [output, setOutput] = useState<string[]>([""]);
   const [input, setInput] = useState("");
   const [history, setHistory] = useState<string[]>([]);
   const [historyIdx, setHistoryIdx] = useState(-1);
@@ -28,16 +26,15 @@ export function Console() {
     setHistoryIdx(-1);
     setInput("");
     try {
-      const res = await api.executor.command(cmd, 15);
-      if (res.needs_confirm) {
+      const res = await v1Api.execute("executor.command", { command: cmd, timeout: 15 });
+      if (res.requires_confirmation) {
         setPendingCmd(cmd);
         setPendingActionId(res.action_id || "");
-
         setConfirmOpen(true);
-        setOutput((o) => [...o, `  ⚠️ ${res.reason || "Requires confirmation"}`, ""]);
+        setOutput((o) => [...o, `  \u26A0\uFE0F ${res.error || "Requires confirmation"}`, ""]);
         return;
       }
-      appendOutput(res);
+      appendOutput((res.data as any) || {});
     } catch (e) {
       setOutput((o) => [...o, `  Error: ${e}`, ""]);
     }
@@ -46,8 +43,8 @@ export function Console() {
   const handleConfirm = async () => {
     setConfirmOpen(false);
     try {
-      const res = await api.executor.command(pendingCmd, 15, true, pendingActionId);
-      appendOutput(res);
+      const res = await v1Api.execute("executor.command", { command: pendingCmd, timeout: 15, confirmed: true, action_id: pendingActionId });
+      appendOutput((res.data as any) || {});
     } catch (e) {
       setOutput((o) => [...o, `  Error: ${e}`, ""]);
     }
@@ -55,7 +52,7 @@ export function Console() {
 
   const handleDeny = () => {
     setConfirmOpen(false);
-    setOutput((o) => [...o, `  ⛔ Action denied by user`, ""]);
+    setOutput((o) => [...o, `  \u26D4 Action denied by user`, ""]);
   };
 
   const appendOutput = (res: any) => {
@@ -95,7 +92,7 @@ export function Console() {
     <div>
       <ConfirmDialog
         open={confirmOpen}
-        title="⚠️ Confirm Command Execution"
+        title="\u26A0\uFE0F Confirm Command Execution"
         message="This command requires your approval:"
         details={pendingCmd}
         onConfirm={handleConfirm}
@@ -111,8 +108,12 @@ export function Console() {
         ))}
       </div>
       <div className="console-output" ref={outRef as any}>
+        <div style={{ color: "var(--text-muted)", marginBottom: 4 }}>
+          Sentinel Console v0.1.0 &mdash; Permission level: {permissionLevel}
+        </div>
+        <hr style={{ border: "none", borderTop: "1px solid var(--border)", marginBottom: 8 }} />
         {output.map((line, i) => (
-          <div key={i} className={line.includes("⚠️") || line.includes("Error") ? "error" : ""}>
+          <div key={i} className={line.includes("\u26A0") || line.includes("\u26D4") || line.includes("Error") ? "error" : ""}>
             {line || "\u00A0"}
           </div>
         ))}
@@ -127,7 +128,7 @@ export function Console() {
           style={{ fontFamily: "monospace" }}
         />
         <button className="btn btn-primary" onClick={execute}>Run</button>
-        <button className="btn btn-ghost" onClick={() => setOutput(["Console cleared.", ""])}>Clear</button>
+        <button className="btn btn-ghost" onClick={() => setOutput([""])}>Clear</button>
       </div>
     </div>
   );

@@ -1,0 +1,58 @@
+name: Publish Sentinel generally
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing signed draft release tag (for example v1.0.0)
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: windows-latest
+    environment: general-publication
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install gate dependency
+        run: pip install cryptography==49.0.0
+      - name: Require protected environment approval
+        shell: pwsh
+        env:
+          GENERAL_PUBLICATION_APPROVED: ${{ secrets.GENERAL_PUBLICATION_APPROVED }}
+        run: |
+          if ($env:GENERAL_PUBLICATION_APPROVED -ne 'approved-after-independent-pentest') {
+            throw 'Protected general-publication environment approval is missing'
+          }
+      - name: Require independently signed pentest approval
+        shell: pwsh
+        run: |
+          $version = "${{ inputs.tag }}" -replace '^v',''
+          python scripts/verify_pentest_gate.py `
+            --attestation security/pentest/approval.json `
+            --assessors security/pentest/trusted-assessors.json `
+            --version $version
+      - name: Confirm draft release and signed assets exist
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $release = gh release view "${{ inputs.tag }}" --json isDraft,assets | ConvertFrom-Json
+          if (-not $release.isDraft) { throw 'Release is not a draft; publication gate cannot protect it' }
+          $names = @($release.assets | ForEach-Object name)
+          foreach ($pattern in '*.exe','*.msi','*.sig','SHA256SUMS','release-manifest.json') {
+            if (-not ($names | Where-Object { $_ -like $pattern })) { throw "Missing required release asset: $pattern" }
+          }
+      - name: Publish approved release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "${{ inputs.tag }}" --draft=false

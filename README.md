@@ -1,181 +1,59 @@
-<div align="center">
-  <h1>◇ AIVO</h1>
-  <p><strong>AI-Powered PC Control Panel</strong></p>
-  <p>Monitor · Chat · Console · Files · Automation · Remote</p>
+﻿<div align="center">
+  <h1>◇ Sentinel</h1>
+  <p><strong>Trust Layer for AI-OS Interaction</strong></p>
+  <p>A security layer between AI agents and your operating system — policies, audit, and execution control.</p>
   <br/>
   <p>
     <img src="https://img.shields.io/badge/python-3.12-blue" alt="Python 3.12"/>
-    <img src="https://img.shields.io/badge/rust-1.96-orange" alt="Rust"/>
-    <img src="https://img.shields.io/badge/react-19-cyan" alt="React 19"/>
+    <img src="https://img.shields.io/badge/version-1.0.0-green" alt="v1.0.0"/>
     <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT"/>
+    <img src="https://img.shields.io/github/v/release/anomalyco/sentinel" alt="GitHub Release"/>
   </p>
-  <br/>
 </div>
 
----
+## What is Sentinel?
 
-## ✨ Features
+Sentinel is a **Trust Layer** — it sits between AI agents and your operating system, enforcing security policies, auditing every execution, and redacting sensitive data from outputs.
 
-| Module | Description |
-|---|---|
-| **Dashboard** | Real-time CPU/RAM/disk gauges, quick actions, AI analysis |
-| **Monitor** | Detailed metrics: CPU per-core, RAM, disk, network, processes |
-| **AI Chat** | Chat with AI about your PC — 10 providers (OpenAI, Anthropic, Ollama, etc.) |
-| **Console** | Run shell commands with safety gates and permission system |
-| **Files** | Browse, search, read, edit files on your system |
-| **Audit Log** | Every action logged with timestamp and result |
-| **Permissions** | 4 levels (View/Confirm/Auto/Admin) + Emergency Stop |
-| **Plugins** | Extend AIVO with Python hooks (on_metrics, on_command, etc.) |
-| **Fleet** | Remote access with token-based pairing and QR |
-| **Settings** | AI provider config, provider switcher, API key tester |
+## Quick Start
 
-## 🖥️ Screenshots
-
-> *Coming soon*
-
-## 🚀 Quick Start
-
-### Prerequisites
-- **Python** 3.12+
-- **Node.js** 20+
-- **Rust** 1.70+ (optional, for desktop app)
-
-### One-Command Setup
-```
-setup.bat
-```
-
-### Manual Setup
-```bash
-# 1. Python environment
-cd sidecar
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-
-# 2. Node dependencies
-cd ..
-npm install
-
-# 3. Start sidecar (terminal 1)
-cd sidecar
-.venv\Scripts\activate
-uvicorn main:app --host 127.0.0.1 --port 8765 --reload
-
-# 4. Start frontend (terminal 2)
-npm run dev
-
-# 5. Open browser
-start http://localhost:5173
-```
-
-### Desktop App (Tauri)
-```bash
-npm run tauri:dev      # Development mode
-npm run tauri:build    # Production installer
-```
-
-## 🏗️ Architecture
-
-```
-AIVO/
-├── src/                    # React frontend
-│   ├── components/         # UI components
-│   ├── api.ts              # REST API client
-│   ├── types.ts            # TypeScript types
-│   └── index.css           # Dark theme
-├── sidecar/                # Python backend
-│   ├── main.py             # FastAPI server (port 8765)
-│   ├── fleet_server.py     # Remote proxy server (port 8766)
-│   ├── modules/            # Backend modules
-│   │   ├── monitor.py      # System metrics (psutil)
-│   │   ├── executor.py     # Shell command execution
-│   │   ├── ai_provider.py  # AI chat (10 providers)
-│   │   ├── filesystem.py   # File operations
-│   │   ├── permissions.py  # Permission system
-│   │   ├── audit.py        # Audit logging
-│   │   ├── proactive.py    # Background health engine
-│   │   ├── plugins.py      # Plugin system
-│   │   ├── voice.py        # Text-to-speech
-│   │   └── fleet.py        # Remote access
-│   └── plugins/            # Built-in plugins
-├── src-tauri/              # Tauri desktop shell
-├── setup.bat               # One-click setup
-└── package.json            # Frontend scripts
-```
-
-## 🧩 Plugin System
-
-Plugins are Python scripts with hooks. Create one in `~/.aivo/plugins/`:
-
-```json
-// manifest.json
-{
-  "id": "my_plugin",
-  "name": "My Plugin",
-  "version": "1.0.0",
-  "hooks": ["on_metrics", "on_command"],
-  "enabled": true
-}
-```
-
-```python
-# main.py
-def on_metrics(ctx):
-    print(f"CPU: {ctx.get('cpu_percent')}%")
-    return {"custom_alert": cpu > 90}
-
-def on_command(ctx):
-    if "hello" in ctx.get("command", ""):
-        return {"handled": True, "stdout": "Hello from plugin!"}
-    return {"handled": False}
-```
-
-## 🔒 Safety
-
-- **4 permission levels**: View (read-only), Confirm (prompt before dangerous), Auto (automatic), Admin (no restrictions)
-- **Destructive pattern detection**: `rm`, `del`, `format`, `shutdown` and 10+ more patterns flagged
-- **Emergency Stop**: Global kill switch for all command execution
-- **Audit Trail**: Every action logged with timestamp, user, and result
-
-## 🤖 AI Providers
-
-| Provider | Tier | Default Model |
-|---|---|---|
-| OpenRouter | Free | `deepseek-v4-flash:free` |
-| DeepSeek | Free | `deepseek-v4-flash` |
-| Groq | Free | `llama-3.3-70b-versatile` |
-| Gemini | Free | `gemini-2.5-flash` |
-| GitHub Models | Free | `gpt-4o` |
-| Cerebras | Free | `llama-3.3-70b` |
-| Mistral | Free | `mistral-large-latest` |
-| Ollama | Local | `llama3` |
-| OpenAI | Paid | `gpt-4o` |
-| Anthropic | Paid | `claude-sonnet-4` |
-
-## 📄 API Docs
-
-When the sidecar is running:
-- **Swagger UI**: http://127.0.0.1:8765/docs
-- **ReDoc**: http://127.0.0.1:8765/redoc
-- **OpenAPI JSON**: http://127.0.0.1:8765/openapi.json
-
-## 🧪 Testing
+### Docker
 
 ```bash
-# Frontend tests
-npm test
-
-# Backend tests (requires sidecar running)
-pytest sidecar/tests/ -v
+docker pull ghcr.io/anomalyco/sentinel:latest
+docker run -d -p 8765:8765 ghcr.io/anomalyco/sentinel:latest
 ```
 
-## 🛠️ Tech Stack
+Open http://localhost:8765
 
-**Frontend**: React 19, TypeScript 6, Vite 8, Tauri 2  
-**Backend**: Python 3.12, FastAPI, psutil, OpenAI SDK  
-**Desktop**: Rust, Tauri v2, WebView2  
+### Windows
 
-## 📜 License
+Download the MSI installer from the [Releases page](https://github.com/anomalyco/sentinel/releases).
+
+## Architecture
+
+```
+Identity → Intent → Decision → Policy → Gateway → Execution → Quality → Audit
+```
+
+Every tool execution goes through this 7-step pipeline. No bypass is allowed.
+
+## Features
+
+- **YAML Policies** — Configure permission levels, destructive patterns, and tool access without touching code
+- **Hot Reload** — Edit policy YAML files and reload without restarting
+- **Quality Gate** — Automatic detection and redaction of API keys, tokens, and secrets in tool outputs
+- **SQLite Storage** — All audit logs, execution history, and config in a single database file
+- **API v1** — Professional REST API with OpenAPI spec
+
+## Documentation
+
+- [Getting Started](docs/getting-started.md)
+- [Policies Guide](docs/policies-guide.md)
+- [API Reference](docs/api-reference.md)
+- [Deployment Guide](docs/deployment.md)
+- [OpenAPI Spec](docs/openapi.yaml)
+
+## License
 
 MIT

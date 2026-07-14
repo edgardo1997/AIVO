@@ -1,0 +1,14 @@
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "S"]
+ignore = [
+    "E402", "E501", "F401",
+    "S101", "S104", "S603", "S607", "S608", "S310",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E712"]
+"__init__.py" = ["F401"]

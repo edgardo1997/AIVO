@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
-import { api } from "../../api";
+import { useCallback, useState } from "react";
+import { api, v1Api } from "../../api";
+import { usePolling } from "../../hooks/usePolling";
 import type { CpuInfo, MemoryInfo, DiskInfo, NetworkInfo, ProcessInfo } from "../../types";
 
 export function Monitor() {
@@ -9,20 +10,17 @@ export function Monitor() {
   const [net, setNet] = useState<NetworkInfo | null>(null);
   const [procs, setProcs] = useState<ProcessInfo[]>([]);
 
-  useEffect(() => {
-    const fetch = async () => {
-      try {
-        setCpu(await api.monitor.cpu());
-        setMem(await api.monitor.memory());
-        setDisk(await api.monitor.disk());
-        setNet(await api.monitor.network());
-        setProcs(await api.monitor.processes());
-      } catch {}
-    };
-    fetch();
-    const interval = setInterval(fetch, 3000);
-    return () => clearInterval(interval);
+  const fetch = useCallback(async () => {
+    try {
+      setCpu(await api.monitor.cpu());
+      setMem(await api.monitor.memory());
+      setDisk(await api.monitor.disk());
+      setNet(await api.monitor.network());
+      setProcs(await api.monitor.processes());
+    } catch {}
   }, []);
+
+  usePolling(fetch, 3000);
 
   const barColor = (p: number) => p > 80 ? "red" : p > 50 ? "yellow" : "green";
   const fmt = (b: number) => {
@@ -42,7 +40,7 @@ export function Monitor() {
           <div className="bar-container">
             <div className={`bar-fill ${barColor(cpu?.percent ?? 0)}`} style={{ width: `${cpu?.percent ?? 0}%` }} />
           </div>
-          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
+          <div className="metric-sub">
             {cpu?.freq ? `${(cpu.freq.current / 1000).toFixed(1)} GHz` : ""}
           </div>
         </div>
@@ -52,7 +50,7 @@ export function Monitor() {
           <div className="bar-container">
             <div className={`bar-fill ${barColor(mem?.percent ?? 0)}`} style={{ width: `${mem?.percent ?? 0}%` }} />
           </div>
-          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
+          <div className="metric-sub">
             {mem ? `${fmt(mem.used)} / ${fmt(mem.total)}` : ""}
           </div>
         </div>
@@ -62,7 +60,7 @@ export function Monitor() {
           <div className="bar-container">
             <div className={`bar-fill ${barColor(mem?.swap_percent ?? 0)}`} style={{ width: `${mem?.swap_percent ?? 0}%` }} />
           </div>
-          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
+          <div className="metric-sub">
             {mem ? `${fmt(mem.swap_used)} / ${fmt(mem.swap_total)}` : ""}
           </div>
         </div>
@@ -79,7 +77,7 @@ export function Monitor() {
               <div className="bar-container">
                 <div className={`bar-fill ${barColor(p.percent)}`} style={{ width: `${p.percent}%` }} />
               </div>
-              <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+              <div className="metric-sub">
                 {fmt(p.free)} free of {fmt(p.total)}
               </div>
             </div>
@@ -90,7 +88,7 @@ export function Monitor() {
           <div style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.8 }}>
             <div>↓ {fmt(net?.bytes_recv ?? 0)} received</div>
             <div>↑ {fmt(net?.bytes_sent ?? 0)} sent</div>
-            <div style={{ marginTop: 8, fontSize: 11, color: "var(--text-muted)" }}>
+            <div className="metric-sub" style={{ marginTop: 8 }}>
               {net?.connections.length ?? 0} active connections
             </div>
           </div>
@@ -122,7 +120,7 @@ export function Monitor() {
                   </td>
                   <td>
                     <button className="btn btn-danger" style={{ padding: "2px 8px", fontSize: 11 }}
-                      onClick={() => api.executor.kill(p.pid)}>
+                      onClick={() => v1Api.execute("executor.kill", { pid: p.pid })}>
                       Kill
                     </button>
                   </td>

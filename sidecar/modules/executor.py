@@ -1,14 +1,15 @@
-import subprocess
-import shutil
-import os
+import dataclasses
+import logging
 import uuid
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
-from .permissions import check_permission, PENDING_ACTIONS, DESTRUCTIVE_PATTERNS
-from .audit import log_action
-from .plugins import run_hook
+from services.executor_service import ExecutorService, DESTRUCTIVE_PATTERNS
 
+log = logging.getLogger("sentinel.executor")
 router = APIRouter()
+
+# Keep _svc for backward compatibility and for informative endpoints
+_svc = ExecutorService()
 
 class CommandRequest(BaseModel):
     command: str
@@ -20,150 +21,111 @@ class LaunchRequest(BaseModel):
     app_name: str
     args: str = ""
 
-DESTRUCTIVE_DESCRIPTIONS = {
-    "rm ": "Delete files/folders",
-    "del ": "Delete files",
-    "format": "Format disk",
-    "shutdown": "Shut down system",
-    "reboot": "Reboot system",
-    "restart-computer": "Restart computer",
-    "stop-computer": "Stop computer",
-    "Remove-Item": "Remove files/folders",
-    "Clear-Content": "Clear file content",
-    "net user": "Modify user accounts",
-    "reg delete": "Delete registry keys",
-    "diskpart": "Disk partition operations",
-    "taskkill /f": "Force kill processes",
-}
+def wire_dependencies(permissions_svc, audit_svc):
+    _svc.set_permissions_service(permissions_svc)
+    _svc.set_audit_service(audit_svc)
+    # _svc.set_plugins_service omitted — plugins is a legacy module
 
-def classify_command(cmd: str) -> str:
-    cmd_lower = cmd.lower()
-    for pattern, desc in DESTRUCTIVE_DESCRIPTIONS.items():
-        if pattern in cmd_lower:
-            return f"DESTRUCTIVE: {desc}"
-    for safe in ["dir", "ls", "echo", "type", "find", "more", "help", "cd ", "pwd", "whoami", "ipconfig", "systeminfo", "tasklist", "netstat"]:
-        if cmd_lower.startswith(safe):
-            return "safe"
-    return "unknown"
+def _identity_dict(request: Request) -> dict:
+    identity = getattr(request.state, "identity", None)
+    if identity is None:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    return {
+        "user_id": identity.user_id,
+        "username": getattr(identity, "username", ""),
+        "role": getattr(identity, "role", "user"),
+        "level": identity.level,
+        "is_authenticated": getattr(identity, "is_authenticated", False),
+        "is_local": getattr(identity, "is_local", True),
+    }
+
+def _executor_result(result):
+    from sentinel.core.tool import ToolResult
+    if isinstance(result, ToolResult):
+        if result.requires_confirmation:
+            return {
+                "needs_confirm": True,
+                "action_id": (result.data or {}).get("action_id", ""),
+                "reason": result.error or "Requires confirmation",
+                "classification": (result.data or {}).get("classification", "unknown"),
+            }
+        if result.success:
+            return result.data
+        return {"stdout": "", "stderr": result.error or "Unknown error", "returncode": -1}
+    return result
 
 @router.post("/command")
-def run_command(req: CommandRequest):
-    classification = classify_command(req.command)
-
-    # Plugin on_command hooks
-    plugin_results = run_hook("on_command", command=req.command, classification=classification)
-    for pr in plugin_results:
-        if pr.get("result", {}).get("handled"):
-            log_action("command_handled_by_plugin", f"{req.command} via {pr['plugin']}", "success")
-            return {
-                "stdout": pr["result"].get("stdout", ""),
-                "stderr": pr["result"].get("stderr", ""),
-                "returncode": pr["result"].get("returncode", 0),
-                "classification": "plugin",
-                "plugin": pr["plugin"],
-                "handled": True,
-            }
-
-    if req.action_id and req.action_id in PENDING_ACTIONS:
-        action = PENDING_ACTIONS.pop(req.action_id)
-        if not req.confirmed:
-            log_action("command_blocked", f"{req.command} (user denied)", "blocked")
-            return {"stdout": "", "stderr": "Action was not confirmed", "returncode": -1}
-    else:
-        perm = check_permission("execute", req.command)
-        if not perm["allowed"]:
-            if perm.get("needs_confirm"):
-                action_id = str(uuid.uuid4())
-                PENDING_ACTIONS[action_id] = {
-                    "command": req.command,
-                    "classification": classification,
-                    "timeout": req.timeout,
-                }
-                log_action("command_pending", req.command, "pending_confirmation")
-                return {
-                    "needs_confirm": True,
-                    "action_id": action_id,
-                    "reason": perm.get("reason", "Requires confirmation"),
-                    "classification": classification,
-                }
-            log_action("command_blocked", f"{req.command} ({perm.get('reason', 'permission denied')})", "blocked")
-            return {"stdout": "", "stderr": perm.get("reason", "Permission denied"), "returncode": -1}
-
-    try:
-        result = subprocess.run(
-            req.command,
-            shell=True,
-            capture_output=True,
-            text=True,
-            timeout=req.timeout,
-        )
-        log_action("command_executed", req.command, "success" if result.returncode == 0 else "error")
+async def run_command(req: CommandRequest, request: Request):
+    from modules.sentinel_bridge import get_orchestrator
+    from modules.audit import _svc as audit_svc
+    orch = get_orchestrator()
+    params = {
+        "command": req.command,
+        "timeout": req.timeout,
+        "confirmed": req.confirmed,
+        "action_id": req.action_id,
+    }
+    result = await orch.execute_direct(
+        "executor.command", params,
+        identity=_identity_dict(request),
+    )
+    if result.tool_result and result.tool_result.requires_confirmation:
+        action_id = str(uuid.uuid4())
+        classification = _svc.classify_command(req.command)
+        from modules.permissions import _svc as perm_svc
+        perm_svc.create_pending_action(action_id, {
+            "command": req.command,
+            "classification": classification,
+            "timeout": req.timeout,
+        })
+        audit_svc.log_action("command_pending", req.command, "pending_confirmation")
         return {
-            "stdout": result.stdout,
-            "stderr": result.stderr,
-            "returncode": result.returncode,
+            "needs_confirm": True,
+            "action_id": action_id,
+            "reason": result.tool_result.error or "Requires confirmation",
             "classification": classification,
         }
-    except subprocess.TimeoutExpired:
-        log_action("command_timeout", req.command, "timeout")
-        return {"stdout": "", "stderr": "Command timed out", "returncode": -1}
-    except Exception as e:
-        log_action("command_error", req.command, "error")
-        return {"stdout": "", "stderr": str(e), "returncode": -1}
-
+    return _executor_result(result.tool_result)
 @router.post("/launch")
-def launch_app(req: LaunchRequest):
-    # Plugin on_command hooks
-    plugin_results = run_hook("on_command", command=f"launch {req.app_name}", classification="launch")
-    for pr in plugin_results:
-        if pr.get("result", {}).get("handled"):
-            log_action("launch_handled_by_plugin", f"{req.app_name} via {pr['plugin']}", "success")
-            return {"success": True, "plugin": pr["plugin"], "handled": True}
+async def launch_app(req: LaunchRequest, request: Request):
+    from modules.sentinel_bridge import get_orchestrator
+    orch = get_orchestrator()
+    result = await orch.execute_direct(
+        "executor.launch", {"app_name": req.app_name, "args": req.args},
+        identity=_identity_dict(request),
+    )
+    tool_result = result.tool_result
+    if not tool_result or not tool_result.success:
+        raise HTTPException(status_code=500, detail=(tool_result.error if tool_result else "Execution failed"))
+    return tool_result.data
 
-    perm = check_permission("launch", req.app_name)
-    if not perm["allowed"]:
-        raise HTTPException(403, perm.get("reason", "Permission denied"))
-    try:
-        app = shutil.which(req.app_name) or req.app_name
-        subprocess.Popen([app] + (req.args.split() if req.args else []),
-                         shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        log_action("app_launched", f"{req.app_name} {req.args}", "success")
-        return {"success": True, "message": f"Launched {req.app_name}"}
-    except Exception as e:
-        log_action("app_launch_error", f"{req.app_name}: {str(e)}", "error")
-        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/kill/{pid}")
-def kill_process(pid: int):
-    perm = check_permission("kill", f"kill pid {pid}")
-    if not perm["allowed"]:
-        raise HTTPException(403, perm.get("reason", "Permission denied"))
-    try:
-        import psutil
-        proc = psutil.Process(pid)
-        proc.terminate()
-        log_action("process_killed", f"PID {pid} ({proc.name()})", "success")
-        return {"success": True, "message": f"Process {pid} terminated"}
-    except Exception as e:
-        log_action("process_kill_error", f"PID {pid}: {str(e)}", "error")
-        raise HTTPException(status_code=500, detail=str(e))
+async def kill_process(pid: int, request: Request):
+    from modules.sentinel_bridge import get_orchestrator
+    orch = get_orchestrator()
+    result = await orch.execute_direct(
+        "executor.kill", {"pid": pid},
+        identity=_identity_dict(request),
+    )
+    tool_result = result.tool_result
+    if not tool_result or not tool_result.success:
+        detail = (tool_result.error or "Kill failed") if tool_result else "Kill failed"
+        if "not found" in detail.lower():
+            raise HTTPException(status_code=404, detail=detail)
+        if "denied" in detail.lower() or "access" in detail.lower():
+            raise HTTPException(status_code=403, detail=detail)
+        raise HTTPException(status_code=500, detail=detail)
+    return tool_result.data
 
 @router.get("/which/{name}")
 def which_app(name: str):
-    path = shutil.which(name)
-    return {"name": name, "path": path, "found": path is not None}
+    return _svc.which_app(name)
 
 @router.get("/apps")
 def list_installed_apps():
-    paths = os.environ.get("PATH", "").split(os.pathsep)
-    apps = set()
-    for p in paths:
-        if os.path.isdir(p):
-            for f in os.listdir(p):
-                if f.endswith(".exe") and not f.startswith("uninstall"):
-                    apps.add(f.replace(".exe", ""))
-    return sorted(apps)[:200]
+    return _svc.list_installed_apps()
 
 @router.get("/destructive-patterns")
 def get_destructive_patterns():
-    return {"patterns": DESTRUCTIVE_PATTERNS}
+    return _svc.get_destructive_patterns()

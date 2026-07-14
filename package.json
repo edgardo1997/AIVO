@@ -1,7 +1,7 @@
 {
-  "name": "aivo",
+  "name": "sentinel",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -12,7 +12,8 @@
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:e2e": "python -m pytest sidecar/tests/test_e2e_pipeline.py sidecar/tests/test_e2e_full_suite.py -q"
   },
   "dependencies": {
     "@tauri-apps/plugin-updater": "^2.10.1",

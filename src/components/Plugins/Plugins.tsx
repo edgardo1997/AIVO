@@ -17,7 +17,7 @@ export function Plugins() {
       const res = await api.plugins.list();
       setPlugins(res.plugins);
       setLoading(false);
-    } catch (e) {
+    } catch {
       addLog("Failed to load plugins");
     }
   };
@@ -86,7 +86,7 @@ export function Plugins() {
             </div>
           </div>
         ))}
-        {!loading && plugins.length === 0 && <div className="card" style={{ padding: 16, textAlign: "center", color: "var(--text-muted)" }}>No plugins found. Create one above or drop a plugin folder in ~/.aivo/plugins/</div>}
+        {!loading && plugins.length === 0 && <div className="card" style={{ padding: 16, textAlign: "center", color: "var(--text-muted)" }}>No plugins found. Create one above or drop a plugin folder in the configured plugins directory.</div>}
       </div>
 
       {log.length > 0 && (

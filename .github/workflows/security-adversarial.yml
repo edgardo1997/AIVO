@@ -1,0 +1,30 @@
+name: Sentinel adversarial security tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  adversarial-tests:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: sidecar/requirements.txt
+      - name: Install locked runtime dependencies
+        run: pip install -r sidecar/requirements.txt bandit==1.8.6
+      - name: Block medium and high static-analysis findings
+        run: python -m bandit -r sentinel sidecar -x sidecar/tests,sidecar/plugins -ll
+      - name: Run adversarial security suite
+        env:
+          AIVO_TESTING: "1"
+        run: python -m pytest sidecar/tests/test_adversarial_security.py sidecar/tests/test_production_security.py sidecar/tests/test_pentest_gate.py -q --maxfail=1

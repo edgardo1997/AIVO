@@ -200,7 +200,13 @@ class TriggerEngine:
                 if rule.action and self._execute_fn:
                     try:
                         if asyncio.iscoroutinefunction(self._execute_fn):
-                            asyncio.create_task(self._execute_fn(rule.action.tool_id, rule.action.params))
+                            action_coro = self._execute_fn(rule.action.tool_id, rule.action.params)
+                            try:
+                                loop = asyncio.get_running_loop()
+                            except RuntimeError:
+                                asyncio.run(action_coro)
+                            else:
+                                loop.create_task(action_coro)
                         else:
                             self._execute_fn(rule.action.tool_id, rule.action.params)
                         record.action_executed = True

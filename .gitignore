@@ -9,8 +9,11 @@ build/
 venv/
 env/
 .pytest_cache/
+.pytest-*.xml
 .ruff_cache/
 .coverage
+.coverage-*
+.coverage-critical-*.json
 coverage.xml
 htmlcov/
 

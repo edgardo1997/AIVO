@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from unittest.mock import patch
 
 os.environ["AIVO_TESTING"] = "1"
+os.environ.setdefault("SENTINEL_JWT_SECRET", "sentinel-test-jwt-secret-not-for-production")
 _test_data_dir = tempfile.mkdtemp(prefix="sentinel-tests-")
 os.environ["SENTINEL_DB_PATH"] = os.path.join(_test_data_dir, "sentinel-test.db")
 os.environ["AIVO_DB_PATH"] = os.environ["SENTINEL_DB_PATH"]
@@ -82,18 +83,34 @@ def clean_state():
     yield
 
 
+@pytest.fixture(autouse=True)
+def disable_external_model_probes(monkeypatch):
+    """Unit and integration tests must never discover services on the host."""
+    from sentinel.core.model_router import ModelRouter
+
+    monkeypatch.setattr(
+        ModelRouter,
+        "check_health",
+        lambda self, provider_id, timeout=0.75: {
+            "provider_id": provider_id,
+            "available": False,
+            "reason": "disabled_in_tests",
+        },
+    )
+
+
 @pytest.fixture
 def client():
-    tc = TestClient(app)
-    tc.headers.update({"X-Test-Token": "valid-test-token"})
-    return tc
+    with TestClient(app) as tc:
+        tc.headers.update({"X-Test-Token": "valid-test-token"})
+        yield tc
 
 
 @pytest.fixture
-def temp_config():
+def temp_config(tmp_path):
     old = os.environ.get("AIVO_CONFIG")
     cfg = {"provider": "openrouter", "api_key": "test-key", "model": "test-model", "base_url": "http://test"}
-    path = os.path.join(tempfile.gettempdir(), ".aivo_test_config.json")
+    path = str(tmp_path / "aivo-test-config.json")
     with open(path, "w") as f:
         json.dump(cfg, f)
     os.environ["AIVO_CONFIG"] = path

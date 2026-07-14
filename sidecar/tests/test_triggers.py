@@ -218,7 +218,8 @@ class TestTriggerCore:
         # Action isn't awaited in evaluate since it uses create_task; check record
         history = engine.get_history()
         assert len(history) == 1
-        # The record shows the fire but action_executed depends on async scheduling
+        assert results == [("test.tool", {"key": "val"})]
+        assert history[0].action_executed is True
 
     def test_list_rules(self):
         engine = TriggerEngine()

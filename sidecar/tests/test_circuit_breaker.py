@@ -123,7 +123,9 @@ class TestCircuitBreakerIntegration:
             mr.chat([{"role": "user", "content": "hi"}], task_type=TaskType.QUICK)
 
     def test_router_records_success_on_success(self):
-        mr = ModelRouter()
+        mr = ModelRouter(
+            providers=[ProviderSpec("openrouter", "OpenRouter", [TaskType.QUICK], requires_key=False)]
+        )
         # patch _call_provider to succeed
 
         def mock_call(decision, provider, messages, model_override=None):
@@ -136,7 +138,7 @@ class TestCircuitBreakerIntegration:
         assert state["state"] == "closed"
 
     def test_router_records_failure_on_exception(self):
-        mr = ModelRouter()
+        mr = ModelRouter(providers=[ProviderSpec("ollama", "Ollama", [TaskType.QUICK], requires_key=False)])
         mr._circuit_breaker = CircuitBreaker(failure_threshold=1)
 
         def mock_call(decision, provider, messages, model_override=None):
@@ -152,7 +154,12 @@ class TestCircuitBreakerIntegration:
         assert state["state"] == "open"
 
     def test_all_open_raises_helpful_error(self):
-        mr = ModelRouter()
+        mr = ModelRouter(
+            providers=[
+                ProviderSpec("openrouter", "OpenRouter", [TaskType.QUICK], requires_key=False),
+                ProviderSpec("groq", "Groq", [TaskType.QUICK], requires_key=False),
+            ]
+        )
         # open all providers
         for pid in list(mr._providers.keys()):
             mr._circuit_breaker.record_failure(pid)

@@ -36,8 +36,11 @@ class TestMultiAgentAPI:
         assert resp.status_code == 200
         data = resp.json()
         assert isinstance(data.get("sub_task_results"), list)
-        # passthrough should succeed even without real agents
-        assert data.get("success") is True
+        # A real agent without a configured provider must fail explicitly;
+        # tests must not silently turn unavailable providers into success.
+        assert data.get("success") is False
+        assert data.get("error")
+        assert data["sub_task_results"][0]["success"] is False
 
     def test_multi_agent_complex_task(self):
         resp = client.post(

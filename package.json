@@ -13,7 +13,13 @@
     "tauri:build": "tauri build",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "python -m pytest sidecar/tests/test_e2e_pipeline.py sidecar/tests/test_e2e_full_suite.py -q"
+    "test:e2e": "python -m pytest sidecar/tests/test_e2e_pipeline.py sidecar/tests/test_e2e_full_suite.py -q",
+    "test:py": "python -m pytest",
+    "test:py:unit": "python -m pytest -m unit",
+    "test:py:integration": "python -m pytest -m integration",
+    "test:py:security": "python -m pytest -m security",
+    "test:py:e2e": "python -m pytest -m e2e",
+    "test:py:performance": "python -m pytest -m performance --timeout=180"
   },
   "dependencies": {
     "@tauri-apps/plugin-updater": "^2.10.1",

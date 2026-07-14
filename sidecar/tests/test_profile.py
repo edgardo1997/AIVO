@@ -2,6 +2,12 @@
 
 from fastapi.testclient import TestClient
 
+from modules.jwt_auth import create_access_token
+
+
+def _headers(user_id: str) -> dict[str, str]:
+    return {"X-Test-Token": "", "Authorization": f"Bearer {create_access_token(user_id)}"}
+
 
 def test_get_profile_no_auth(client: TestClient):
     resp = client.get("/v1/profile")
@@ -14,7 +20,7 @@ def test_get_profile_no_auth(client: TestClient):
 
 
 def test_get_profile_authenticated(client: TestClient):
-    headers = {"X-User-Id": "test-user-authd"}
+    headers = _headers("test-user-authd")
     resp = client.get("/v1/profile", headers=headers)
     assert resp.status_code == 200
     data = resp.json()
@@ -24,7 +30,7 @@ def test_get_profile_authenticated(client: TestClient):
 
 
 def test_update_profile(client: TestClient):
-    headers = {"X-User-Id": "test-user-update"}
+    headers = _headers("test-user-update")
     resp = client.patch("/v1/profile", json={"display_name": "Updated Name", "theme": "dark"}, headers=headers)
     assert resp.status_code == 200
     assert resp.json()["status"] == "updated"
@@ -35,7 +41,7 @@ def test_update_profile(client: TestClient):
 
 
 def test_update_profile_partial(client: TestClient):
-    headers = {"X-User-Id": "test-user-partial"}
+    headers = _headers("test-user-partial")
     resp = client.patch("/v1/profile", json={"timezone": "UTC"}, headers=headers)
     assert resp.status_code == 200
 
@@ -44,7 +50,7 @@ def test_update_profile_partial(client: TestClient):
 
 
 def test_whoami(client: TestClient):
-    headers = {"X-User-Id": "test-user-whoami"}
+    headers = _headers("test-user-whoami")
     resp = client.get("/v1/whoami", headers=headers)
     assert resp.status_code == 200
     data = resp.json()
@@ -53,7 +59,7 @@ def test_whoami(client: TestClient):
 
 
 def test_set_preference(client: TestClient):
-    headers = {"X-User-Id": "test-user-prefs"}
+    headers = _headers("test-user-prefs")
     resp = client.put("/v1/profile/preferences", json={"key": "language", "value": "es"}, headers=headers)
     assert resp.status_code == 200
     assert resp.json()["key"] == "language"
@@ -63,7 +69,7 @@ def test_set_preference(client: TestClient):
 
 
 def test_set_preference_overwrite(client: TestClient):
-    headers = {"X-User-Id": "test-user-prefs-ow"}
+    headers = _headers("test-user-prefs-ow")
     client.put("/v1/profile/preferences", json={"key": "theme", "value": "light"}, headers=headers)
     client.put("/v1/profile/preferences", json={"key": "theme", "value": "dark"}, headers=headers)
 
@@ -72,7 +78,7 @@ def test_set_preference_overwrite(client: TestClient):
 
 
 def test_delete_preference(client: TestClient):
-    headers = {"X-User-Id": "test-user-prefs-del"}
+    headers = _headers("test-user-prefs-del")
     client.put("/v1/profile/preferences", json={"key": "temp", "value": "x"}, headers=headers)
     resp = client.request("DELETE", "/v1/profile/preferences", json={"key": "temp"}, headers=headers)
     assert resp.status_code == 200
@@ -82,13 +88,13 @@ def test_delete_preference(client: TestClient):
 
 
 def test_delete_nonexistent_preference(client: TestClient):
-    headers = {"X-User-Id": "test-user-prefs-del-none"}
+    headers = _headers("test-user-prefs-del-none")
     resp = client.request("DELETE", "/v1/profile/preferences", json={"key": "nonexistent"}, headers=headers)
     assert resp.status_code == 404
 
 
 def test_multiple_preferences(client: TestClient):
-    headers = {"X-User-Id": "test-user-multi"}
+    headers = _headers("test-user-multi")
     prefs = {"lang": "en", "theme": "dark", "notifications": True}
     for k, v in prefs.items():
         client.put("/v1/profile/preferences", json={"key": k, "value": v}, headers=headers)
@@ -100,8 +106,8 @@ def test_multiple_preferences(client: TestClient):
 
 
 def test_profile_isolation_between_users(client: TestClient):
-    headers_a = {"X-User-Id": "user-alpha"}
-    headers_b = {"X-User-Id": "user-beta"}
+    headers_a = _headers("user-alpha")
+    headers_b = _headers("user-beta")
 
     client.patch("/v1/profile", json={"display_name": "Alpha"}, headers=headers_a)
     client.patch("/v1/profile", json={"display_name": "Beta"}, headers=headers_b)
@@ -114,8 +120,8 @@ def test_profile_isolation_between_users(client: TestClient):
 
 
 def test_preferences_survive_restart(client: TestClient):
-    headers = {"X-User-Id": "test-user-persist"}
+    headers = _headers("test-user-persist")
     client.put("/v1/profile/preferences", json={"key": "persistent_key", "value": "persistent_value"}, headers=headers)
-    fresh = TestClient(client.app)
-    resp = fresh.get("/v1/profile/preferences", headers=headers)
+    with TestClient(client.app) as fresh:
+        resp = fresh.get("/v1/profile/preferences", headers=headers)
     assert resp.json()["preferences"].get("persistent_key") == "persistent_value"

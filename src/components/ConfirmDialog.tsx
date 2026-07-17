@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { Icon } from "./ui";
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -41,8 +42,10 @@ export function ConfirmDialog({ open, title, message, details, onConfirm, onDeny
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-          <span style={{ fontSize: 20 }}>⚠️</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+          <span style={{ display: "grid", placeItems: "center", width: 34, height: 34, borderRadius: 10, background: "var(--danger-soft)", color: "var(--danger)" }}>
+            <Icon name="alert" size={19} />
+          </span>
           <h3 style={{ fontSize: 16, fontWeight: 600, color: "var(--danger)" }}>{title}</h3>
         </div>
         <p style={{ fontSize: 14, color: "var(--text-secondary)", marginBottom: 8 }}>{message}</p>

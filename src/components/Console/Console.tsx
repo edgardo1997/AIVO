@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { api } from "../../api";
 import { ConfirmDialog } from "../ConfirmDialog";
+import { PageHeader, Button } from "../ui";
 
 export function Console() {
   const [output, setOutput] = useState<string[]>([
@@ -95,19 +96,17 @@ export function Console() {
     <div>
       <ConfirmDialog
         open={confirmOpen}
-        title="⚠️ Confirm Command Execution"
+        title="Confirm Command Execution"
         message="This command requires your approval:"
         details={pendingCmd}
         onConfirm={handleConfirm}
         onDeny={handleDeny}
         onCancel={handleDeny}
       />
-      <h2 style={{ marginBottom: 16, fontWeight: 600 }}>Console</h2>
-      <div style={{ marginBottom: 12, display: "flex", flexWrap: "wrap", gap: 6 }}>
+      <PageHeader icon="console" title="Console" subtitle="Run shell commands with safety gates" />
+      <div className="row-wrap" style={{ marginBottom: 12, gap: 8 }}>
         {quickCommands.map((qc) => (
-          <button key={qc.label} className="btn btn-ghost" style={{ fontSize: 11 }} onClick={() => setInput(qc.cmd)}>
-            {qc.label}
-          </button>
+          <Button key={qc.label} size="sm" icon="zap" onClick={() => setInput(qc.cmd)}>{qc.label}</Button>
         ))}
       </div>
       <div className="console-output" ref={outRef as any}>
@@ -117,17 +116,16 @@ export function Console() {
           </div>
         ))}
       </div>
-      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+      <div className="row" style={{ gap: 8, marginTop: 10 }}>
         <input
-          className="chat-input"
+          className="input mono"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKey}
           placeholder="> type a command..."
-          style={{ fontFamily: "monospace" }}
         />
-        <button className="btn btn-primary" onClick={execute}>Run</button>
-        <button className="btn btn-ghost" onClick={() => setOutput(["Console cleared.", ""])}>Clear</button>
+        <Button variant="primary" icon="play" onClick={execute}>Run</Button>
+        <Button icon="trash" onClick={() => setOutput(["Console cleared.", ""])}>Clear</Button>
       </div>
     </div>
   );

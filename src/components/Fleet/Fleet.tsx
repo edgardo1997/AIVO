@@ -1,10 +1,12 @@
 import { useState, useEffect } from "react";
 import { api } from "../../api";
 import type { FleetStatus } from "../../types";
+import { PageHeader, Card, Button, Badge, Icon, EmptyState } from "../ui";
 
 export function Fleet() {
   const [status, setStatus] = useState<FleetStatus | null>(null);
   const [loading, setLoading] = useState(true);
+  const [online, setOnline] = useState<boolean | null>(null);
   const [pairingToken, setPairingToken] = useState("");
   const [qrData, setQrData] = useState("");
 
@@ -12,10 +14,11 @@ export function Fleet() {
     try {
       const s = await api.fleet.status();
       setStatus(s);
-      setLoading(false);
+      setOnline(true);
     } catch {
-      setLoading(false);
+      setOnline(false);
     }
+    setLoading(false);
   };
 
   useEffect(() => { refresh(); }, []);
@@ -35,66 +38,77 @@ export function Fleet() {
     refresh();
   };
 
-  const toggleRemote = async () => {
-    await api.fleet.toggleRemote();
-    refresh();
-  };
+  const toggleRemote = async () => { await api.fleet.toggleRemote(); refresh(); };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <h2 style={{ fontWeight: 600 }}>Fleet / Remote Access</h2>
+    <div className="fade-in" style={{ maxWidth: 820 }}>
+      <PageHeader
+        icon="fleet"
+        title="Fleet & Remote Access"
+        subtitle="Securely control this PC from another device"
+        actions={status && (
+          <>
+            <Badge variant={status.remote_enabled ? "success" : "secondary"} dot>{status.remote_enabled ? "Remote on" : "Remote off"}</Badge>
+            <Badge variant={status.paired ? "success" : "secondary"}>{status.paired ? "Paired" : "Not paired"}</Badge>
+          </>
+        )}
+      />
 
       {loading ? (
-        <div className="card" style={{ padding: 16 }}>Loading...</div>
-      ) : status ? (
-        <>
-          <div className="card" style={{ padding: 16 }}>
-            <div className="card-title">Connection Info</div>
-            <table style={{ width: "100%", fontSize: 13, marginTop: 8 }}>
-              <tbody>
-                <tr><td style={{ padding: "4px 8px", color: "var(--text-muted)" }}>Local IP</td><td>{status.local_ip}</td></tr>
-                <tr><td style={{ padding: "4px 8px", color: "var(--text-muted)" }}>API Port</td><td>{status.api_port}</td></tr>
-                <tr><td style={{ padding: "4px 8px", color: "var(--text-muted)" }}>API URL</td><td><code>{status.api_url}</code></td></tr>
-                <tr><td style={{ padding: "4px 8px", color: "var(--text-muted)" }}>Remote Access</td><td><span className={`badge ${status.remote_enabled ? "badge-success" : "badge-secondary"}`}>{status.remote_enabled ? "Enabled" : "Disabled"}</span></td></tr>
-                <tr><td style={{ padding: "4px 8px", color: "var(--text-muted)" }}>Paired Devices</td><td><span className={`badge ${status.paired ? "badge-success" : "badge-secondary"}`}>{status.paired ? "Paired" : "Not Paired"}</span></td></tr>
-              </tbody>
-            </table>
-          </div>
+        <Card><EmptyState icon="fleet" title="Loading fleet status…" /></Card>
+      ) : online && status ? (
+        <div className="stack">
+          <Card title="Connection Info" icon="server">
+            <div className="stack" style={{ gap: 0 }}>
+              <InfoRow icon="wifi" label="Local IP" value={status.local_ip} />
+              <InfoRow icon="network" label="API Port" value={String(status.api_port)} />
+              <InfoRow icon="fleet" label="API URL" value={status.api_url} mono />
+            </div>
+          </Card>
 
-          <div className="card" style={{ padding: 16 }}>
-            <div className="card-title">Pairing</div>
-            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-              <button className="btn btn-primary" onClick={generatePairing}>Generate Pairing Token</button>
-              <button className="btn btn-ghost" onClick={revokePairing} disabled={!pairingToken}>Revoke Token</button>
-              <button className="btn btn-ghost" onClick={toggleRemote}>{status.remote_enabled ? "Disable Remote" : "Enable Remote"}</button>
+          <Card title="Pairing" icon="key">
+            <div className="row-wrap" style={{ gap: 8 }}>
+              <Button variant="primary" icon="plus" onClick={generatePairing}>Generate Pairing Token</Button>
+              <Button icon="x" onClick={revokePairing} disabled={!pairingToken}>Revoke Token</Button>
+              <Button icon="power" onClick={toggleRemote}>{status.remote_enabled ? "Disable Remote" : "Enable Remote"}</Button>
             </div>
             {pairingToken && (
-              <div style={{ marginTop: 12 }}>
-                <div className="card-title" style={{ marginBottom: 4 }}>Pairing Token</div>
-                <div style={{ fontSize: 24, fontWeight: 700, letterSpacing: 4, fontFamily: "monospace", background: "var(--bg-secondary)", padding: "8px 16px", borderRadius: 8, display: "inline-block" }}>{pairingToken}</div>
+              <div style={{ marginTop: 16 }}>
+                <div className="field-label">Pairing token</div>
+                <div className="mono" style={{ fontSize: 26, fontWeight: 700, letterSpacing: 6, background: "var(--bg-inset)", border: "1px solid var(--border)", padding: "12px 20px", borderRadius: "var(--radius)", display: "inline-block", color: "var(--accent-light)" }}>
+                  {pairingToken}
+                </div>
                 {qrData && (
-                  <div style={{ marginTop: 8 }}>
-                    <div className="card-title" style={{ marginBottom: 4 }}>QR Code Data (for mobile pairing)</div>
-                    <code style={{ fontSize: 11, wordBreak: "break-all" }}>{qrData}</code>
+                  <div style={{ marginTop: 12 }}>
+                    <div className="field-label">QR data (for mobile pairing)</div>
+                    <code style={{ fontSize: 11, wordBreak: "break-all", color: "var(--text-secondary)" }}>{qrData}</code>
                   </div>
                 )}
               </div>
             )}
-          </div>
+          </Card>
 
-          <div className="card" style={{ padding: 16 }}>
-            <div className="card-title">How Fleet Works</div>
-            <ol style={{ fontSize: 12, lineHeight: 1.8, paddingLeft: 20, marginTop: 8 }}>
+          <Card title="How Fleet Works" icon="brain">
+            <ol style={{ fontSize: 13, lineHeight: 1.9, paddingLeft: 20, color: "var(--text-secondary)" }}>
               <li>Enable remote access on this PC</li>
               <li>Generate a pairing token</li>
               <li>On another PC/phone, point to <code>{status.api_url}</code> with the token</li>
               <li>Control this PC remotely — monitor, execute commands, chat with AI</li>
             </ol>
-          </div>
-        </>
+          </Card>
+        </div>
       ) : (
-        <div className="card" style={{ padding: 16 }}>Could not load fleet status. Is the sidecar running?</div>
+        <Card><EmptyState icon="alert" title="Could not load fleet status" subtitle="Is the sidecar running? Start it and try again." action={<Button icon="refresh" onClick={refresh}>Retry</Button>} /></Card>
       )}
+    </div>
+  );
+}
+
+function InfoRow({ icon, label, value, mono }: { icon: "wifi" | "network" | "fleet"; label: string; value: string; mono?: boolean }) {
+  return (
+    <div className="spread" style={{ padding: "10px 0", borderBottom: "1px solid var(--border-subtle)" }}>
+      <span className="row" style={{ gap: 9, color: "var(--text-muted)", fontSize: 13 }}><Icon name={icon} size={15} /> {label}</span>
+      <span className={mono ? "mono" : ""} style={{ fontSize: 13, color: "var(--text-primary)" }}>{value}</span>
     </div>
   );
 }

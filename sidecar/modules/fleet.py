@@ -1,7 +1,7 @@
 import logging
 import os
 import json
-import uuid
+import secrets
 import socket
 import threading
 from fastapi import APIRouter
@@ -50,7 +50,9 @@ def get_fleet_status():
 @router.post("/pairing/generate")
 def generate_pairing():
     cfg = load_fleet()
-    token = uuid.uuid4().hex[:8].upper()
+    # A short 8-char token is brute-forceable over the network; use a
+    # cryptographically strong, high-entropy token instead.
+    token = secrets.token_urlsafe(32)
     cfg["pairing_token"] = token
     save_fleet(cfg)
     return {

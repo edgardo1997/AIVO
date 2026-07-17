@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 import sys
 import importlib.util
 import inspect
@@ -186,10 +187,18 @@ def toggle_plugin(plugin_id: str):
         return {"status": "toggled", "enabled": manifest.enabled}
     return {"status": "error"}
 
+def _safe_plugin_name(name: str) -> str:
+    # Restrict to a simple slug so the name can't traverse outside PLUGIN_DIR
+    # (e.g. "../../evil") or write to arbitrary paths.
+    name = os.path.basename((name or "").strip())
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", name):
+        raise HTTPException(400, "Invalid plugin name: use letters, numbers, '_' or '-' (max 64)")
+    return name
+
 @router.post("/create")
 def create_plugin(data: dict):
     template = data.get("template", "minimal")
-    name = data.get("name", "my_plugin")
+    name = _safe_plugin_name(data.get("name", "my_plugin"))
     plugin_dir = os.path.join(PLUGIN_DIR, name)
     if os.path.exists(plugin_dir):
         raise HTTPException(400, f"Plugin '{name}' already exists")

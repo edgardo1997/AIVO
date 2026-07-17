@@ -1,4 +1,5 @@
 import logging
+import os
 import sys
 
 import uvicorn
@@ -31,11 +32,32 @@ app = FastAPI(
     openapi_url="/openapi.json",
 )
 
+# The sidecar exposes powerful local endpoints (command execution, file
+# read/write, process control). A wildcard CORS policy would let any website
+# the user visits drive those endpoints from the browser, so only the app's own
+# origins are allowed. Extra origins can be supplied via AIVO_ALLOWED_ORIGINS
+# (comma-separated) for custom deployments.
+DEFAULT_ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:1420",
+    "http://127.0.0.1:1420",
+    "tauri://localhost",
+    "https://tauri.localhost",
+]
+_extra_origins = [
+    o.strip()
+    for o in os.environ.get("AIVO_ALLOWED_ORIGINS", "").split(",")
+    if o.strip()
+]
+ALLOWED_ORIGINS = DEFAULT_ALLOWED_ORIGINS + _extra_origins
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "X-AIVO-Token"],
 )
 
 app.include_router(monitor_router, prefix="/api/monitor", tags=["monitor"])

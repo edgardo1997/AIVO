@@ -235,10 +235,20 @@ def analyze_metrics(req: SystemAnalyzeRequest):
 @router.get("/config")
 def get_config():
     cfg = load_config()
-    return {**cfg.model_dump(), "free_providers": FREE_PROVIDERS}
+    data = cfg.model_dump()
+    # Never return the stored API key to clients; expose only whether one is set
+    # plus a masked hint so the UI can show it is configured.
+    raw_key = data.pop("api_key", "") or ""
+    data["api_key_set"] = bool(raw_key)
+    data["api_key_hint"] = f"...{raw_key[-4:]}" if len(raw_key) >= 4 else ""
+    return {**data, "free_providers": FREE_PROVIDERS}
 
 @router.post("/config")
 def set_config(cfg: ConfigModel):
+    # The key is never sent back to the client, so an empty api_key on save means
+    # "keep the existing one" rather than wiping the stored credential.
+    if not cfg.api_key:
+        cfg.api_key = load_config().api_key
     if cfg.provider in FREE_PROVIDERS:
         info = FREE_PROVIDERS[cfg.provider]
         if not cfg.base_url:

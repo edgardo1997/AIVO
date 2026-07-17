@@ -1,3 +1,4 @@
+import hmac
 import json
 import logging
 import os
@@ -35,7 +36,10 @@ class FleetProxyHandler(BaseHTTPRequestHandler):
             self._send_json(403, {"error": "Remote access disabled"})
             return
         token = self.headers.get("X-AIVO-Token", "")
-        if not token or token != cfg.get("pairing_token", ""):
+        expected = cfg.get("pairing_token", "")
+        # Constant-time comparison avoids leaking the token via timing, and an
+        # empty configured token must never authenticate a request.
+        if not token or not expected or not hmac.compare_digest(token, expected):
             self._send_json(401, {"error": "Invalid or missing pairing token"})
             return
         path = self.path

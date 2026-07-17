@@ -20,12 +20,16 @@ export function Dashboard() {
           api.monitor.disk(),
         ]);
         setCpu(c); setMem(m); setDisk(d);
-      } catch {}
+      } catch (e) {
+        console.error("Failed to fetch dashboard metrics:", e);
+      }
       try {
         const ps = await api.proactive.suggestions();
         setSuggestions(ps.suggestions.filter((s: ProactiveSuggestion) => !s.dismissed));
         setEngineActive(ps.engine_active);
-      } catch {}
+      } catch (e) {
+        console.error("Failed to fetch proactive suggestions:", e);
+      }
     };
     fetch();
     const interval = setInterval(fetch, 4000);

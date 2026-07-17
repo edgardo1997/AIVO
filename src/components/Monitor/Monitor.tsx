@@ -17,7 +17,9 @@ export function Monitor() {
         setDisk(await api.monitor.disk());
         setNet(await api.monitor.network());
         setProcs(await api.monitor.processes());
-      } catch {}
+      } catch (e) {
+        console.error("Failed to fetch monitor metrics:", e);
+      }
     };
     fetch();
     const interval = setInterval(fetch, 3000);

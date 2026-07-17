@@ -1,11 +1,14 @@
 import hmac
 import json
+import logging
 import os
 import threading
 import urllib.request
 import urllib.error
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
+
+log = logging.getLogger("aivo.fleet_server")
 
 FLEET_CONFIG = os.path.expanduser("~/.aivo_fleet.json")
 SIDECAR_URL = "http://127.0.0.1:8765"
@@ -85,8 +88,10 @@ def start_fleet_server():
         server = HTTPServer(("0.0.0.0", port), FleetProxyHandler)
         _server_instance = server
         server.serve_forever()
+    except OSError as e:
+        log.error("Fleet server failed to bind on port %s: %s", port, e)
     except Exception as e:
-        pass
+        log.exception("Fleet server crashed: %s", e)
 
 def run_fleet_thread():
     t = threading.Thread(target=start_fleet_server, daemon=True)

@@ -15,7 +15,9 @@ export function Permissions() {
         const s = await api.permissions.status();
         setStatus(s);
         setEmergencyActive(s.emergency_stop);
-      } catch {}
+      } catch (e) {
+        console.error("Failed to fetch permission status:", e);
+      }
     };
     fetch();
     const interval = setInterval(fetch, 3000);

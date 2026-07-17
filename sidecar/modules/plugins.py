@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import re
 import sys
@@ -10,6 +11,8 @@ from threading import Thread
 from typing import Optional, Callable
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+
+log = logging.getLogger("aivo.plugins")
 
 router = APIRouter()
 
@@ -49,6 +52,7 @@ def discover_plugins():
                     manifest.id = entry
                     plugins[entry] = {"path": plugin_dir, "manifest": manifest, "has_code": os.path.isfile(main_path)}
                 except Exception as e:
+                    log.warning("Failed to load manifest for plugin '%s': %s", entry, e)
                     plugins[entry] = {"path": plugin_dir, "error": str(e)}
     return plugins
 
@@ -77,10 +81,12 @@ def load_plugin(plugin_id: str) -> Optional[dict]:
             try:
                 hooks["on_ready"]({"plugin_id": plugin_id})
             except Exception as e:
-                pass
+                log.warning("Plugin '%s' on_ready hook failed: %s", plugin_id, e)
+                PLUGIN_STATES[plugin_id]["on_ready_error"] = str(e)
 
         return {"id": plugin_id, "hooks": list(hooks.keys())}
     except Exception as e:
+        log.exception("Failed to load plugin '%s': %s", plugin_id, e)
         PLUGIN_STATES[plugin_id] = {"loaded": False, "error": str(e)}
         return None
 

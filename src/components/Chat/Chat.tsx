@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { api } from "../../api";
+import { PageHeader, Button, Icon } from "../ui";
 
 interface Message {
   role: "user" | "ai";
@@ -30,7 +31,7 @@ export function Chat() {
       const ctx = messages.slice(-6).map((m) => ({ role: m.role, content: m.content }));
       const res = await api.ai.chat(input, ctx);
       setMessages((m) => [...m, { role: "ai", content: res.response }]);
-    } catch (e) {
+    } catch {
       setMessages((m) => [...m, { role: "ai", content: "Error connecting to AI. Check Settings → AI Config." }]);
     }
     setLoading(false);
@@ -98,16 +99,14 @@ export function Chat() {
   };
 
   return (
-    <div className="chat-container">
-      <h2 style={{ marginBottom: 16, fontWeight: 600 }}>AI Chat</h2>
+    <div className="chat-container fade-in">
+      <PageHeader icon="chat" title="AI Chat" subtitle="Ask about your PC or tell AIVO what to do" />
       {messages.length <= 1 && (
         <div style={{ marginBottom: 16 }}>
-          <div className="card-title" style={{ marginBottom: 8 }}>Quick Actions</div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+          <div className="card-title"><Icon name="sparkles" size={14} /> Quick Actions</div>
+          <div className="row-wrap" style={{ gap: 8 }}>
             {quickActions.map((q) => (
-              <button key={q} className="btn btn-ghost" style={{ fontSize: 12 }} onClick={() => handleQuickAction(q)}>
-                {q}
-              </button>
+              <Button key={q} size="sm" onClick={() => handleQuickAction(q)}>{q}</Button>
             ))}
           </div>
         </div>
@@ -123,20 +122,17 @@ export function Chat() {
       </div>
       <div className="chat-input-area">
         <input
-          className="chat-input"
+          className="input"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && send()}
           placeholder="Ask anything about your PC..."
           disabled={loading}
         />
-        <button className="btn btn-ghost" onClick={toggleListening} disabled={loading} title={listening ? "Stop listening" : "Voice input (Speech-to-Text)"} style={{ fontSize: 18 }}>
-          {listening ? "🔴" : "🎤"}
-        </button>
-        <button className="btn btn-ghost" onClick={speakLastResponse} disabled={loading} title="Read last response aloud (TTS)" style={{ fontSize: 18 }}>
-          🔊
-        </button>
-        <button className="btn btn-primary" onClick={send} disabled={loading}>Send</button>
+        <Button icon="mic" onClick={toggleListening} disabled={loading} title={listening ? "Stop listening" : "Voice input (Speech-to-Text)"}
+          style={listening ? { color: "var(--danger)", borderColor: "var(--danger)" } : undefined} />
+        <Button icon="volume" onClick={speakLastResponse} disabled={loading} title="Read last response aloud (TTS)" />
+        <Button variant="primary" icon="send" onClick={send} disabled={loading}>Send</Button>
       </div>
     </div>
   );

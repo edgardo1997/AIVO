@@ -31,6 +31,7 @@ export function Chat() {
       const res = await api.ai.chat(input, ctx);
       setMessages((m) => [...m, { role: "ai", content: res.response }]);
     } catch (e) {
+      console.error("AI chat request failed:", e);
       setMessages((m) => [...m, { role: "ai", content: "Error connecting to AI. Check Settings → AI Config." }]);
     }
     setLoading(false);

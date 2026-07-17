@@ -27,19 +27,23 @@ export function Settings() {
     free_providers: {},
   });
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<string | null>(null);
   const [showKey, setShowKey] = useState(false);
 
   useEffect(() => {
-    api.ai.config().then(setCfg).catch(() => {});
+    api.ai.config().then(setCfg).catch((e) => console.error("Failed to load AI config:", e));
   }, []);
 
   const save = async () => {
+    setSaveError(null);
     try {
       await api.ai.setConfig({ provider: cfg.provider, api_key: cfg.api_key, base_url: cfg.base_url, model: cfg.model });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
-    } catch {}
+    } catch (e: any) {
+      setSaveError(`Failed to save: ${e?.message || e}`);
+    }
   };
 
   const selectProvider = (id: string, info: FreeProvider) => {
@@ -137,6 +141,7 @@ export function Settings() {
             <button className="btn btn-primary" onClick={save}>Save Config</button>
             <button className="btn btn-ghost" onClick={testConnection}>Test Connection</button>
             {saved && <span style={{ color: "var(--success)", fontSize: 13 }}>✓ Saved</span>}
+            {saveError && <span style={{ color: "var(--danger)", fontSize: 13 }}>{saveError}</span>}
             {testResult && (
               <span style={{
                 fontSize: 12,

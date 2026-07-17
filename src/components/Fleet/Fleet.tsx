@@ -7,13 +7,15 @@ export function Fleet() {
   const [loading, setLoading] = useState(true);
   const [pairingToken, setPairingToken] = useState("");
   const [qrData, setQrData] = useState("");
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const refresh = async () => {
     try {
       const s = await api.fleet.status();
       setStatus(s);
       setLoading(false);
-    } catch {
+    } catch (e) {
+      console.error("Failed to fetch fleet status:", e);
       setLoading(false);
     }
   };
@@ -21,23 +23,38 @@ export function Fleet() {
   useEffect(() => { refresh(); }, []);
 
   const generatePairing = async () => {
-    const res = await api.fleet.generatePairing();
-    setPairingToken(res.token);
-    const qr = await api.fleet.qr();
-    setQrData(qr.qr_data);
-    refresh();
+    setActionError(null);
+    try {
+      const res = await api.fleet.generatePairing();
+      setPairingToken(res.token);
+      const qr = await api.fleet.qr();
+      setQrData(qr.qr_data);
+      refresh();
+    } catch (e: any) {
+      setActionError(`Failed to generate pairing token: ${e?.message || e}`);
+    }
   };
 
   const revokePairing = async () => {
-    await api.fleet.revokePairing();
-    setPairingToken("");
-    setQrData("");
-    refresh();
+    setActionError(null);
+    try {
+      await api.fleet.revokePairing();
+      setPairingToken("");
+      setQrData("");
+      refresh();
+    } catch (e: any) {
+      setActionError(`Failed to revoke token: ${e?.message || e}`);
+    }
   };
 
   const toggleRemote = async () => {
-    await api.fleet.toggleRemote();
-    refresh();
+    setActionError(null);
+    try {
+      await api.fleet.toggleRemote();
+      refresh();
+    } catch (e: any) {
+      setActionError(`Failed to toggle remote access: ${e?.message || e}`);
+    }
   };
 
   return (
@@ -68,6 +85,7 @@ export function Fleet() {
               <button className="btn btn-ghost" onClick={revokePairing} disabled={!pairingToken}>Revoke Token</button>
               <button className="btn btn-ghost" onClick={toggleRemote}>{status.remote_enabled ? "Disable Remote" : "Enable Remote"}</button>
             </div>
+            {actionError && <div style={{ marginTop: 8, color: "var(--danger)", fontSize: 13 }}>{actionError}</div>}
             {pairingToken && (
               <div style={{ marginTop: 12 }}>
                 <div className="card-title" style={{ marginBottom: 4 }}>Pairing Token</div>

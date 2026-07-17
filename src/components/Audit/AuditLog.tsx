@@ -12,7 +12,9 @@ export function AuditLog() {
       const res = await api.audit.log(200);
       setEntries(res.entries);
       setTotal(res.total);
-    } catch {}
+    } catch (e) {
+      console.error("Failed to load audit log:", e);
+    }
   };
 
   useEffect(() => { load(); const interval = setInterval(load, 5000); return () => clearInterval(interval); }, []);

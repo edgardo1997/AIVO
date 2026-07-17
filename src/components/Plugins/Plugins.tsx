@@ -18,11 +18,17 @@ export function Plugins() {
       setPlugins(res.plugins);
       setLoading(false);
     } catch (e) {
-      addLog("Failed to load plugins");
+      addLog(`Failed to load plugins: ${e}`);
+      setLoading(false);
     }
   };
 
-  useEffect(() => { refresh(); api.plugins.templates().then((r) => setTemplates(r.templates)).catch(() => {}); }, []);
+  useEffect(() => {
+    refresh();
+    api.plugins.templates()
+      .then((r) => setTemplates(r.templates))
+      .catch((e) => console.error("Failed to load plugin templates:", e));
+  }, []);
 
   const handleAction = async (id: string, action: "load" | "unload" | "reload" | "toggle") => {
     try {

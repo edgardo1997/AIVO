@@ -9,12 +9,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from main import app
 from modules.permissions import PENDING_ACTIONS
-from modules.audit import AUDIT_LOG
 
 @pytest.fixture(autouse=True)
 def clean_state():
     PENDING_ACTIONS.clear()
-    AUDIT_LOG.clear()
     yield
 
 @pytest.fixture

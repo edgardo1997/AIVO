@@ -1,5 +1,8 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { api } from "../../api";
+import { usePolling } from "../../hooks/usePolling";
+import { formatBytes } from "../../lib/format";
+import { MetricCard } from "../MetricCard";
 import type { CpuInfo, MemoryInfo, DiskInfo, ProactiveSuggestion } from "../../types";
 
 export function Dashboard() {
@@ -11,34 +14,19 @@ export function Dashboard() {
   const [analysis, setAnalysis] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
 
-  useEffect(() => {
-    const fetch = async () => {
-      try {
-        const [c, m, d] = await Promise.all([
-          api.monitor.cpu(),
-          api.monitor.memory(),
-          api.monitor.disk(),
-        ]);
-        setCpu(c); setMem(m); setDisk(d);
-      } catch {}
-      try {
-        const ps = await api.proactive.suggestions();
-        setSuggestions(ps.suggestions.filter((s: ProactiveSuggestion) => !s.dismissed));
-        setEngineActive(ps.engine_active);
-      } catch {}
-    };
-    fetch();
-    const interval = setInterval(fetch, 4000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const barColor = (p: number) => p > 80 ? "red" : p > 50 ? "yellow" : "green";
-  const fmt = (b: number) => {
-    if (b >= 1e12) return (b / 1e12).toFixed(1) + " TB";
-    if (b >= 1e9) return (b / 1e9).toFixed(1) + " GB";
-    if (b >= 1e6) return (b / 1e6).toFixed(1) + " MB";
-    return (b / 1e3).toFixed(0) + " KB";
-  };
+  usePolling(async () => {
+    try {
+      const [c, m, d] = await Promise.all([
+        api.monitor.cpu(),
+        api.monitor.memory(),
+        api.monitor.disk(),
+      ]);
+      setCpu(c); setMem(m); setDisk(d);
+    } catch {}
+    const ps = await api.proactive.suggestions();
+    setSuggestions(ps.suggestions.filter((s: ProactiveSuggestion) => !s.dismissed));
+    setEngineActive(ps.engine_active);
+  }, 4000);
 
   const runAnalysis = async () => {
     setAnalyzing(true);
@@ -69,36 +57,21 @@ export function Dashboard() {
       </div>
 
       <div className="metric-grid">
-        <div className="metric">
-          <div className="metric-label">CPU</div>
-          <div className="metric-value">{cpu?.percent.toFixed(1) ?? "—"}%</div>
-          <div className="bar-container">
-            <div className={`bar-fill ${barColor(cpu?.percent ?? 0)}`} style={{ width: `${cpu?.percent ?? 0}%` }} />
-          </div>
-          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
-            {cpu?.count ?? "—"} cores
-          </div>
-        </div>
-        <div className="metric">
-          <div className="metric-label">RAM</div>
-          <div className="metric-value">{mem?.percent.toFixed(1) ?? "—"}%</div>
-          <div className="bar-container">
-            <div className={`bar-fill ${barColor(mem?.percent ?? 0)}`} style={{ width: `${mem?.percent ?? 0}%` }} />
-          </div>
-          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
-            {mem ? `${fmt(mem.used)} / ${fmt(mem.total)}` : "—"}
-          </div>
-        </div>
-        <div className="metric">
-          <div className="metric-label">Disk (C:)</div>
-          <div className="metric-value">{disk?.partitions?.[0]?.percent.toFixed(1) ?? "—"}%</div>
-          <div className="bar-container">
-            <div className={`bar-fill ${barColor(disk?.partitions?.[0]?.percent ?? 0)}`} style={{ width: `${disk?.partitions?.[0]?.percent ?? 0}%` }} />
-          </div>
-          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
-            {disk?.partitions?.[0] ? `${fmt(disk.partitions[0].used)} / ${fmt(disk.partitions[0].total)}` : "—"}
-          </div>
-        </div>
+        <MetricCard
+          label="CPU"
+          percent={cpu?.percent}
+          subtext={`${cpu?.count ?? "—"} cores`}
+        />
+        <MetricCard
+          label="RAM"
+          percent={mem?.percent}
+          subtext={mem ? `${formatBytes(mem.used)} / ${formatBytes(mem.total)}` : "—"}
+        />
+        <MetricCard
+          label="Disk (C:)"
+          percent={disk?.partitions?.[0]?.percent}
+          subtext={disk?.partitions?.[0] ? `${formatBytes(disk.partitions[0].used)} / ${formatBytes(disk.partitions[0].total)}` : "—"}
+        />
       </div>
 
       <div className="grid-2" style={{ marginBottom: 16 }}>

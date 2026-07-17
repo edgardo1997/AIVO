@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { api } from "../../api";
+import { formatBytes } from "../../lib/format";
 
 export function Files() {
   const [path, setPath] = useState("C:\\");
@@ -27,13 +28,6 @@ export function Files() {
     } catch {
       setError("Search failed");
     }
-  };
-
-  const fmtSize = (b: number) => {
-    if (b >= 1e9) return (b / 1e9).toFixed(1) + " GB";
-    if (b >= 1e6) return (b / 1e6).toFixed(1) + " MB";
-    if (b >= 1e3) return (b / 1e3).toFixed(0) + " KB";
-    return b + " B";
   };
 
   return (
@@ -71,7 +65,7 @@ export function Files() {
               onClick={() => e.is_dir && loadDir(e.path)}
             >
               <span>{e.is_dir ? "📁" : "📄"} {e.name}</span>
-              <span style={{ color: "var(--text-muted)", fontSize: 11 }}>{e.is_dir ? "" : fmtSize(e.size)}</span>
+              <span style={{ color: "var(--text-muted)", fontSize: 11 }}>{e.is_dir ? "" : formatBytes(e.size)}</span>
             </div>
           ))}
         </div>

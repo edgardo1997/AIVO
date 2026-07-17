@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { api } from "../../api";
+import { usePolling } from "../../hooks/usePolling";
 import type { AuditEntry } from "../../types";
 
 export function AuditLog() {
@@ -15,7 +16,7 @@ export function AuditLog() {
     } catch {}
   };
 
-  useEffect(() => { load(); const interval = setInterval(load, 5000); return () => clearInterval(interval); }, []);
+  usePolling(load, 5000);
 
   const filtered = filter ? entries.filter(e => e.action.includes(filter) || e.details.includes(filter)) : entries;
 

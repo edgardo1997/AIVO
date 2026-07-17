@@ -1,5 +1,9 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { api } from "../../api";
+import { usePolling } from "../../hooks/usePolling";
+import { formatBytes } from "../../lib/format";
+import { barColor } from "../../lib/colors";
+import { MetricCard } from "../MetricCard";
 import type { CpuInfo, MemoryInfo, DiskInfo, NetworkInfo, ProcessInfo } from "../../types";
 
 export function Monitor() {
@@ -9,63 +13,33 @@ export function Monitor() {
   const [net, setNet] = useState<NetworkInfo | null>(null);
   const [procs, setProcs] = useState<ProcessInfo[]>([]);
 
-  useEffect(() => {
-    const fetch = async () => {
-      try {
-        setCpu(await api.monitor.cpu());
-        setMem(await api.monitor.memory());
-        setDisk(await api.monitor.disk());
-        setNet(await api.monitor.network());
-        setProcs(await api.monitor.processes());
-      } catch {}
-    };
-    fetch();
-    const interval = setInterval(fetch, 3000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const barColor = (p: number) => p > 80 ? "red" : p > 50 ? "yellow" : "green";
-  const fmt = (b: number) => {
-    if (b >= 1e9) return (b / 1e9).toFixed(1) + " GB";
-    if (b >= 1e6) return (b / 1e6).toFixed(1) + " MB";
-    if (b >= 1e3) return (b / 1e3).toFixed(0) + " KB";
-    return b.toFixed(0) + " B";
-  };
+  usePolling(async () => {
+    setCpu(await api.monitor.cpu());
+    setMem(await api.monitor.memory());
+    setDisk(await api.monitor.disk());
+    setNet(await api.monitor.network());
+    setProcs(await api.monitor.processes());
+  }, 3000);
 
   return (
     <div>
       <h2 style={{ marginBottom: 20, fontWeight: 600 }}>System Monitor</h2>
       <div className="metric-grid">
-        <div className="metric">
-          <div className="metric-label">CPU</div>
-          <div className="metric-value">{cpu?.percent.toFixed(1)}%</div>
-          <div className="bar-container">
-            <div className={`bar-fill ${barColor(cpu?.percent ?? 0)}`} style={{ width: `${cpu?.percent ?? 0}%` }} />
-          </div>
-          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
-            {cpu?.freq ? `${(cpu.freq.current / 1000).toFixed(1)} GHz` : ""}
-          </div>
-        </div>
-        <div className="metric">
-          <div className="metric-label">Memory</div>
-          <div className="metric-value">{mem?.percent.toFixed(1)}%</div>
-          <div className="bar-container">
-            <div className={`bar-fill ${barColor(mem?.percent ?? 0)}`} style={{ width: `${mem?.percent ?? 0}%` }} />
-          </div>
-          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
-            {mem ? `${fmt(mem.used)} / ${fmt(mem.total)}` : ""}
-          </div>
-        </div>
-        <div className="metric">
-          <div className="metric-label">Swap</div>
-          <div className="metric-value">{mem?.swap_percent.toFixed(1)}%</div>
-          <div className="bar-container">
-            <div className={`bar-fill ${barColor(mem?.swap_percent ?? 0)}`} style={{ width: `${mem?.swap_percent ?? 0}%` }} />
-          </div>
-          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
-            {mem ? `${fmt(mem.swap_used)} / ${fmt(mem.swap_total)}` : ""}
-          </div>
-        </div>
+        <MetricCard
+          label="CPU"
+          percent={cpu?.percent}
+          subtext={cpu?.freq ? `${(cpu.freq.current / 1000).toFixed(1)} GHz` : ""}
+        />
+        <MetricCard
+          label="Memory"
+          percent={mem?.percent}
+          subtext={mem ? `${formatBytes(mem.used)} / ${formatBytes(mem.total)}` : ""}
+        />
+        <MetricCard
+          label="Swap"
+          percent={mem?.swap_percent}
+          subtext={mem ? `${formatBytes(mem.swap_used)} / ${formatBytes(mem.swap_total)}` : ""}
+        />
       </div>
       <div className="grid-2" style={{ marginBottom: 20 }}>
         <div className="card">
@@ -80,7 +54,7 @@ export function Monitor() {
                 <div className={`bar-fill ${barColor(p.percent)}`} style={{ width: `${p.percent}%` }} />
               </div>
               <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
-                {fmt(p.free)} free of {fmt(p.total)}
+                {formatBytes(p.free)} free of {formatBytes(p.total)}
               </div>
             </div>
           ))}
@@ -88,8 +62,8 @@ export function Monitor() {
         <div className="card">
           <div className="card-title">Network</div>
           <div style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.8 }}>
-            <div>↓ {fmt(net?.bytes_recv ?? 0)} received</div>
-            <div>↑ {fmt(net?.bytes_sent ?? 0)} sent</div>
+            <div>↓ {formatBytes(net?.bytes_recv ?? 0)} received</div>
+            <div>↑ {formatBytes(net?.bytes_sent ?? 0)} sent</div>
             <div style={{ marginTop: 8, fontSize: 11, color: "var(--text-muted)" }}>
               {net?.connections.length ?? 0} active connections
             </div>

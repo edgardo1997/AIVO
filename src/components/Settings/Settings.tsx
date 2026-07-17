@@ -15,6 +15,8 @@ interface AiConfig {
   api_key: string;
   base_url: string | null;
   model: string;
+  api_key_set?: boolean;
+  api_key_hint?: string;
   free_providers?: Record<string, FreeProvider>;
 }
 
@@ -31,7 +33,9 @@ export function Settings() {
   const [showKey, setShowKey] = useState(false);
 
   useEffect(() => {
-    api.ai.config().then(setCfg).catch(() => {});
+    // The server never returns the stored API key; keep the input empty and use
+    // api_key_set/api_key_hint to show whether one is already configured.
+    api.ai.config().then((c) => setCfg({ ...c, api_key: "" })).catch(() => {});
   }, []);
 
   const save = async () => {
@@ -106,7 +110,7 @@ export function Settings() {
                 type={showKey ? "text" : "password"}
                 value={cfg.api_key}
                 onChange={(e) => setCfg({ ...cfg, api_key: e.target.value })}
-                placeholder={providers[cfg.provider]?.api_key_required ? "sk-..." : "Leave empty"}
+                placeholder={cfg.api_key_set ? `Saved (${cfg.api_key_hint}) — leave empty to keep` : providers[cfg.provider]?.api_key_required ? "sk-..." : "Leave empty"}
                 style={{ flex: 1 }}
               />
               <button className="btn btn-ghost" onClick={() => setShowKey(!showKey)} style={{ fontSize: 11 }}>

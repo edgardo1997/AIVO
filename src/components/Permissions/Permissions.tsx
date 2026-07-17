@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { api } from "../../api";
+import { usePolling } from "../../hooks/usePolling";
 import type { PermissionStatus } from "../../types";
 import { ConfirmDialog } from "../ConfirmDialog";
 
@@ -9,18 +10,11 @@ export function Permissions() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [pendingAction, setPendingAction] = useState<{ action: string; details: string }>({ action: "", details: "" });
 
-  useEffect(() => {
-    const fetch = async () => {
-      try {
-        const s = await api.permissions.status();
-        setStatus(s);
-        setEmergencyActive(s.emergency_stop);
-      } catch {}
-    };
-    fetch();
-    const interval = setInterval(fetch, 3000);
-    return () => clearInterval(interval);
-  }, []);
+  usePolling(async () => {
+    const s = await api.permissions.status();
+    setStatus(s);
+    setEmergencyActive(s.emergency_stop);
+  }, 3000);
 
   const setLevel = async (level: string) => {
     if (level === "admin") {

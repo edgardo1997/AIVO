@@ -479,6 +479,8 @@ def register_plugins_tools(gateway):
         PluginReloadTool,
         PluginToggleTool,
         PluginCreateTool,
+        PluginInstallUrlTool,
+        PluginInstallZipTool,
     )
 
     gateway.register(PluginListTool(plugins_svc))
@@ -488,7 +490,18 @@ def register_plugins_tools(gateway):
     gateway.register(PluginReloadTool(plugins_svc))
     gateway.register(PluginToggleTool(plugins_svc))
     gateway.register(PluginCreateTool(plugins_svc))
+    gateway.register(PluginInstallUrlTool(plugins_svc))
+    gateway.register(PluginInstallZipTool(plugins_svc))
     _log.info("Plugins tools registered in shared gateway")
+
+
+def register_admin_tools(gateway):
+    from sentinel.tools.admin_tools import ConfigSetTool, ConfigDeleteTool, BackupTool
+
+    gateway.register(ConfigSetTool())
+    gateway.register(ConfigDeleteTool())
+    gateway.register(BackupTool())
+    _log.info("Admin tools registered in shared gateway")
 
 
 def register_permissions_tools(gateway):

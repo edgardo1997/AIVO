@@ -39,9 +39,10 @@ CRITICAL_TOOLS: FrozenSet[str] = frozenset({
     "fleet.generate_pairing", "fleet.revoke_pairing", "fleet.toggle_remote",
     "fleet.delete_device",
     "plugins.load", "plugins.unload", "plugins.reload", "plugins.toggle",
-    "plugins.create",
+    "plugins.create", "plugins.install_url", "plugins.install_zip",
     "vault.*",
     "policies.reload",
+    "admin.config_set", "admin.config_delete", "admin.backup",
 })
 
 

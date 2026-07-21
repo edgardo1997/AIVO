@@ -293,6 +293,7 @@ from modules import (
     register_workspace_tools,
     register_automation_tools,
     register_workflow_tools,
+    register_admin_tools,
     reset_sentinel,
 )
 from sentinel.core.capability_registry import CapabilityRegistry
@@ -357,6 +358,7 @@ def _register_gateway_components(runtime_gateway, runtime_capabilities, runtime_
         register_workspace_tools,
         register_automation_tools,
         register_workflow_tools,
+        register_admin_tools,
     ):
         register(runtime_gateway)
     runtime_gateway.set_trigger_engine(triggers_mod.get_engine())

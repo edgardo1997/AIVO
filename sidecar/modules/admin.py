@@ -1,7 +1,6 @@
 import json
 import logging
 import os
-import shutil
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,6 +19,9 @@ def _require_admin(request: Request):
     identity = request_identity(request)
     if identity.level not in ("admin",):
         raise HTTPException(status_code=403, detail="Admin level required")
+
+
+# ── Config (read-only: direct, mutation: via ToolGateway) ────────────────────
 
 
 @router.get("/config")
@@ -56,49 +58,40 @@ def get_config(key: str, request: Request):
 
 
 @router.put("/config/{key:path}")
-def set_config(key: str, body: dict, request: Request):
-    _require_admin(request)
-    from repositories.database import DatabaseManager
+async def set_config(key: str, body: dict, request: Request):
+    from modules import get_gateway
 
-    db = DatabaseManager()
+    identity = request_identity(request).to_dict()
     raw = body.get("value")
-    if isinstance(raw, (dict, list)):
-        db.config_set_json(key, raw)
-    else:
-        db.config_set(key, str(raw) if raw is not None else "")
-    return {"status": "ok", "key": key}
+    result = await get_gateway().execute("admin.config_set", {"key": key, "value": raw}, {"identity": identity})
+    if not result.success:
+        return JSONResponse({"error": result.error}, status_code=400)
+    return result.data
 
 
 @router.delete("/config/{key:path}")
-def delete_config(key: str, request: Request):
-    _require_admin(request)
-    from repositories.database import DatabaseManager
+async def delete_config(key: str, request: Request):
+    from modules import get_gateway
 
-    db = DatabaseManager()
-    db.config_delete(key)
-    return {"status": "ok", "key": key}
+    identity = request_identity(request).to_dict()
+    result = await get_gateway().execute("admin.config_delete", {"key": key}, {"identity": identity})
+    if not result.success:
+        return JSONResponse({"error": result.error}, status_code=400)
+    return result.data
+
+
+# ── Backup ───────────────────────────────────────────────────────────────────
 
 
 @router.post("/backup")
-def create_backup(request: Request):
-    _require_admin(request)
-    from repositories.database import DatabaseManager
+async def create_backup(request: Request):
+    from modules import get_gateway
 
-    db = DatabaseManager()
-    src = db.db_path
-    if not os.path.exists(src):
-        raise HTTPException(status_code=404, detail="Database file not found")
-    storage = sentinel_storage_paths()
-    backup_dir = storage["runtime"] / "backups"
-    backup_dir.mkdir(parents=True, exist_ok=True)
-    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    dest = backup_dir / f"sentinel-backup-{ts}.db"
-    shutil.copy2(src, dest)
-    for suffix in ("-wal", "-shm"):
-        sidecar = f"{src}{suffix}"
-        if os.path.exists(sidecar):
-            shutil.copy2(sidecar, f"{dest}{suffix}")
-    return {"status": "ok", "path": str(dest), "size_bytes": os.path.getsize(dest)}
+    identity = request_identity(request).to_dict()
+    result = await get_gateway().execute("admin.backup", {}, {"identity": identity})
+    if not result.success:
+        return JSONResponse({"error": result.error}, status_code=400)
+    return result.data
 
 
 @router.get("/backups")
@@ -119,6 +112,9 @@ def list_backups(request: Request):
                 }
             )
     return {"backups": files}
+
+
+# ── Logs / Health (read-only) ────────────────────────────────────────────────
 
 
 @router.get("/logs")
@@ -169,7 +165,7 @@ def admin_health(request: Request):
     return diag
 
 
-# ── Plugin Marketplace ──────────────────────────────────────────────────────
+# ── Plugin Marketplace (install: via ToolGateway; read: direct) ──────────────
 
 
 @router.get("/plugins/marketplace")
@@ -182,27 +178,33 @@ def marketplace_list(request: Request):
 
 
 @router.post("/plugins/install/url")
-def install_from_url(body: dict, request: Request):
-    _require_admin(request)
-    from modules.plugins import _svc
+async def install_from_url(body: dict, request: Request):
+    from modules import get_gateway
 
+    identity = request_identity(request).to_dict()
     url = body.get("url", "")
     plugin_id = body.get("plugin_id", "")
     if not url:
-        raise HTTPException(400, "Missing 'url' in request body")
-    return _svc.install_from_url(url, plugin_id)
+        return JSONResponse({"error": "Missing 'url' in request body"}, status_code=400)
+    result = await get_gateway().execute("plugins.install_url", {"url": url, "plugin_id": plugin_id}, {"identity": identity})
+    if not result.success:
+        return JSONResponse({"error": result.error}, status_code=400)
+    return result.data
 
 
 @router.post("/plugins/install/zip")
-def install_from_zip_upload(body: dict, request: Request):
-    _require_admin(request)
-    from modules.plugins import _svc
+async def install_from_zip_upload(body: dict, request: Request):
+    from modules import get_gateway
 
-    import base64
-
-    raw = base64.b64decode(body.get("zip_base64", ""))
+    identity = request_identity(request).to_dict()
+    zip_b64 = body.get("zip_base64", "")
     plugin_id = body.get("plugin_id", "")
-    return _svc.install_from_zip(raw, plugin_id)
+    if not zip_b64:
+        return JSONResponse({"error": "Missing 'zip_base64' in request body"}, status_code=400)
+    result = await get_gateway().execute("plugins.install_zip", {"zip_base64": zip_b64, "plugin_id": plugin_id}, {"identity": identity})
+    if not result.success:
+        return JSONResponse({"error": result.error}, status_code=400)
+    return result.data
 
 
 @router.get("/plugins/{plugin_id}/export")

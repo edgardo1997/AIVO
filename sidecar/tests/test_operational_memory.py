@@ -94,6 +94,17 @@ class TestPersistentSessions:
         assert [item.execution_id for item in results] == ["a"]
         assert mem.search_memory("alice", "bob") == []
 
+    def test_history_and_preferences_are_isolated_by_owner(self):
+        mem = InMemoryBackend()
+        mem.store_execution(self.session_record("a", "alice", "shared", "alice data"))
+        mem.store_execution(self.session_record("b", "bob", "shared", "bob data"))
+        mem.store_user_preference("shared", "tone", "brief", user_id="alice")
+        mem.store_user_preference("shared", "tone", "detailed", user_id="bob")
+
+        assert [record.execution_id for record in mem.get_session_history("shared", user_id="alice")] == ["a"]
+        assert mem.get_user_preferences("shared", user_id="alice") == {"tone": "brief"}
+        assert mem.get_user_preferences("shared", user_id="bob") == {"tone": "detailed"}
+
     def test_delete_session_is_owned_and_complete(self):
         mem = InMemoryBackend()
         mem.store_execution(self.session_record("a", "alice", "shared-name", "alice data"))

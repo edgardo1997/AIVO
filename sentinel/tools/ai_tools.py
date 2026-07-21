@@ -11,7 +11,7 @@ class AIChatTool(Tool):
             id="ai.chat",
             name="AI Chat",
             description="Send a message to the AI assistant and get a response",
-            version="0.1.0",
+            version="1.0.0",
             parameters={
                 "type": "object",
                 "properties": {
@@ -47,7 +47,7 @@ class AIAnalyzeTool(Tool):
             id="ai.analyze",
             name="AI Analyze Metrics",
             description="Analyze system metrics and provide insights",
-            version="0.1.0",
+            version="1.0.0",
             parameters={
                 "type": "object",
                 "properties": {
@@ -80,7 +80,7 @@ class AIConfigTool(Tool):
             id="ai.config",
             name="AI Configuration",
             description="Get or set AI provider configuration",
-            version="0.1.0",
+            version="1.0.0",
             parameters={
                 "type": "object",
                 "properties": {
@@ -88,6 +88,7 @@ class AIConfigTool(Tool):
                     "api_key": {"type": "string", "description": "API key"},
                     "base_url": {"type": "string", "description": "Base URL override"},
                     "model": {"type": "string", "description": "Model name"},
+                    "strategy": {"type": "string", "description": "Model routing strategy"},
                 },
             },
             required_permissions=["ai.config"],

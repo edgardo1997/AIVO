@@ -36,6 +36,7 @@ class OperationalMemoryConfig:
     max_pending_actions: int = 100
     eviction_interval: int = 60
     episodic_retention_days: int = 90
+    environment_retention_days: int = 90
     pattern_min_evidence: int = 3
 
 
@@ -62,6 +63,11 @@ class PendingActionRecord:
     reason: str
     created_at: str
     ttl_seconds: int
+    risk_level: str = "unknown"
+    plan_id: str = ""
+    params_hash: str = ""
+    identity_hash: str = ""
+    redacted: bool = False
 
 
 @dataclass
@@ -85,6 +91,17 @@ class EpisodicMemory:
     tags: List[str]
     metadata: Dict[str, Any]
     expires_at: Optional[str] = None
+
+    @property
+    def source(self) -> str:
+        return str(self.metadata.get("source", "orchestrator"))
+
+    @property
+    def confidence(self) -> float:
+        try:
+            return max(0.0, min(1.0, float(self.metadata.get("confidence", 0.0))))
+        except (TypeError, ValueError):
+            return 0.0
 
 
 @dataclass
@@ -112,6 +129,35 @@ class LearnedPreference:
     updated_at: str
 
 
+@dataclass
+class EnvironmentSnapshot:
+    """Privacy-safe baseline used only to detect meaningful environment changes."""
+
+    user_id: str
+    fingerprint: str
+    data: Dict[str, Any]
+    source: str
+    confidence: float
+    observed_at: str
+
+
+@dataclass
+class EnvironmentChange:
+    """Advisory-only, user-scoped observation; never an authorization signal."""
+
+    change_id: str
+    user_id: str
+    change_type: str
+    subject_id: str
+    summary: str
+    previous: Dict[str, Any]
+    current: Dict[str, Any]
+    source: str
+    confidence: float
+    detected_at: str
+    expires_at: Optional[str]
+
+
 class MemoryBackend(Protocol):
     def store_execution(self, record: ExecutionRecord) -> None: ...
 
@@ -123,7 +169,9 @@ class MemoryBackend(Protocol):
 
     def get_recent_executions(self, limit: int = 5) -> List[ExecutionRecord]: ...
 
-    def get_session_history(self, session_id: str, limit: int = 10) -> List[ExecutionRecord]: ...
+    def get_session_history(
+        self, session_id: str, limit: int = 10, *, user_id: Optional[str] = None
+    ) -> List[ExecutionRecord]: ...
 
     def list_sessions(self, user_id: str, limit: int = 50) -> List[Dict[str, Any]]: ...
 
@@ -131,13 +179,17 @@ class MemoryBackend(Protocol):
 
     def delete_session(self, session_id: str, user_id: str) -> int: ...
 
-    def store_user_preference(self, session_id: str, key: str, value: Any) -> None: ...
+    def store_user_preference(
+        self, session_id: str, key: str, value: Any, *, user_id: Optional[str] = None
+    ) -> None: ...
 
-    def get_user_preferences(self, session_id: str) -> Dict[str, Any]: ...
+    def get_user_preferences(self, session_id: str, *, user_id: Optional[str] = None) -> Dict[str, Any]: ...
 
     def remember_execution(self, user_id: str, record: ExecutionRecord) -> Optional[EpisodicMemory]: ...
 
-    def get_episodes(self, user_id: str, limit: int = 10) -> List[EpisodicMemory]: ...
+    def get_episodes(
+        self, user_id: str, limit: int = 10, *, min_confidence: float = 0.0
+    ) -> List[EpisodicMemory]: ...
 
     def get_patterns(self, user_id: str, min_evidence: Optional[int] = None) -> List[MemoryPattern]: ...
 
@@ -145,7 +197,21 @@ class MemoryBackend(Protocol):
         self, user_id: str, key: str, value: Any, *, source: str = "explicit"
     ) -> LearnedPreference: ...
 
-    def get_learned_preferences(self, user_id: str) -> Dict[str, LearnedPreference]: ...
+    def get_learned_preferences(
+        self, user_id: str, *, min_confidence: float = 0.0
+    ) -> Dict[str, LearnedPreference]: ...
+
+    def get_environment_snapshot(self, user_id: str) -> Optional[EnvironmentSnapshot]: ...
+
+    def store_environment_snapshot(self, snapshot: EnvironmentSnapshot) -> None: ...
+
+    def store_environment_changes(self, changes: List[EnvironmentChange]) -> int: ...
+
+    def get_environment_changes(
+        self, user_id: str, limit: int = 10, *, min_confidence: float = 0.0
+    ) -> List[EnvironmentChange]: ...
+
+    def delete_environment_data(self, user_id: str) -> int: ...
 
     def store_pending_action(self, record: PendingActionRecord) -> None: ...
 
@@ -175,6 +241,8 @@ class InMemoryBackend:
         self._episode_order: List[str] = []
         self._patterns: Dict[tuple, MemoryPattern] = {}
         self._learned_preferences: Dict[str, Dict[str, LearnedPreference]] = {}
+        self._environment_snapshots: Dict[str, EnvironmentSnapshot] = {}
+        self._environment_changes: Dict[str, EnvironmentChange] = {}
         self._lock = threading.RLock()
         self._stop_eviction = threading.Event()
         self._eviction_thread = threading.Thread(
@@ -217,12 +285,18 @@ class InMemoryBackend:
             recent = self._execution_order[-limit:]
             return [self._records[eid] for eid in recent if eid in self._records]
 
-    def get_session_history(self, session_id: str, limit: int = 10) -> List[ExecutionRecord]:
+    def get_session_history(
+        self, session_id: str, limit: int = 10, *, user_id: Optional[str] = None
+    ) -> List[ExecutionRecord]:
         with self._lock:
             matched = []
             for eid in reversed(self._execution_order):
                 rec = self._records.get(eid)
-                if rec and rec.context_summary.get("session_id") == session_id:
+                if (
+                    rec
+                    and rec.context_summary.get("session_id") == session_id
+                    and (user_id is None or rec.context_summary.get("user_id") == user_id)
+                ):
                     matched.append(rec)
                     if len(matched) >= limit:
                         break
@@ -280,20 +354,24 @@ class InMemoryBackend:
                 record.context_summary.get("session_id") == session_id for record in self._records.values()
             )
             if hasattr(self, "_preferences") and not still_used:
-                self._preferences.pop(session_id, None)
+                self._preferences.pop((user_id, session_id), None)
+                self._preferences.pop(("", session_id), None)
+            self._rebuild_patterns(user_id)
             return len(ids)
 
-    def store_user_preference(self, session_id: str, key: str, value: Any) -> None:
+    def store_user_preference(
+        self, session_id: str, key: str, value: Any, *, user_id: Optional[str] = None
+    ) -> None:
         if not hasattr(self, "_preferences"):
             self._preferences: Dict[str, Dict[str, Any]] = {}
         with self._lock:
-            self._preferences.setdefault(session_id, {})[key] = value
+            self._preferences.setdefault((user_id or "", session_id), {})[key] = value
 
-    def get_user_preferences(self, session_id: str) -> Dict[str, Any]:
+    def get_user_preferences(self, session_id: str, *, user_id: Optional[str] = None) -> Dict[str, Any]:
         if not hasattr(self, "_preferences"):
             return {}
         with self._lock:
-            return dict(self._preferences.get(session_id, {}))
+            return dict(self._preferences.get((user_id or "", session_id), {}))
 
     def remember_execution(self, user_id: str, record: ExecutionRecord) -> Optional[EpisodicMemory]:
         if not user_id:
@@ -306,10 +384,17 @@ class InMemoryBackend:
             self._observe_pattern(episode)
         return episode
 
-    def get_episodes(self, user_id: str, limit: int = 10) -> List[EpisodicMemory]:
+    def get_episodes(
+        self, user_id: str, limit: int = 10, *, min_confidence: float = 0.0
+    ) -> List[EpisodicMemory]:
+        now = datetime.now(timezone.utc)
         with self._lock:
             return [
-                self._episodes[eid] for eid in reversed(self._episode_order) if self._episodes[eid].user_id == user_id
+                self._episodes[eid]
+                for eid in reversed(self._episode_order)
+                if self._episodes[eid].user_id == user_id
+                and self._episodes[eid].confidence >= min_confidence
+                and not _is_expired(self._episodes[eid].expires_at, now)
             ][: max(0, limit)]
 
     def get_patterns(self, user_id: str, min_evidence: Optional[int] = None) -> List[MemoryPattern]:
@@ -338,9 +423,57 @@ class InMemoryBackend:
             self._learned_preferences[user_id][key] = pref
             return pref
 
-    def get_learned_preferences(self, user_id: str) -> Dict[str, LearnedPreference]:
+    def get_learned_preferences(
+        self, user_id: str, *, min_confidence: float = 0.0
+    ) -> Dict[str, LearnedPreference]:
         with self._lock:
-            return dict(self._learned_preferences.get(user_id, {}))
+            return {
+                key: pref
+                for key, pref in self._learned_preferences.get(user_id, {}).items()
+                if pref.confidence >= min_confidence
+            }
+
+    def get_environment_snapshot(self, user_id: str) -> Optional[EnvironmentSnapshot]:
+        with self._lock:
+            return self._environment_snapshots.get(user_id)
+
+    def store_environment_snapshot(self, snapshot: EnvironmentSnapshot) -> None:
+        if not snapshot.user_id:
+            raise ValueError("Environment snapshots require a user_id")
+        with self._lock:
+            self._environment_snapshots[snapshot.user_id] = snapshot
+
+    def store_environment_changes(self, changes: List[EnvironmentChange]) -> int:
+        stored = 0
+        with self._lock:
+            for change in changes:
+                if not change.user_id or change.change_id in self._environment_changes:
+                    continue
+                self._environment_changes[change.change_id] = change
+                stored += 1
+        return stored
+
+    def get_environment_changes(
+        self, user_id: str, limit: int = 10, *, min_confidence: float = 0.0
+    ) -> List[EnvironmentChange]:
+        now = datetime.now(timezone.utc)
+        with self._lock:
+            matches = [
+                change
+                for change in self._environment_changes.values()
+                if change.user_id == user_id
+                and change.confidence >= min_confidence
+                and not _is_expired(change.expires_at, now)
+            ]
+        return sorted(matches, key=lambda change: change.detected_at, reverse=True)[: max(0, limit)]
+
+    def delete_environment_data(self, user_id: str) -> int:
+        with self._lock:
+            ids = [change_id for change_id, change in self._environment_changes.items() if change.user_id == user_id]
+            for change_id in ids:
+                self._environment_changes.pop(change_id, None)
+            removed_snapshot = self._environment_snapshots.pop(user_id, None) is not None
+        return len(ids) + int(removed_snapshot)
 
     def _observe_pattern(self, episode: EpisodicMemory) -> None:
         if not episode.intent_target:
@@ -360,6 +493,12 @@ class InMemoryBackend:
             last_seen=now,
             data={"tool_id": episode.tool_id, "latest_outcome": episode.outcome},
         )
+
+    def _rebuild_patterns(self, user_id: str) -> None:
+        self._patterns = {key: value for key, value in self._patterns.items() if value.user_id != user_id}
+        for episode in self._episodes.values():
+            if episode.user_id == user_id and not _is_expired(episode.expires_at):
+                self._observe_pattern(episode)
 
     def store_pending_action(self, record: PendingActionRecord) -> None:
         with self._lock:
@@ -397,6 +536,8 @@ class InMemoryBackend:
             self._episode_order.clear()
             self._patterns.clear()
             self._learned_preferences.clear()
+            self._environment_snapshots.clear()
+            self._environment_changes.clear()
 
     def close(self) -> None:
         self._stop_eviction.set()
@@ -516,37 +657,57 @@ class SQLiteBackend:
         rows = self._db.fetchall("SELECT * FROM execution_history ORDER BY rowid DESC LIMIT ?", (limit,))
         return [self._row_to_record(r) for r in rows if r]
 
-    def get_session_history(self, session_id: str, limit: int = 10) -> List[ExecutionRecord]:
+    def get_session_history(
+        self, session_id: str, limit: int = 10, *, user_id: Optional[str] = None
+    ) -> List[ExecutionRecord]:
+        owner_clause = " AND json_extract(context_summary, '$.user_id') = ?" if user_id is not None else ""
+        params: tuple[Any, ...] = (session_id, user_id, limit) if user_id is not None else (session_id, limit)
         rows = self._db.fetchall(
-            """SELECT * FROM execution_history
-               WHERE json_extract(context_summary, '$.session_id') = ?
-               ORDER BY rowid DESC LIMIT ?""",
-            (session_id, limit),
+            f"""SELECT * FROM execution_history
+               WHERE json_extract(context_summary, '$.session_id') = ?{owner_clause}
+               ORDER BY rowid DESC LIMIT ?""",  # nosec B608 - clause is selected from constants above
+            params,
         )
         return [self._row_to_record(r) for r in rows if r]
 
     def list_sessions(self, user_id: str, limit: int = 50) -> List[Dict[str, Any]]:
         rows = self._db.fetchall(
-            """SELECT json_extract(context_summary, '$.session_id') AS session_id,
-                      MIN(timestamp) AS created_at, MAX(timestamp) AS updated_at,
-                      COUNT(*) AS execution_count
-               FROM execution_history
-               WHERE json_extract(context_summary, '$.user_id') = ?
-                 AND json_extract(context_summary, '$.session_id') IS NOT NULL
-               GROUP BY session_id ORDER BY updated_at DESC LIMIT ?""",
+            """WITH scoped AS (
+                   SELECT rowid AS execution_rowid,
+                          json_extract(context_summary, '$.session_id') AS session_id,
+                          timestamp,
+                          utterance
+                   FROM execution_history
+                   WHERE json_extract(context_summary, '$.user_id') = ?
+                     AND json_extract(context_summary, '$.session_id') IS NOT NULL
+               ), ranked AS (
+                   SELECT session_id,
+                          timestamp,
+                          utterance,
+                          ROW_NUMBER() OVER (
+                              PARTITION BY session_id
+                              ORDER BY timestamp DESC, execution_rowid DESC
+                          ) AS recency
+                   FROM scoped
+               )
+               SELECT session_id,
+                      MIN(timestamp) AS created_at,
+                      MAX(timestamp) AS updated_at,
+                      COUNT(*) AS execution_count,
+                      MAX(CASE WHEN recency = 1 THEN utterance END) AS last_utterance
+               FROM ranked
+               GROUP BY session_id
+               ORDER BY updated_at DESC
+               LIMIT ?""",
             (user_id, max(1, min(limit, 200))),
         )
-        sessions = []
-        for row in rows:
-            latest = self._db.fetchone(
-                """SELECT utterance FROM execution_history
-                   WHERE json_extract(context_summary, '$.user_id') = ?
-                     AND json_extract(context_summary, '$.session_id') = ?
-                   ORDER BY timestamp DESC LIMIT 1""",
-                (user_id, row["session_id"]),
-            )
-            sessions.append({**dict(row), "last_utterance": latest["utterance"] if latest else ""})
-        return sessions
+        return [
+            {
+                **dict(row),
+                "last_utterance": row.get("last_utterance") or "",
+            }
+            for row in rows
+        ]
 
     def search_memory(self, user_id: str, query: str, limit: int = 50) -> List[ExecutionRecord]:
         escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
@@ -584,11 +745,26 @@ class SQLiteBackend:
         )
         if not remaining or remaining["count"] == 0:
             self._db.execute("DELETE FROM user_preferences WHERE session_id = ?", (session_id,))
-        self._db.execute("DELETE FROM memory_patterns WHERE user_id = ?", (user_id,))
+        self._db.execute(
+            "DELETE FROM session_preferences WHERE user_id = ? AND session_id = ?", (user_id, session_id)
+        )
+        self._rebuild_patterns(user_id)
         self._db.commit()
         return len(execution_ids)
 
-    def store_user_preference(self, session_id: str, key: str, value: Any) -> None:
+    def store_user_preference(
+        self, session_id: str, key: str, value: Any, *, user_id: Optional[str] = None
+    ) -> None:
+        if user_id is not None:
+            self._db.execute(
+                """INSERT INTO session_preferences (user_id, session_id, key, value)
+                   VALUES (?, ?, ?, ?)
+                   ON CONFLICT(user_id, session_id, key) DO UPDATE SET
+                     value = excluded.value, updated_at = datetime('now')""",
+                (user_id, session_id, key, json.dumps(value)),
+            )
+            self._db.commit()
+            return
         self._db.execute(
             """INSERT INTO user_preferences (session_id, key, value)
                VALUES (?, ?, ?)
@@ -597,7 +773,13 @@ class SQLiteBackend:
         )
         self._db.commit()
 
-    def get_user_preferences(self, session_id: str) -> Dict[str, Any]:
+    def get_user_preferences(self, session_id: str, *, user_id: Optional[str] = None) -> Dict[str, Any]:
+        if user_id is not None:
+            rows = self._db.fetchall(
+                "SELECT key, value FROM session_preferences WHERE user_id = ? AND session_id = ?",
+                (user_id, session_id),
+            )
+            return {r["key"]: json.loads(r["value"]) for r in rows}
         rows = self._db.fetchall(
             "SELECT key, value FROM user_preferences WHERE session_id = ?",
             (session_id,),
@@ -608,39 +790,70 @@ class SQLiteBackend:
         if not user_id:
             return None
         episode = _episode_from_execution(user_id, record, self._config)
-        self._db.execute(
-            """INSERT OR REPLACE INTO episodic_memory
-               (memory_id, user_id, execution_id, occurred_at, summary, intent_action,
-                intent_target, tool_id, outcome, risk_score, tags, metadata, expires_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                episode.memory_id,
-                episode.user_id,
-                episode.execution_id,
-                episode.occurred_at,
-                episode.summary,
-                episode.intent_action,
-                episode.intent_target,
-                episode.tool_id,
-                episode.outcome,
-                episode.risk_score,
-                json.dumps(episode.tags),
-                json.dumps(episode.metadata),
-                episode.expires_at,
-            ),
-        )
-        self._observe_pattern(episode)
-        self._db.commit()
+        with self._db.transaction(immediate=True) as conn:
+            conn.execute(
+                """INSERT OR REPLACE INTO episodic_memory
+                   (memory_id, user_id, execution_id, occurred_at, summary, intent_action,
+                    intent_target, tool_id, outcome, risk_score, tags, metadata, expires_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    episode.memory_id,
+                    episode.user_id,
+                    episode.execution_id,
+                    episode.occurred_at,
+                    episode.summary,
+                    episode.intent_action,
+                    episode.intent_target,
+                    episode.tool_id,
+                    episode.outcome,
+                    episode.risk_score,
+                    json.dumps(episode.tags),
+                    json.dumps(episode.metadata),
+                    episode.expires_at,
+                ),
+            )
+            self._observe_pattern_in_tx(episode, conn)
         return episode
 
-    def get_episodes(self, user_id: str, limit: int = 10) -> List[EpisodicMemory]:
+    def _observe_pattern_in_tx(self, episode: EpisodicMemory, conn) -> None:
+        if not episode.intent_target:
+            return
+        row = conn.execute(
+            """SELECT * FROM memory_patterns WHERE user_id = ? AND pattern_type = ? AND pattern_key = ?""",
+            (episode.user_id, "intent_target", episode.intent_target),
+        ).fetchone()
+        count = (row["evidence_count"] + 1) if row else 1
+        first_seen = row["first_seen"] if row else episode.occurred_at
+        conn.execute(
+            """INSERT INTO memory_patterns
+               (pattern_id, user_id, pattern_type, pattern_key, evidence_count, confidence, first_seen, last_seen, data)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(user_id, pattern_type, pattern_key) DO UPDATE SET
+                 evidence_count = excluded.evidence_count, confidence = excluded.confidence,
+                 last_seen = excluded.last_seen, data = excluded.data""",
+            (
+                _pattern_id(episode.user_id, "intent_target", episode.intent_target),
+                episode.user_id,
+                "intent_target",
+                episode.intent_target,
+                count,
+                min(0.95, count / 10),
+                first_seen,
+                episode.occurred_at,
+                json.dumps({"tool_id": episode.tool_id, "latest_outcome": episode.outcome}),
+            ),
+        )
+
+    def get_episodes(
+        self, user_id: str, limit: int = 10, *, min_confidence: float = 0.0
+    ) -> List[EpisodicMemory]:
         rows = self._db.fetchall(
             """SELECT * FROM episodic_memory
                WHERE user_id = ? AND (expires_at IS NULL OR expires_at > ?)
                ORDER BY occurred_at DESC LIMIT ?""",
             (user_id, _utc_now(), max(0, limit)),
         )
-        return [self._row_to_episode(row) for row in rows]
+        return [episode for row in rows if (episode := self._row_to_episode(row)).confidence >= min_confidence]
 
     def get_patterns(self, user_id: str, min_evidence: Optional[int] = None) -> List[MemoryPattern]:
         threshold = self._config.pattern_min_evidence if min_evidence is None else min_evidence
@@ -674,9 +887,101 @@ class SQLiteBackend:
         self._db.commit()
         return LearnedPreference(user_id, key, value, source, evidence, confidence, created_at, now)
 
-    def get_learned_preferences(self, user_id: str) -> Dict[str, LearnedPreference]:
-        rows = self._db.fetchall("SELECT * FROM learned_preferences WHERE user_id = ?", (user_id,))
+    def get_learned_preferences(
+        self, user_id: str, *, min_confidence: float = 0.0
+    ) -> Dict[str, LearnedPreference]:
+        rows = self._db.fetchall(
+            "SELECT * FROM learned_preferences WHERE user_id = ? AND confidence >= ?",
+            (user_id, min_confidence),
+        )
         return {row["key"]: self._row_to_preference(row) for row in rows}
+
+    def get_environment_snapshot(self, user_id: str) -> Optional[EnvironmentSnapshot]:
+        row = self._db.fetchone("SELECT * FROM environment_snapshots WHERE user_id = ?", (user_id,))
+        if not row:
+            return None
+        return EnvironmentSnapshot(
+            user_id=row["user_id"],
+            fingerprint=row["fingerprint"],
+            data=json.loads(row["data"]),
+            source=row["source"],
+            confidence=float(row["confidence"]),
+            observed_at=row["observed_at"],
+        )
+
+    def store_environment_snapshot(self, snapshot: EnvironmentSnapshot) -> None:
+        if not snapshot.user_id:
+            raise ValueError("Environment snapshots require a user_id")
+        self._db.execute(
+            """INSERT INTO environment_snapshots
+               (user_id, fingerprint, data, source, confidence, observed_at)
+               VALUES (?, ?, ?, ?, ?, ?)
+               ON CONFLICT(user_id) DO UPDATE SET fingerprint = excluded.fingerprint,
+                 data = excluded.data, source = excluded.source,
+                 confidence = excluded.confidence, observed_at = excluded.observed_at""",
+            (
+                snapshot.user_id,
+                snapshot.fingerprint,
+                json.dumps(_sanitize(snapshot.data), sort_keys=True),
+                snapshot.source,
+                snapshot.confidence,
+                snapshot.observed_at,
+            ),
+        )
+        self._db.commit()
+
+    def store_environment_changes(self, changes: List[EnvironmentChange]) -> int:
+        stored = 0
+        for change in changes:
+            if not change.user_id:
+                continue
+            cursor = self._db.execute(
+                """INSERT OR IGNORE INTO environment_changes
+                   (change_id, user_id, change_type, subject_id, summary, previous,
+                    current, source, confidence, detected_at, expires_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    change.change_id,
+                    change.user_id,
+                    change.change_type,
+                    change.subject_id,
+                    change.summary,
+                    json.dumps(_sanitize(change.previous), sort_keys=True),
+                    json.dumps(_sanitize(change.current), sort_keys=True),
+                    change.source,
+                    change.confidence,
+                    change.detected_at,
+                    change.expires_at,
+                ),
+            )
+            stored += max(0, cursor.rowcount)
+        if changes:
+            self._db.commit()
+        return stored
+
+    def get_environment_changes(
+        self, user_id: str, limit: int = 10, *, min_confidence: float = 0.0
+    ) -> List[EnvironmentChange]:
+        rows = self._db.fetchall(
+            """SELECT * FROM environment_changes
+               WHERE user_id = ? AND confidence >= ?
+                 AND (expires_at IS NULL OR expires_at > ?)
+               ORDER BY detected_at DESC LIMIT ?""",
+            (user_id, min_confidence, _utc_now(), max(0, min(limit, 200))),
+        )
+        return [self._row_to_environment_change(row) for row in rows]
+
+    def delete_environment_data(self, user_id: str) -> int:
+        row = self._db.fetchone(
+            """SELECT
+                 (SELECT COUNT(*) FROM environment_changes WHERE user_id = ?) +
+                 (SELECT COUNT(*) FROM environment_snapshots WHERE user_id = ?) AS count""",
+            (user_id, user_id),
+        )
+        self._db.execute("DELETE FROM environment_changes WHERE user_id = ?", (user_id,))
+        self._db.execute("DELETE FROM environment_snapshots WHERE user_id = ?", (user_id,))
+        self._db.commit()
+        return int(row["count"]) if row else 0
 
     def _observe_pattern(self, episode: EpisodicMemory) -> None:
         if not episode.intent_target:
@@ -706,6 +1011,17 @@ class SQLiteBackend:
                 json.dumps({"tool_id": episode.tool_id, "latest_outcome": episode.outcome}),
             ),
         )
+
+    def _rebuild_patterns(self, user_id: str) -> None:
+        self._db.execute("DELETE FROM memory_patterns WHERE user_id = ?", (user_id,))
+        rows = self._db.fetchall(
+            """SELECT * FROM episodic_memory
+               WHERE user_id = ? AND (expires_at IS NULL OR expires_at > ?)
+               ORDER BY occurred_at ASC""",
+            (user_id, _utc_now()),
+        )
+        for row in rows:
+            self._observe_pattern(self._row_to_episode(row))
 
     def store_pending_action(self, record: PendingActionRecord) -> None:
         self._db.execute(
@@ -750,9 +1066,12 @@ class SQLiteBackend:
         self._db.execute("DELETE FROM execution_history")
         self._db.execute("DELETE FROM pending_actions")
         self._db.execute("DELETE FROM user_preferences")
+        self._db.execute("DELETE FROM session_preferences")
         self._db.execute("DELETE FROM episodic_memory")
         self._db.execute("DELETE FROM memory_patterns")
         self._db.execute("DELETE FROM learned_preferences")
+        self._db.execute("DELETE FROM environment_changes")
+        self._db.execute("DELETE FROM environment_snapshots")
         self._db.execute("UPDATE emergency_stop SET value = 0 WHERE id = 1")
         self._db.commit()
 
@@ -782,6 +1101,22 @@ class SQLiteBackend:
             reason=row.get("reason", ""),
             created_at=row.get("created_at", ""),
             ttl_seconds=row.get("ttl_seconds", 600),
+        )
+
+    @staticmethod
+    def _row_to_environment_change(row: dict) -> EnvironmentChange:
+        return EnvironmentChange(
+            change_id=row["change_id"],
+            user_id=row["user_id"],
+            change_type=row["change_type"],
+            subject_id=row["subject_id"],
+            summary=row["summary"],
+            previous=json.loads(row["previous"]),
+            current=json.loads(row["current"]),
+            source=row["source"],
+            confidence=float(row["confidence"]),
+            detected_at=row["detected_at"],
+            expires_at=row.get("expires_at"),
         )
 
     @staticmethod
@@ -846,6 +1181,18 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def _is_expired(expires_at: Optional[str], now: Optional[datetime] = None) -> bool:
+    if not expires_at:
+        return False
+    reference = now or datetime.now(timezone.utc)
+    try:
+        parsed = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        # Corrupt freshness metadata is not trusted as active memory.
+        return True
+    return parsed <= reference
+
+
 def _pattern_id(user_id: str, pattern_type: str, pattern_key: str) -> str:
     return hashlib.sha256(f"{user_id}:{pattern_type}:{pattern_key}".encode("utf-8")).hexdigest()[:24]
 
@@ -876,6 +1223,25 @@ def _episode_from_execution(user_id: str, record: ExecutionRecord, config: Opera
         outcome=outcome,
         risk_score=float(risk_score) if risk_score is not None else None,
         tags=tags,
-        metadata={"duration_ms": record.duration_ms, "has_error": bool(record.error)},
+        metadata={
+            "source": "orchestrator.execution",
+            "confidence": _execution_memory_confidence(record, outcome),
+            "duration_ms": record.duration_ms,
+            "has_error": bool(record.error),
+            "session_id": record.context_summary.get("session_id"),
+        },
         expires_at=expires_at,
     )
+
+
+def _execution_memory_confidence(record: ExecutionRecord, outcome: str) -> float:
+    """Score factual execution memory without granting it authority.
+
+    A completed tool result is direct evidence. Conversation-only and failed
+    operations remain useful context, but are deliberately less trustworthy.
+    """
+    if record.tool_result:
+        return 0.95 if outcome == "succeeded" else 0.85
+    if record.error:
+        return 0.75
+    return 0.65

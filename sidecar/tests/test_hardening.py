@@ -18,6 +18,7 @@ from sentinel.core.recovery import ErrorCategory, RecoveryPolicy, RetryExhausted
 from sentinel.core.tool import ToolResult
 
 
+@pytest.mark.security
 class TestHardeningConfig:
     def test_defaults(self):
         c = HardeningConfig()
@@ -41,6 +42,7 @@ class TestHardeningConfig:
         assert d["default_timeout_seconds"] == 60
 
 
+@pytest.mark.security
 class TestToolCircuitBreaker:
     @pytest.fixture
     def cb(self):
@@ -82,6 +84,7 @@ class TestToolCircuitBreaker:
         assert any(s["provider_id"] == "t1" for s in states)
 
 
+@pytest.mark.security
 class TestTimeoutManager:
     @pytest.fixture
     def mgr(self):
@@ -107,6 +110,7 @@ class TestTimeoutManager:
         assert result.data == "done"
 
 
+@pytest.mark.security
 class TestEnhancedRetryHandler:
     @pytest.fixture
     def handler(self):
@@ -148,6 +152,7 @@ class TestEnhancedRetryHandler:
         fn.assert_called_once()
 
 
+@pytest.mark.security
 class TestHardeningService:
     @pytest.fixture
     def svc(self):
@@ -206,6 +211,7 @@ class TestHardeningService:
         assert "stats" in health
 
 
+@pytest.mark.security
 class TestHealthChecker:
     @pytest.fixture
     def checker(self):

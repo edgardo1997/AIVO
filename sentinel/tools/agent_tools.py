@@ -13,7 +13,7 @@ class AgentListTool(Tool):
             id="agent.list",
             name="List Agents",
             description="List all registered agents with their status and capabilities",
-            version="0.1.0",
+            version="1.0.0",
             category="agent",
             parameters={
                 "type": "object",
@@ -51,7 +51,7 @@ class AgentCreateTool(Tool):
             id="agent.create",
             name="Create Agent",
             description="Register a new agent with provider, model, and capabilities",
-            version="0.1.0",
+            version="1.0.0",
             category="agent",
             parameters={
                 "type": "object",
@@ -107,7 +107,7 @@ class AgentDeleteTool(Tool):
             id="agent.delete",
             name="Delete Agent",
             description="Remove a registered agent",
-            version="0.1.0",
+            version="1.0.0",
             category="agent",
             parameters={
                 "type": "object",
@@ -139,7 +139,7 @@ class AgentDelegateTool(Tool):
             id="agent.delegate",
             name="Delegate to Agent",
             description="Delegate a task to an agent. Specify agent_id for a specific agent, or omit for auto-selection by strategy.",
-            version="0.2.0",
+            version="1.0.0",
             category="agent",
             parameters={
                 "type": "object",

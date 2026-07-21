@@ -1,12 +1,23 @@
 import json
 import logging
 import os
+import threading
 import time
 from pathlib import Path
 from dataclasses import dataclass, field, asdict
+from functools import wraps
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+
+def _synchronized(method):
+    @wraps(method)
+    def guarded(self, *args, **kwargs):
+        with self._lock:
+            return method(self, *args, **kwargs)
+
+    return guarded
 
 try:
     from cryptography.fernet import Fernet
@@ -51,10 +62,14 @@ class VaultManager:
     _KEY_ENV = "SENTINEL_VAULT_KEY"
 
     def __init__(self, db=None):
+        self._lock = threading.RLock()
         self._db = db
         self._fernet = None
+        self._key_from_env = False
+        self._key_path: Optional[Path] = None
         self._load_or_create_key()
 
+    @_synchronized
     def set_db(self, db):
         self._db = db
 
@@ -65,6 +80,7 @@ class VaultManager:
         if key:
             try:
                 self._fernet = Fernet(key.encode() if isinstance(key, str) else key)
+                self._key_from_env = True
                 return
             except Exception:
                 raise RuntimeError("SENTINEL_VAULT_KEY is invalid")
@@ -74,8 +90,10 @@ class VaultManager:
                 os.path.join(os.environ.get("LOCALAPPDATA", str(Path.home())), "Sentinel", "vault.key"),
             )
         ).expanduser()
+        self._key_path = key_path
         if key_path.exists():
             try:
+                self._recover_interrupted_rotation(key_path)
                 self._fernet = Fernet(key_path.read_bytes().strip())
                 return
             except Exception as exc:
@@ -96,6 +114,37 @@ class VaultManager:
         self._write_key_file(key_path, new_key)
         self._fernet = Fernet(new_key)
 
+    def _recover_interrupted_rotation(self, key_path: Path) -> None:
+        next_path = key_path.with_name(f"{key_path.name}.rotation-next")
+        backup_path = key_path.with_name(f"{key_path.name}.rotation-backup")
+        if not next_path.exists() and not backup_path.exists():
+            return
+        if not self._db:
+            raise RuntimeError("Vault key rotation recovery requires the vault database")
+
+        candidates = [path for path in (key_path, next_path, backup_path) if path.exists()]
+        selected = next((path for path in candidates if self._key_decrypts_database(path.read_bytes().strip())), None)
+        if selected is None:
+            raise RuntimeError("Interrupted vault key rotation could not be recovered safely")
+        if selected != key_path:
+            recovery_path = key_path.with_name(f"{key_path.name}.recovery")
+            self._write_key_file(recovery_path, selected.read_bytes().strip())
+            os.replace(recovery_path, key_path)
+        for path in (next_path, backup_path):
+            if path.exists():
+                path.unlink()
+        logger.warning("Recovered an interrupted vault key rotation")
+
+    def _key_decrypts_database(self, key: bytes) -> bool:
+        try:
+            cipher = Fernet(key)
+            rows = self._db.fetchall(
+                "SELECT encrypted_value FROM vault_entries WHERE encrypted_value IS NOT NULL AND encrypted_value != ''"
+            )
+            return all(cipher.decrypt(row["encrypted_value"].encode()) is not None for row in rows)
+        except Exception:
+            return False
+
     @staticmethod
     def _write_key_file(path: Path, key: bytes) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -115,20 +164,23 @@ class VaultManager:
             from sidecar.windows_acl import protect_path
         protect_path(path, directory=False)
 
+    @_synchronized
     def _encrypt(self, plaintext: str) -> str:
         if not self._fernet:
             raise RuntimeError("Vault encryption is unavailable")
         return self._fernet.encrypt(plaintext.encode()).decode()
 
+    @_synchronized
     def _decrypt(self, ciphertext: str) -> str:
         try:
             return self._fernet.decrypt(ciphertext.encode()).decode()
         except Exception as exc:
             raise ValueError("Vault ciphertext authentication failed") from exc
 
+    @_synchronized
     def _rotate_key(self):
-        if not HAS_CRYPTO or not self._db:
-            return
+        if not HAS_CRYPTO or not self._db or self._key_from_env or not self._key_path:
+            return False
         old_key = self._fernet
         new_key = Fernet.generate_key()
         new_fernet = Fernet(new_key)
@@ -139,25 +191,47 @@ class VaultManager:
                 plain = old_key.decrypt(entry.value.encode()).decode()
                 entry.value = new_fernet.encrypt(plain.encode()).decode()
                 reencrypted.append(entry)
-        for entry in reencrypted:
-            self._save_entry(entry)
-        key_path = Path(
-            os.environ.get(
-                "SENTINEL_VAULT_KEY_FILE",
-                os.path.join(os.environ.get("LOCALAPPDATA", str(Path.home())), "Sentinel", "vault.key"),
-            )
-        ).expanduser()
-        tmp_path = key_path.with_suffix(".tmp")
-        tmp_path.write_bytes(new_key)
-        os.chmod(tmp_path, 0o600)
-        os.replace(tmp_path, key_path)
+        key_path = self._key_path
+        tmp_path = key_path.with_name(f"{key_path.name}.rotation-next")
+        backup_path = key_path.with_name(f"{key_path.name}.rotation-backup")
+        self._write_key_file(tmp_path, new_key)
+        old_key_bytes = key_path.read_bytes()
+        try:
+            self._write_key_file(backup_path, old_key_bytes)
+        except Exception:
+            tmp_path.unlink(missing_ok=True)
+            raise
+        try:
+            with self._db.transaction(immediate=True) as connection:
+                now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                connection.executemany(
+                    "UPDATE vault_entries SET encrypted_value = ?, updated_at = ? WHERE id = ?",
+                    [(entry.value, now, entry.id) for entry in reencrypted],
+                )
+                os.replace(tmp_path, key_path)
+        except Exception:
+            if tmp_path.exists():
+                tmp_path.unlink()
+            restore_path = key_path.with_name(f"{key_path.name}.restore.tmp")
+            if key_path.read_bytes() != old_key_bytes:
+                if restore_path.exists():
+                    restore_path.unlink()
+                self._write_key_file(restore_path, old_key_bytes)
+                os.replace(restore_path, key_path)
+            if backup_path.exists():
+                backup_path.unlink()
+            raise
+        if backup_path.exists():
+            backup_path.unlink()
         try:
             from windows_acl import protect_path
         except ImportError:
             from sidecar.windows_acl import protect_path
         protect_path(key_path, directory=False)
         self._fernet = new_fernet
+        return True
 
+    @_synchronized
     def list_entries(self, category: str = "") -> list:
         if not self._db:
             return []
@@ -186,6 +260,7 @@ class VaultManager:
             entries.append(entry)
         return entries
 
+    @_synchronized
     def get_entry(self, vault_id: str) -> Optional[VaultEntry]:
         if not self._db:
             return None
@@ -206,12 +281,14 @@ class VaultManager:
             notes=row.get("notes", ""),
         )
 
+    @_synchronized
     def reveal_value(self, vault_id: str) -> Optional[str]:
         entry = self.get_entry(vault_id)
         if entry and entry.value:
             return self._decrypt(entry.value)
         return None
 
+    @_synchronized
     def create_entry(self, entry: VaultEntry) -> str:
         if not self._db:
             return ""
@@ -237,6 +314,7 @@ class VaultManager:
         self._audit(entry.id, "created", f"Secret '{entry.name}' created")
         return entry.id
 
+    @_synchronized
     def update_entry(self, vault_id: str, **updates) -> bool:
         if not self._db:
             return False
@@ -278,6 +356,7 @@ class VaultManager:
         self._audit(vault_id, "updated", f"Fields changed: {', '.join(changed)}")
         return True
 
+    @_synchronized
     def _save_entry(self, entry: VaultEntry) -> None:
         """Persist ciphertext during key rotation without decrypting or auditing values."""
         if not self._db:
@@ -288,6 +367,7 @@ class VaultManager:
         )
         self._db.commit()
 
+    @_synchronized
     def delete_entry(self, vault_id: str) -> bool:
         if not self._db:
             return False
@@ -299,6 +379,7 @@ class VaultManager:
         self._audit(vault_id, "deleted", f"Secret '{entry.name}' deleted")
         return True
 
+    @_synchronized
     def rotate_secret(self, vault_id: str) -> bool:
         entry = self.get_entry(vault_id)
         if not entry or not entry.value:
@@ -312,13 +393,16 @@ class VaultManager:
         self._audit(vault_id, "rotated", f"Secret '{entry.name}' rotation timestamp updated")
         return True
 
+    @_synchronized
     def rotate_master_key(self) -> bool:
         if not HAS_CRYPTO:
             return False
-        self._rotate_key()
+        if not self._rotate_key():
+            return False
         self._audit("__master__", "master_key_rotated", "Master encryption key rotated")
         return True
 
+    @_synchronized
     def get_audit_log(self, vault_id: str = "", limit: int = 50) -> list:
         if not self._db:
             return []
@@ -340,6 +424,7 @@ class VaultManager:
             for r in rows
         ]
 
+    @_synchronized
     def _audit(self, vault_id: str, action: str, details: str = ""):
         if not self._db:
             return

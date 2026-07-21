@@ -92,10 +92,15 @@ class NetworkMonitor:
         self._task = asyncio.create_task(self._run())
 
     async def stop(self) -> None:
+        self.close()
+
+    def close(self) -> None:
+        """Cancel background monitoring without requiring an active event loop."""
         self._running = False
         if self._task:
             self._task.cancel()
             self._task = None
+        self._callbacks.clear()
 
     async def _run(self) -> None:
         while self._running:

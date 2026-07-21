@@ -1,4 +1,5 @@
 import logging
+from typing import Optional
 from fastapi import APIRouter
 from pydantic import BaseModel
 from services.ai_service import AIService
@@ -9,10 +10,17 @@ _svc = AIService()
 
 
 class ConfigModel(BaseModel):
-    provider: str = "openrouter"
-    api_key: str = ""
-    base_url: str = ""
-    model: str = ""
+    provider: Optional[str] = None
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+    model: Optional[str] = None
+    strategy: Optional[str] = None
+    delete_key: Optional[bool] = None
+
+
+class ValidateModelRequest(BaseModel):
+    provider: str
+    model: str
 
 
 class ChatRequest(BaseModel):
@@ -43,9 +51,33 @@ def get_config():
 
 @router.post("/config")
 def set_config(cfg: ConfigModel):
-    return _svc.set_config(cfg.model_dump())
+    data = cfg.model_dump()
+    delete_key = data.pop("delete_key", None)
+    if delete_key and data.get("provider"):
+        _svc.delete_provider_key(data["provider"])
+    return _svc.set_config(data)
 
 
 @router.get("/providers")
 def get_providers():
     return _svc.get_free_providers()
+
+
+@router.get("/local-model/status")
+def local_model_status():
+    from services.local_model_service import runtime
+
+    return runtime.status()
+
+
+@router.post("/validate-model")
+def validate_model(req: ValidateModelRequest):
+    return _svc.validate_model(req.provider, req.model)
+
+
+@router.post("/local-model/install")
+def install_local_model():
+    from services.local_model_service import runtime
+
+    runtime.ensure_started_async()
+    return runtime.status()

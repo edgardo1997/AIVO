@@ -2,10 +2,13 @@ import json
 import re
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
+@pytest.mark.security
 def test_release_versions_are_consistent():
     package = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
     tauri = json.loads((ROOT / "src-tauri" / "tauri.conf.json").read_text(encoding="utf-8"))
@@ -18,6 +21,7 @@ def test_release_versions_are_consistent():
     assert f'"version": "{version}"' in main
 
 
+@pytest.mark.security
 def test_updater_requires_signed_artifacts():
     tauri = json.loads((ROOT / "src-tauri" / "tauri.conf.json").read_text(encoding="utf-8"))
     updater = tauri["plugins"]["updater"]
@@ -26,6 +30,7 @@ def test_updater_requires_signed_artifacts():
     assert updater["endpoints"][0].startswith("https://")
 
 
+@pytest.mark.security
 def test_release_pipeline_smoke_tests_packaged_binary():
     workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
     assert "smoke-release.ps1" in workflow
@@ -34,6 +39,7 @@ def test_release_pipeline_smoke_tests_packaged_binary():
     assert "releaseDraft: true" in workflow
 
 
+@pytest.mark.security
 def test_installer_contains_sidecar_and_onboarding():
     tauri = json.loads((ROOT / "src-tauri" / "tauri.conf.json").read_text(encoding="utf-8"))
     assert "../sidecar/dist/sidecar.exe" in tauri["bundle"]["resources"]
@@ -41,6 +47,7 @@ def test_installer_contains_sidecar_and_onboarding():
     assert "sentinel.onboarding.v1" in app
 
 
+@pytest.mark.security
 def test_packaged_runtime_dependencies_are_explicit():
     requirements = (ROOT / "sidecar" / "requirements.txt").read_text(encoding="utf-8")
     spec = (ROOT / "sidecar" / "sidecar.spec").read_text(encoding="utf-8")
@@ -49,6 +56,7 @@ def test_packaged_runtime_dependencies_are_explicit():
     assert "'aiosqlite'" in spec
 
 
+@pytest.mark.security
 def test_windows_acl_hardening_is_packaged_and_documented():
     spec = (ROOT / "sidecar" / "sidecar.spec").read_text(encoding="utf-8")
     main = (ROOT / "sidecar" / "main.py").read_text(encoding="utf-8")
@@ -58,6 +66,7 @@ def test_windows_acl_hardening_is_packaged_and_documented():
     assert "ACL de Windows" in deployment
 
 
+@pytest.mark.security
 def test_release_requires_both_update_and_authenticode_signatures():
     workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
     assert "WINDOWS_CERTIFICATE_PASSWORD" in workflow
@@ -66,6 +75,7 @@ def test_release_requires_both_update_and_authenticode_signatures():
     assert "updaterSignatures" in workflow
 
 
+@pytest.mark.security
 def test_release_generates_sboms_hashes_and_provenance():
     workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
     metadata = (ROOT / "scripts" / "release_metadata.py").read_text(encoding="utf-8")
@@ -81,3 +91,16 @@ def test_release_generates_sboms_hashes_and_provenance():
     assert "SHA256SUMS" in metadata
     assert "SBOM_NAMES" in metadata
     assert "gh release upload" in workflow
+
+
+@pytest.mark.security
+def test_general_publication_reverifies_downloaded_artifacts_and_provenance():
+    workflow = (ROOT / ".github" / "workflows" / "publish-general.yml").read_text(encoding="utf-8")
+    assert "verify-downloaded" in workflow
+    assert "Get-AuthenticodeSignature" in workflow
+    assert "gh attestation verify" in workflow
+    assert "--signer-workflow" in workflow
+    assert "--source-ref" in workflow
+    assert "PUBLICATION_TAG: ${{ inputs.tag }}" in workflow
+    assert "-notmatch '^v[0-9]+\\.[0-9]+\\.[0-9]+" in workflow
+    assert '"${{ inputs.tag }}"' not in workflow

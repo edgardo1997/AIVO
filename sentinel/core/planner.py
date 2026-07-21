@@ -1,3 +1,4 @@
+import asyncio
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 import logging
@@ -7,6 +8,10 @@ from .capability_registry import Capability, CapabilityRegistry, RiskLevel
 from .goals import GoalDefinition, GoalRegistry, GoalScorer, GoalScorerConfig
 from .model_router import RouterDecision
 from .recovery import RecoveryPolicy
+from .application_knowledge import AppProfile, get_application_knowledge
+from .event_bus import EventBus
+from .events import SentinelEvent
+from . import event_types
 
 logger = logging.getLogger(__name__)
 
@@ -70,13 +75,25 @@ STEP_DEFINITIONS: Dict[str, List[PlanStep]] = {
             id="procs",
             tool_id="system.processes",
             description="Get top processes",
-            params={"limit": 5},
+            # Health analysis ranks CPU consumers; skipping per-process memory
+            # avoids slow protected-process queries. Explicit process listings
+            # still include memory by default.
+            params={"limit": 5, "include_memory": False},
             estimated_impact="low",
             depends_on=["mem", "disk"],
         ),
     ],
     "system.uptime": [
         PlanStep(id="sys", tool_id="system.info", description="Get uptime info", estimated_impact="low"),
+    ],
+    "app.discovery": [
+        PlanStep(
+            id="apps",
+            tool_id="app.discovery",
+            params={"action": "list", "limit": 30},
+            description="Discover installed applications available to Sentinel",
+            estimated_impact="low",
+        ),
     ],
     "models.list": [
         PlanStep(id="models", tool_id="system.info", description="List available models", estimated_impact="low"),
@@ -161,11 +178,29 @@ class Planner:
         capability_registry: Optional[CapabilityRegistry] = None,
         goal_registry: Optional[GoalRegistry] = None,
         scorer_config: Optional[GoalScorerConfig] = None,
+        event_bus: Optional[EventBus] = None,
     ):
         self._definitions = step_definitions or STEP_DEFINITIONS
         self._capability_registry = capability_registry
         self._goal_registry = goal_registry
         self._scorer_config = scorer_config
+        self._event_bus = event_bus
+
+    def set_event_bus(self, event_bus: EventBus) -> None:
+        self._event_bus = event_bus
+
+    def _emit(self, event_type: str, *, session_id: str = "", request_id: str = "", status: str = "", details: Optional[Dict[str, Any]] = None) -> None:
+        if self._event_bus is None:
+            return
+        event = SentinelEvent.new(
+            event_type=event_type,
+            session_id=session_id or "",
+            request_id=request_id or "",
+            component="planner",
+            status=status,
+            details=details,
+        )
+        asyncio.ensure_future(self._event_bus.emit(event))
 
     def _step_from_capability(self, cap: Capability) -> PlanStep:
         impact_map = {
@@ -201,7 +236,10 @@ class Planner:
     def _goal_risk_score(self, goal: GoalDefinition) -> float:
         return {"low": 0.1, "medium": 0.4, "high": 0.7, "critical": 1.0}.get(goal.base_risk.value, 0.3)
 
-    def plan(self, intent: Intent, context: Optional[Dict[str, Any]] = None) -> Plan:
+    def plan(self, intent: Intent, context: Optional[Dict[str, Any]] = None, app_profiles: Optional[List[Dict[str, Any]]] = None) -> Plan:
+        sid = (context or {}).get("session_id", "")
+        rid = (context or {}).get("execution_id", "")
+        self._emit(event_types.PLANNER_STARTED, session_id=sid, request_id=rid)
         target = intent.target
 
         goal = None
@@ -245,9 +283,23 @@ class Planner:
             )
             if target == "system.processes" and "limit" in intent.parameters:
                 step.params["limit"] = intent.parameters["limit"]
+            elif target in {"app.discovery", "executor.launch"}:
+                step.params.update(intent.parameters)
+            if target == "executor.launch":
+                app_name = str(intent.parameters.get("app_name", "")).strip()
+                evidence = Planner._application_evidence(context, app_name, app_profiles)
+                if evidence:
+                    confidence = float(evidence.get("confidence", 0.0))
+                    step.description = (
+                        f"Launch {app_name} (detected via {evidence.get('source', 'system')}, "
+                        f"confidence {confidence:.0%}; execution still requires policy authorization)"
+                    )
+                elif app_name and app_name not in {"browser", "default-browser", "navegador"}:
+                    step.description = f"Launch {app_name} (not confirmed by the current application catalog)"
             steps.append(step)
+            self._emit(event_types.PLANNER_STEP_CREATED, session_id=sid, request_id=rid, details={"step_id": step.id, "tool_id": step.tool_id})
 
-        risk_score = self._calculate_risk(steps, intent)
+        risk_score = self._calculate_risk(steps, intent, context)
         total_est = sum(s.estimated_duration_ms or 500 for s in steps if s.estimated_duration_ms)
 
         if goal:
@@ -257,7 +309,7 @@ class Planner:
         if goal:
             desc = f"Goal: {goal.name} | {desc}"
 
-        return Plan(
+        plan = Plan(
             steps=steps,
             intent=intent,
             risk_score=risk_score,
@@ -265,8 +317,43 @@ class Planner:
             description=desc,
             goal=goal,
         )
+        self._emit(event_types.PLANNER_COMPLETED, session_id=sid, request_id=rid, status="completed", details={"step_count": len(plan.steps)})
+        return plan
 
-    def _calculate_risk(self, steps: List[PlanStep], intent: Intent) -> float:
+    def _application_evidence(
+        context: Optional[Dict[str, Any]],
+        app_name: str,
+        app_profiles: Optional[List[Dict[str, Any]]] = None
+    ) -> Optional[Dict[str, Any]]:
+        if not app_name:
+            return None
+
+        # Prefer explicit app_profiles if provided (from orchestrator)
+        if app_profiles:
+            query = app_name.casefold().removesuffix(".exe")
+            for app in app_profiles:
+                if not isinstance(app, dict):
+                    continue
+                name = str(app.get("name") or app.get("Name") or "").casefold().removesuffix(".exe")
+                if name == query:
+                    return app
+            return None
+
+        # Fallback to deep_context
+        if not context:
+            return None
+        deep_context = context.get("deep_context", context)
+        apps = deep_context.get("installed_apps", []) if isinstance(deep_context, dict) else []
+        query = app_name.casefold().removesuffix(".exe")
+        for app in apps if isinstance(apps, list) else []:
+            if not isinstance(app, dict):
+                continue
+            name = str(app.get("name") or app.get("Name") or "").casefold().removesuffix(".exe")
+            if name == query:
+                return app
+        return None
+
+    def _calculate_risk(self, steps: List[PlanStep], intent: Intent, context: Optional[Dict[str, Any]] = None) -> float:
         impact_scores = {"low": 0.1, "medium": 0.4, "high": 0.7, "critical": 1.0}
         max_impact = 0.0
         for step in steps:
@@ -278,7 +365,37 @@ class Planner:
         action_risk = {"query": 0.0, "analyze": 0.1, "configure": 0.3, "execute": 0.6, "control": 0.4}
         action_score = action_risk.get(intent.action, 0.2)
 
-        return min(max_impact * 0.6 + action_score * 0.4, 1.0)
+        risk = max_impact * 0.6 + action_score * 0.4
+
+        if context:
+            deep_ctx = context.get("deep_context", {})
+            if isinstance(deep_ctx, dict):
+                hardware = deep_ctx.get("hardware", {})
+                if isinstance(hardware, dict):
+                    gpu_avail = hardware.get("gpu_available")
+                    if intent.action == "execute" and gpu_avail is False:
+                        for step in steps:
+                            if any(kw in step.description.lower() for kw in ("gpu", "cuda", "render", "3d")):
+                                risk += 0.15
+                                break
+                    vram = hardware.get("gpu_vram_gb")
+                    if vram is not None and isinstance(vram, (int, float)) and vram < 4:
+                        for step in steps:
+                            if any(kw in step.description.lower() for kw in ("llm", "ai", "model", "training")):
+                                risk += 0.1
+                                break
+                installed_apps = deep_ctx.get("installed_apps", [])
+                if isinstance(installed_apps, list) and intent.action == "execute":
+                    for step in steps:
+                        app_name = step.params.get("app") or step.params.get("name") or ""
+                        if not app_name:
+                            continue
+                        evidence = Planner._application_evidence(context, app_name, installed_apps)
+                        if evidence is None:
+                            risk += 0.08
+                            break
+
+        return min(risk, 1.0)
 
     def resolve_dependencies(self, plan: Plan) -> List[List[PlanStep]]:
         ids = [step.id for step in plan.steps]

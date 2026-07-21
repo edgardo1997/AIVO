@@ -36,6 +36,8 @@ MODEL_CONTEXT_WINDOWS: Dict[str, int] = {
     "mistral-large-latest": 32768,
     "mistral-medium": 32768,
     "codestral": 32768,
+    # Sentinel starts this managed model with llama.cpp --ctx-size 4096.
+    "Qwen3-1.7B-Q8_0.gguf": 4096,
 }
 
 MODEL_FAMILY_DEFAULTS: Dict[str, int] = {

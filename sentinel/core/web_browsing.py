@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import logging
+import http.client
 import re
+import ssl
 import threading
 import time
 import ipaddress
@@ -78,41 +80,18 @@ class WebBrowsingService:
             return self._record_result(WebResult(url=url, error=str(exc), duration_ms=0))
 
         try:
-            import httpx
-
-            with httpx.Client(timeout=timeout, follow_redirects=False, headers={"User-Agent": USER_AGENT}) as client:
-                current_url = url
-                for _ in range(6):
-                    self._validate_public_url(current_url)
-                    resp = client.get(current_url)
-                    if resp.status_code not in (301, 302, 303, 307, 308):
-                        break
-                    location = resp.headers.get("location")
-                    if not location:
-                        break
-                    current_url = urljoin(str(resp.url), location)
-                else:
-                    raise ValueError("Too many redirects")
-                duration = (time.perf_counter() - start) * 1000
-                result = WebResult(
-                    url=str(resp.url),
-                    status_code=resp.status_code,
-                    headers=dict(resp.headers),
-                    duration_ms=duration,
-                )
-                if resp.status_code != 200:
-                    result.error = f"HTTP {resp.status_code}"
-                    return self._record_result(result)
-
-                content = resp.text
-                if len(content) > MAX_CONTENT_SIZE:
-                    content = content[:MAX_CONTENT_SIZE]
-                result.html = content
-                self._extract_content(result, content, extract_links)
-                return self._record_result(result)
-        except httpx.TimeoutException:
+            final_url, status, headers, body = self.fetch_public_bytes(
+                url, timeout=timeout, max_bytes=MAX_CONTENT_SIZE
+            )
             duration = (time.perf_counter() - start) * 1000
-            return self._record_result(WebResult(url=url, error=f"Timeout after {timeout}s", duration_ms=duration))
+            result = WebResult(url=final_url, status_code=status, headers=headers, duration_ms=duration)
+            if status != 200:
+                result.error = f"HTTP {status}"
+                return self._record_result(result)
+            content = body.decode("utf-8", errors="replace")
+            result.html = content
+            self._extract_content(result, content, extract_links)
+            return self._record_result(result)
         except Exception as e:
             duration = (time.perf_counter() - start) * 1000
             return self._record_result(WebResult(url=url, error=str(e), duration_ms=duration))
@@ -163,6 +142,10 @@ class WebBrowsingService:
 
     @staticmethod
     def _validate_public_url(url: str) -> None:
+        WebBrowsingService._resolve_public_url(url)
+
+    @staticmethod
+    def _resolve_public_url(url: str):
         parsed = urlparse(url)
         if parsed.scheme not in ("http", "https") or not parsed.hostname:
             raise ValueError("Only absolute HTTP/HTTPS URLs are allowed")
@@ -182,6 +165,68 @@ class WebBrowsingService:
                 raise ValueError("Private, loopback, link-local, and reserved destinations are blocked")
         if port not in (80, 443):
             raise ValueError("Only standard HTTP/HTTPS ports are allowed")
+        return parsed, tuple(sorted(addresses))
+
+    @classmethod
+    def fetch_public_bytes(
+        cls,
+        url: str,
+        *,
+        timeout: int,
+        max_bytes: int,
+        require_https: bool = False,
+    ) -> tuple[str, int, dict, bytes]:
+        current_url = url
+        for _ in range(6):
+            parsed, addresses = cls._resolve_public_url(current_url)
+            if require_https and parsed.scheme != "https":
+                raise ValueError("This download requires HTTPS")
+            port = parsed.port or (443 if parsed.scheme == "https" else 80)
+            target = parsed.path or "/"
+            if parsed.query:
+                target += f"?{parsed.query}"
+            last_error: Optional[Exception] = None
+            for address in addresses:
+                connection = None
+                try:
+                    connection_type = http.client.HTTPSConnection if parsed.scheme == "https" else http.client.HTTPConnection
+                    connection = connection_type(parsed.hostname, port, timeout=timeout)
+                    raw_socket = socket.create_connection((address, port), timeout=timeout)
+                    if parsed.scheme == "https":
+                        connection.sock = ssl.create_default_context().wrap_socket(
+                            raw_socket,
+                            server_hostname=parsed.hostname,
+                        )
+                    else:
+                        connection.sock = raw_socket
+                    connection.request(
+                        "GET",
+                        target,
+                        headers={"Host": parsed.netloc, "User-Agent": USER_AGENT, "Accept-Encoding": "identity"},
+                    )
+                    response = connection.getresponse()
+                    headers = {key.lower(): value for key, value in response.getheaders()}
+                    if response.status in (301, 302, 303, 307, 308):
+                        location = headers.get("location")
+                        if not location:
+                            raise ValueError("Redirect response is missing a destination")
+                        current_url = urljoin(current_url, location)
+                        break
+                    declared_size = int(headers.get("content-length", "0") or 0)
+                    if declared_size > max_bytes:
+                        raise ValueError("Remote response exceeds the allowed size")
+                    body = response.read(max_bytes + 1)
+                    if len(body) > max_bytes:
+                        raise ValueError("Remote response exceeds the allowed size")
+                    return current_url, response.status, headers, body
+                except (OSError, ssl.SSLError, http.client.HTTPException) as exc:
+                    last_error = exc
+                finally:
+                    if connection is not None:
+                        connection.close()
+            else:
+                raise ValueError("Connection to the validated public destination failed") from last_error
+        raise ValueError("Too many redirects")
 
     def _record_result(self, result: WebResult) -> WebResult:
         with self._lock:

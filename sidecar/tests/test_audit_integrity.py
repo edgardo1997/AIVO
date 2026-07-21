@@ -7,6 +7,7 @@ from repositories.database import DatabaseManager
 from services.audit_service import AuditService
 
 
+@pytest.mark.security
 def test_pipeline_payload_round_trips_with_identity():
     service = AuditService()
     service.log_pipeline(
@@ -28,6 +29,7 @@ def test_pipeline_payload_round_trips_with_identity():
     assert entry["entry_hash"]
 
 
+@pytest.mark.security
 def test_database_rejects_audit_update_and_delete():
     service = AuditService()
     before = service.get_log()["total"]
@@ -45,6 +47,7 @@ def test_database_rejects_audit_update_and_delete():
     assert service.get_log()["total"] == before + 1
 
 
+@pytest.mark.security
 def test_concurrent_appends_preserve_integrity_chain():
     service = AuditService()
     before = service.verify_integrity()["entries"]

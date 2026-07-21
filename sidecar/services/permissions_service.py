@@ -1,5 +1,7 @@
 import logging
+import threading
 import uuid
+from contextlib import nullcontext
 from repositories.permissions_repository import PermissionsRepository
 
 log = logging.getLogger("sentinel.permissions_service")
@@ -16,7 +18,10 @@ class PermissionsService:
         self.repo = repo or PermissionsRepository()
         self._pending = pending_actions if pending_actions is not None else {}
         self._emergency_stop = emergency_stop if emergency_stop is not None else [False]
-        self._lock = state_lock
+        self._lock = state_lock or threading.RLock()
+
+    def _guard(self):
+        return self._lock if self._lock is not None else nullcontext()
 
     @property
     def pending_actions(self) -> dict:
@@ -24,11 +29,13 @@ class PermissionsService:
 
     @property
     def emergency_stop_flag(self) -> bool:
-        return self._emergency_stop[0]
+        with self._guard():
+            return self._emergency_stop[0]
 
     @emergency_stop_flag.setter
     def emergency_stop_flag(self, value: bool):
-        self._emergency_stop[0] = value
+        with self._guard():
+            self._emergency_stop[0] = value
 
     def set_memory_backend(self, memory) -> None:
         if hasattr(self._pending, "set_memory"):
@@ -45,9 +52,10 @@ class PermissionsService:
         return self._lock
 
     def get_status(self) -> dict:
-        perms = self.repo.load()
-        emergency = self._emergency_stop[0]
-        pending = len(self._pending)
+        with self._guard():
+            perms = self.repo.load()
+            emergency = self._emergency_stop[0]
+            pending = len(self._pending)
         return {
             **perms,
             "emergency_stop": emergency,
@@ -56,7 +64,8 @@ class PermissionsService:
         }
 
     def list_rules(self) -> list:
-        return list(self.repo.load().get("granular_rules", []))
+        with self._guard():
+            return list(self.repo.load().get("granular_rules", []))
 
     def add_rule(self, rule: dict) -> dict:
         effect = rule.get("effect")
@@ -70,31 +79,32 @@ class PermissionsService:
             "path_prefix": rule.get("path_prefix") or "",
             "effect": effect,
         }
-        data = self.repo.load()
-        data.setdefault("granular_rules", []).append(stored)
-        self.repo.save(data)
+        with self._guard():
+            data = self.repo.load()
+            data.setdefault("granular_rules", []).append(stored)
+            self.repo.save(data)
         return stored
 
     def remove_rule(self, rule_id: str) -> bool:
-        data = self.repo.load()
-        before = len(data.get("granular_rules", []))
-        data["granular_rules"] = [rule for rule in data.get("granular_rules", []) if rule.get("id") != rule_id]
-        self.repo.save(data)
-        return len(data["granular_rules"]) < before
+        with self._guard():
+            data = self.repo.load()
+            before = len(data.get("granular_rules", []))
+            data["granular_rules"] = [rule for rule in data.get("granular_rules", []) if rule.get("id") != rule_id]
+            self.repo.save(data)
+            return len(data["granular_rules"]) < before
 
     def set_level(self, level: str) -> dict:
-        perms = self.repo.load()
-        perms["level"] = level
-        self.repo.save(perms)
+        with self._guard():
+            perms = self.repo.load()
+            perms["level"] = level
+            self.repo.save(perms)
         return {"status": "ok", "level": level}
 
     def emergency(self, action: str) -> dict:
         from fastapi import HTTPException
 
-        if self._lock:
-            with self._lock:
-                return self._emergency_action(action)
-        return self._emergency_action(action)
+        with self._guard():
+            return self._emergency_action(action)
 
     def _emergency_action(self, action: str) -> dict:
         if action == "stop":
@@ -109,10 +119,8 @@ class PermissionsService:
         raise HTTPException(400, "Use 'stop' or 'resume'")
 
     def confirm_action(self, action_id: str, approved: bool) -> dict:
-        if self._lock:
-            with self._lock:
-                return self._confirm_action(action_id, approved)
-        return self._confirm_action(action_id, approved)
+        with self._guard():
+            return self._confirm_action(action_id, approved)
 
     def _confirm_action(self, action_id: str, approved: bool) -> dict:
         if action_id not in self._pending:
@@ -128,10 +136,8 @@ class PermissionsService:
         return {"status": "denied", "action_id": action_id}
 
     def create_pending_action(self, action_id: str, data: dict) -> dict:
-        if self._lock:
-            with self._lock:
-                return self._create_pending_action(action_id, data)
-        return self._create_pending_action(action_id, data)
+        with self._guard():
+            return self._create_pending_action(action_id, data)
 
     def _create_pending_action(self, action_id: str, data: dict) -> dict:
         if action_id in self._pending:
@@ -140,17 +146,20 @@ class PermissionsService:
         return {"status": "pending", "action_id": action_id}
 
     def is_confirmed(self, action_id: str) -> bool:
-        return action_id in self._pending and self._pending[action_id].get("_confirmed", False)
+        with self._guard():
+            return action_id in self._pending and self._pending[action_id].get("_confirmed", False)
 
     def add_blocklist(self, pattern: str) -> dict:
-        perms = self.repo.load()
-        if pattern not in perms["blocklist"]:
-            perms["blocklist"].append(pattern)
-            self.repo.save(perms)
-        return {"status": "ok", "blocklist": perms["blocklist"]}
+        with self._guard():
+            perms = self.repo.load()
+            if pattern not in perms["blocklist"]:
+                perms["blocklist"].append(pattern)
+                self.repo.save(perms)
+            return {"status": "ok", "blocklist": list(perms["blocklist"])}
 
     def remove_blocklist(self, item: str) -> dict:
-        perms = self.repo.load()
-        perms["blocklist"] = [p for p in perms["blocklist"] if p != item]
-        self.repo.save(perms)
-        return {"status": "ok", "blocklist": perms["blocklist"]}
+        with self._guard():
+            perms = self.repo.load()
+            perms["blocklist"] = [p for p in perms["blocklist"] if p != item]
+            self.repo.save(perms)
+            return {"status": "ok", "blocklist": list(perms["blocklist"])}

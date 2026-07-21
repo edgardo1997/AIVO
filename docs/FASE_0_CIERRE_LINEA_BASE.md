@@ -55,4 +55,59 @@ El repositorio continúa físicamente dentro de OneDrive. Las exclusiones de wat
 - [x] Integridad Git verificada.
 - [x] Procedimiento de restauración documentado.
 
-La fase 0 queda cerrada. La siguiente fase es restaurar build, contratos y calidad básica.
+## Revalidación de estabilización — 18 de julio de 2026
+
+La línea base se volvió a auditar después de los cambios acumulados en el
+workspace. El estado inicial de esta revalidación era de **46 fallos**, 4
+pruebas omitidas y 21 infracciones de lint Python.
+
+### Correcciones aplicadas
+
+- Restaurado el diagnóstico `system.health` de cuatro pasos: CPU, memoria,
+  disco y procesos.
+- Corregidos los resultados booleanos indeterminados del evaluador objetivo de
+  riesgo y restaurados sus modificadores de contexto contractuales.
+- El LLM permanece como asesor sin autoridad para aumentar o reducir el riesgo
+  objetivo; además, ya no se consulta para decisiones triviales de bajo riesgo.
+- El nivel `view` rechaza explícitamente modificaciones del sistema.
+- Los análisis de sistema de solo lectura pueden ejecutarse sin una aprobación
+  innecesaria cuando la simulación no detecta peligro.
+- La reproducción de una acción almacenada y aprobada usa autorización interna
+  de un solo uso, sin saltarse las políticas del `ToolGateway`.
+- Restaurado el LRU de grounding con orden de acceso determinista, independiente
+  de la resolución del reloj de Windows.
+- Activadas las pruebas asíncronas de grounding y corregido su contrato de
+  tiempo.
+- Reducida la lectura de procesos de más de 12 segundos a aproximadamente 2
+  segundos al eliminar una consulta costosa que no formaba parte del resultado
+  necesario.
+- Actualizadas pruebas antiguas que todavía otorgaban al modelo autoridad sobre
+  decisiones de seguridad o mezclaban “acceso completo” con un flujo que exige
+  confirmación.
+
+### Evidencia reproducible
+
+| Puerta | Comando | Resultado |
+|---|---|---|
+| Backend completo | `python -m pytest -q` | 1802 pasan, 1 omitida, 23 deseleccionadas |
+| Lint Python | `python -m ruff check sentinel sidecar` | limpio |
+| Lint frontend | `npm run lint` | limpio |
+| Tests frontend | `npm test -- --run` | 125/125 |
+| Build frontend | `npm run build` | limpio |
+| Rust/Tauri | `cargo check --manifest-path src-tauri/Cargo.toml` | limpio |
+
+### Excepciones no bloqueantes
+
+- `test_proactive.py` omite una prueba porque no existe un endpoint V1 para
+  sugerencias proactivas. No se añadió dicho endpoint porque esta fase prohíbe
+  ampliar funcionalidades.
+- Permanecen dos avisos de dependencias externas: la transición futura de
+  Starlette `TestClient` hacia `httpx2` y una API de `reportlab` que quedará
+  obsoleta en Python 3.14.
+- El workspace continúa con numerosos cambios previos del usuario. Esta fase no
+  los descartó, revirtió ni consolidó en un commit.
+
+## Cierre actualizado
+
+La Fase 0 queda cerrada con build, lint y pruebas verdes. La siguiente fase puede
+trabajar sobre calidad y arquitectura desde una línea base verificable.

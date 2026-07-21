@@ -36,7 +36,7 @@ export function Monitor() {
       <div className="metric-grid">
         <div className="metric">
           <div className="metric-label">CPU</div>
-          <div className="metric-value">{cpu?.percent.toFixed(1)}%</div>
+          <div className="metric-value">{cpu?.percent?.toFixed(1) ?? "—"}%</div>
           <div className="bar-container">
             <div className={`bar-fill ${barColor(cpu?.percent ?? 0)}`} style={{ width: `${cpu?.percent ?? 0}%` }} />
           </div>
@@ -46,7 +46,7 @@ export function Monitor() {
         </div>
         <div className="metric">
           <div className="metric-label">Memory</div>
-          <div className="metric-value">{mem?.percent.toFixed(1)}%</div>
+          <div className="metric-value">{mem?.percent?.toFixed(1) ?? "—"}%</div>
           <div className="bar-container">
             <div className={`bar-fill ${barColor(mem?.percent ?? 0)}`} style={{ width: `${mem?.percent ?? 0}%` }} />
           </div>
@@ -56,7 +56,7 @@ export function Monitor() {
         </div>
         <div className="metric">
           <div className="metric-label">Swap</div>
-          <div className="metric-value">{mem?.swap_percent.toFixed(1)}%</div>
+          <div className="metric-value">{mem?.swap_percent?.toFixed(1) ?? "—"}%</div>
           <div className="bar-container">
             <div className={`bar-fill ${barColor(mem?.swap_percent ?? 0)}`} style={{ width: `${mem?.swap_percent ?? 0}%` }} />
           </div>

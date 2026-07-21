@@ -10,11 +10,14 @@ on:
 
 permissions:
   contents: write
+  attestations: read
 
 jobs:
   publish:
     runs-on: windows-latest
     environment: general-publication
+    env:
+      PUBLICATION_TAG: ${{ inputs.tag }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -25,6 +28,12 @@ jobs:
           python-version: "3.12"
       - name: Install gate dependency
         run: pip install cryptography==49.0.0
+      - name: Validate publication tag
+        shell: pwsh
+        run: |
+          if ($env:PUBLICATION_TAG -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$') {
+            throw 'Publication tag must be a valid version tag such as v1.0.0'
+          }
       - name: Require protected environment approval
         shell: pwsh
         env:
@@ -36,7 +45,7 @@ jobs:
       - name: Require independently signed pentest approval
         shell: pwsh
         run: |
-          $version = "${{ inputs.tag }}" -replace '^v',''
+          $version = $env:PUBLICATION_TAG -replace '^v',''
           python scripts/verify_pentest_gate.py `
             --attestation security/pentest/approval.json `
             --assessors security/pentest/trusted-assessors.json `
@@ -46,13 +55,40 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $release = gh release view "${{ inputs.tag }}" --json isDraft,assets | ConvertFrom-Json
+          $release = gh release view $env:PUBLICATION_TAG --json isDraft,assets | ConvertFrom-Json
           if (-not $release.isDraft) { throw 'Release is not a draft; publication gate cannot protect it' }
           $names = @($release.assets | ForEach-Object name)
           foreach ($pattern in '*.exe','*.msi','*.sig','SHA256SUMS','release-manifest.json') {
             if (-not ($names | Where-Object { $_ -like $pattern })) { throw "Missing required release asset: $pattern" }
           }
+      - name: Independently verify downloaded release assets
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $assets = Join-Path $env:RUNNER_TEMP 'sentinel-release-assets'
+          New-Item -ItemType Directory -Force $assets | Out-Null
+          gh release download $env:PUBLICATION_TAG --dir $assets
+          python scripts/release_metadata.py verify-downloaded `
+            --manifest (Join-Path $assets 'release-manifest.json') `
+            --asset-dir $assets
+          $manifest = Get-Content (Join-Path $assets 'release-manifest.json') -Raw | ConvertFrom-Json
+          $expectedVersion = $env:PUBLICATION_TAG -replace '^v',''
+          if ($manifest.version -ne $expectedVersion) { throw 'Downloaded manifest version does not match publication tag' }
+          foreach ($record in $manifest.artifacts) {
+            $artifact = Join-Path $assets ([IO.Path]::GetFileName($record.path))
+            gh attestation verify $artifact `
+              --repo "${{ github.repository }}" `
+              --signer-workflow "${{ github.repository }}/.github/workflows/release.yml" `
+              --source-ref "refs/tags/$env:PUBLICATION_TAG"
+          }
+          $installers = Get-ChildItem -LiteralPath $assets -File | Where-Object Extension -in '.exe','.msi'
+          if (-not $installers) { throw 'No downloaded Windows installers were found' }
+          foreach ($installer in $installers) {
+            $signature = Get-AuthenticodeSignature $installer.FullName
+            if ($signature.Status -ne 'Valid') { throw "Invalid Authenticode signature: $($installer.Name)" }
+          }
       - name: Publish approved release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit "${{ inputs.tag }}" --draft=false
+        run: gh release edit $env:PUBLICATION_TAG --draft=false

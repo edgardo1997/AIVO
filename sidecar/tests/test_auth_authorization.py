@@ -10,6 +10,7 @@ from modules.auth import IdentityContext, auth_middleware
 from modules.authorization import require_level, require_admin, require_confirm, require_view, check_level, LEVEL_RANK
 
 
+@pytest.mark.unit
 class TestIdentityContext:
     def test_local_identity_defaults(self):
         identity = IdentityContext.local_identity()
@@ -102,6 +103,7 @@ class TestIdentityContext:
         assert identity.level == "view"
 
 
+@pytest.mark.unit
 class TestLEVEL_RANK:
     def test_admin_highest(self):
         assert LEVEL_RANK["admin"] == 4
@@ -120,6 +122,7 @@ class TestLEVEL_RANK:
         assert LEVEL_RANK["view"] == 1
 
 
+@pytest.mark.unit
 class TestCheckLevel:
     def test_admin_meets_admin(self):
         identity = IdentityContext.local_identity()
@@ -183,6 +186,7 @@ class TestCheckLevel:
             check_level(identity, "admin")
 
 
+@pytest.mark.integration
 class TestRequireLevelDependency:
     def _app(self):
         app = FastAPI()
@@ -244,6 +248,7 @@ class TestRequireLevelDependency:
         assert data["level"] == "admin"
 
 
+@pytest.mark.integration
 class TestAuthMiddlewareIntegration:
     def test_middleware_sets_identity_on_request(self):
         app = FastAPI()
@@ -295,7 +300,122 @@ class TestAuthMiddlewareIntegration:
         assert "level" in data
 
 
+@pytest.mark.security
+class TestUnauthenticatedPaths:
+    """UNAUTHENTICATED_PATHS bypasses auth middleware — health/info work without any token."""
+
+    def _app(self):
+        app = FastAPI()
+        app.state._test_mode = False
+        app.middleware("http")(auth_middleware)
+        return app
+
+    def test_health_returns_200_without_any_auth(self):
+        app = self._app()
+
+        @app.get("/api/health")
+        def health():
+            return {"status": "ok"}
+
+        client = TestClient(app)
+        resp = client.get("/api/health")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ok"
+
+    def test_info_returns_200_without_any_auth(self):
+        app = self._app()
+
+        @app.get("/api/info")
+        def info():
+            return {"name": "Sentinel Sidecar"}
+
+        client = TestClient(app)
+        resp = client.get("/api/info")
+        assert resp.status_code == 200
+        assert resp.json()["name"] == "Sentinel Sidecar"
+
+    def test_protected_path_rejected_when_no_auth_configured(self):
+        app = self._app()
+
+        @app.get("/api/protected")
+        def protected():
+            return {"secret": "data"}
+
+        client = TestClient(app)
+        resp = client.get("/api/protected")
+        assert resp.status_code == 503
+
+    def test_unauthenticated_paths_are_still_rate_limited(self):
+        from main import app
+
+        client = TestClient(app)
+        resp = client.get("/api/health")
+        assert resp.status_code == 200
+        assert "X-RateLimit-Limit" in resp.headers
+        assert "X-RateLimit-Remaining" in resp.headers
+
+    def test_info_hides_modules_without_identity(self):
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        clean_app = FastAPI()
+        clean_app.state._test_mode = False
+
+        @clean_app.get("/api/info")
+        def info(request: Request):
+            identity = getattr(request.state, "identity", None)
+            result = {"name": "Sentinel Sidecar", "version": "1.0.0"}
+            if identity and identity.is_authenticated:
+                result["modules"] = ["executor", "monitor"]
+            return result
+
+        clean_app.middleware("http")(auth_middleware)
+        raw_client = TestClient(clean_app)
+        raw_client.headers.clear()
+        resp = raw_client.get("/api/info")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["name"] == "Sentinel Sidecar"
+        assert "modules" not in data
+
+    def test_info_shows_modules_when_authenticated(self):
+        from main import app
+
+        client = TestClient(app)
+        resp = client.get("/api/info")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "modules" in data
+        assert "executor" in data["modules"]
+
+
+@pytest.mark.unit
 class TestIdentityFactory:
+    def test_service_identity_creates_service_context(self):
+        identity = IdentityContext.service_identity("backup-svc", frozenset({"system.read", "audit.read"}))
+        assert identity.user_id == "service:backup-svc"
+        assert identity.username == "backup-svc"
+        assert identity.role == "service"
+        assert identity.level == "confirm"
+        assert identity.permissions == frozenset({"system.read", "audit.read"})
+        assert identity.authentication_method == "internal"
+        assert identity.is_authenticated is True
+        assert identity.is_local is True
+        assert identity.metadata["service"] == "backup-svc"
+
+    def test_remote_identity_creates_fleet_context(self):
+        identity = IdentityContext.remote_identity("fp:abc123", "sess-001")
+        assert identity.user_id == "fleet:fp:abc123"
+        assert identity.username == "Paired Fleet Client"
+        assert identity.role == "viewer"
+        assert identity.level == "view"
+        assert identity.permissions == frozenset({"system.read", "audit.read"})
+        assert identity.authentication_method == "fleet_proxy"
+        assert identity.is_authenticated is True
+        assert identity.is_local is False
+        assert identity.metadata["actor_fingerprint"] == "fp:abc123"
+        assert identity.metadata["session_id"] == "sess-001"
+
     def test_custom_identity_with_all_fields(self):
         identity = IdentityContext(
             user_id="custom-user",
@@ -336,6 +456,7 @@ class TestIdentityFactory:
         assert identity.metadata["scopes"] == ["read", "write"]
 
 
+@pytest.mark.integration
 class TestSessionAuthentication:
     @staticmethod
     def _client():
@@ -369,3 +490,56 @@ class TestSessionAuthentication:
         assert identity["authentication_method"] == "session_token"
         assert identity["metadata"]["session_id"]
         assert token not in response.text
+
+
+@pytest.mark.security
+class TestSensitiveRouteAuthorization:
+    @staticmethod
+    def _jwt_client(role: str, user_id: str = "limited-user") -> TestClient:
+        from main import app
+        from modules.jwt_auth import create_access_token
+
+        client = TestClient(app)
+        client.headers.clear()
+        client.headers.update({"Authorization": f"Bearer {create_access_token(user_id, role=role)}"})
+        return client
+
+    @pytest.mark.parametrize(
+        ("method", "path", "body"),
+        [
+            ("get", "/api/sentinel/vault/status", None),
+            ("post", "/api/sentinel/vault/rotate-master-key", {}),
+            ("get", "/api/sentinel/hardening/config", None),
+            ("put", "/api/sentinel/hardening/config", {"default_timeout_seconds": 5}),
+            ("get", "/api/sentinel/profile/search?query=local", None),
+            ("post", "/v1/policies", None),
+        ],
+    )
+    def test_non_admin_identity_cannot_access_administrative_routes(self, method, path, body):
+        client = self._jwt_client("user")
+        response = client.request(method, path, json=body)
+        assert response.status_code == 403
+
+    def test_user_cannot_read_another_profile(self):
+        client = self._jwt_client("user", "alice")
+        response = client.get("/api/sentinel/profile?user_id=bob")
+        assert response.status_code == 403
+
+    def test_user_profile_defaults_to_authenticated_owner(self):
+        client = self._jwt_client("user", "alice")
+        response = client.get("/api/sentinel/profile")
+        assert response.status_code == 200
+        assert response.json()["user_id"] == "alice"
+
+    def test_policy_reload_does_not_expose_internal_exception(self, monkeypatch):
+        from routers.v1 import policies
+
+        def fail_reload(_filename):
+            raise RuntimeError("C:/secret/internal/policy.yaml")
+
+        monkeypatch.setattr(policies, "load_yaml_policy", fail_reload)
+        response = self._jwt_client("admin").post("/v1/policies")
+
+        assert response.status_code == 500
+        assert response.json() == {"detail": "Policy reload failed"}
+        assert "secret" not in response.text

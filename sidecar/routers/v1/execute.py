@@ -79,6 +79,15 @@ async def execute_tool(req: ExecuteRequest, request: Request):
             requires_confirmation=True,
         )
 
+    if result.error:
+        return ExecuteResponse(
+            success=False,
+            data=None,
+            error=result.error,
+            simulated=result.simulated,
+            requires_confirmation=False,
+        )
+
     tr = result.tool_result
     if tr is None:
         raise HTTPException(status_code=500, detail="No tool result")

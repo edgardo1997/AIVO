@@ -1,5 +1,6 @@
 import os
 import sys
+from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -7,6 +8,7 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 from main import app
+from modules.permissions import _svc as perm_svc
 
 from modules import triggers as triggers_mod
 from sentinel.core.trigger import (
@@ -227,8 +229,43 @@ class TestTriggerCore:
         engine.add_rule(TriggerRule(id="a", name="A", conditions=[]))
         assert len(engine.list_rules()) == 1
 
+    def test_concurrent_evaluation_respects_cooldown_once(self):
+        engine = TriggerEngine()
+        engine.add_rule(
+            TriggerRule(
+                id="concurrent",
+                name="Concurrent",
+                conditions=[TriggerCondition(metric="cpu", operator=TriggerOperator.GT, value=80)],
+                cooldown_seconds=60,
+            )
+        )
+
+        with ThreadPoolExecutor(max_workers=12) as pool:
+            results = list(pool.map(lambda _: engine.evaluate({"cpu": 95}), range(24)))
+
+        assert sum(len(result) for result in results) == 1
+        assert len(engine.get_history()) == 1
+
+    def test_concurrent_duplicate_creation_accepts_only_one_rule(self):
+        engine = TriggerEngine()
+
+        def create(index):
+            return engine.add_rule(
+                TriggerRule(id="same-id", name=f"Rule {index}", conditions=[]),
+                overwrite=False,
+            )
+
+        with ThreadPoolExecutor(max_workers=12) as pool:
+            results = list(pool.map(create, range(24)))
+
+        assert results.count(True) == 1
+        assert engine.count() == 1
+
 
 class TestTriggerTools:
+    def setup_method(self):
+        perm_svc.set_level("admin")
+
     def test_trigger_list_empty(self):
         resp = client.post(
             "/v1/execute",

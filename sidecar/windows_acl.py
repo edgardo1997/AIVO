@@ -10,6 +10,11 @@ from pathlib import Path
 from typing import Callable
 
 
+# Tests and explicitly isolated diagnostics may disable operating-system ACL work
+# before importing the sidecar. Production keeps enforcement enabled by default.
+ACL_ENABLED = os.environ.get("SENTINEL_ENABLE_ACL", "1").strip().lower() not in {"0", "false", "no"}
+
+
 class AclEnforcementError(RuntimeError):
     pass
 
@@ -38,7 +43,7 @@ def protect_path(
     path: str | Path, *, directory: bool | None = None, required: bool = True, runner: Runner = subprocess.run
 ) -> bool:
     """Replace broad access with full control for the current user and SYSTEM."""
-    if os.name != "nt" or os.environ.get("AIVO_TESTING") == "1":
+    if os.name != "nt" or not ACL_ENABLED:
         return False
     target = Path(path).expanduser().resolve()
     if not target.exists():

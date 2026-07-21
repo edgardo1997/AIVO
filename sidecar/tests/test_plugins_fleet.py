@@ -4,8 +4,13 @@ import json
 import tempfile
 from fastapi.testclient import TestClient
 from main import app
+from modules.permissions import _svc as perm_svc
 
 client = TestClient(app)
+
+
+def admin_mode():
+    perm_svc.set_level("admin")
 
 
 @pytest.fixture(autouse=True)
@@ -25,6 +30,7 @@ def clean_plugin_state():
 
 
 def test_list_plugins():
+    admin_mode()
     resp = client.post("/v1/execute", json={"tool_id": "plugins.list", "params": {}})
     assert resp.status_code == 200
     data = resp.json()["data"]
@@ -33,6 +39,7 @@ def test_list_plugins():
 
 
 def test_list_templates():
+    admin_mode()
     resp = client.post("/v1/execute", json={"tool_id": "plugins.templates", "params": {}})
     assert resp.status_code == 200
     data = resp.json()["data"]
@@ -43,6 +50,7 @@ def test_list_templates():
 
 
 def test_create_and_load_plugin():
+    admin_mode()
     resp = client.post(
         "/v1/execute", json={"tool_id": "plugins.create", "params": {"name": "test_plugin", "template": "minimal"}}
     )
@@ -63,6 +71,7 @@ def test_create_and_load_plugin():
 
 
 def test_create_duplicate_plugin():
+    admin_mode()
     resp = client.post(
         "/v1/execute", json={"tool_id": "plugins.create", "params": {"name": "dup_plugin", "template": "minimal"}}
     )
@@ -75,18 +84,21 @@ def test_create_duplicate_plugin():
 
 
 def test_load_nonexistent_plugin():
+    admin_mode()
     resp = client.post("/v1/execute", json={"tool_id": "plugins.load", "params": {"plugin_id": "nonexistent"}})
     assert resp.status_code == 200
     assert resp.json()["success"] == False
 
 
 def test_unload_nonexistent_plugin():
+    admin_mode()
     resp = client.post("/v1/execute", json={"tool_id": "plugins.unload", "params": {"plugin_id": "nonexistent"}})
     assert resp.status_code == 200
     assert resp.json()["success"] == True
 
 
 def test_fleet_status():
+    admin_mode()
     resp = client.post("/v1/execute", json={"tool_id": "fleet.status", "params": {}})
     assert resp.status_code == 200
     data = resp.json()["data"]
@@ -96,6 +108,7 @@ def test_fleet_status():
 
 
 def test_fleet_generate_and_revoke():
+    admin_mode()
     resp = client.post("/v1/execute", json={"tool_id": "fleet.generate_pairing", "params": {}})
     assert resp.status_code == 200
     data = resp.json()["data"]
@@ -114,6 +127,7 @@ def test_fleet_generate_and_revoke():
 
 
 def test_fleet_toggle_remote():
+    admin_mode()
     resp = client.post("/v1/execute", json={"tool_id": "fleet.toggle_remote", "params": {}})
     assert resp.status_code == 200
     data = resp.json()["data"]
@@ -121,6 +135,7 @@ def test_fleet_toggle_remote():
 
 
 def test_fleet_qr():
+    admin_mode()
     client.post("/v1/execute", json={"tool_id": "fleet.generate_pairing", "params": {}})
     resp = client.post("/v1/execute", json={"tool_id": "fleet.qr", "params": {}})
     assert resp.status_code == 200

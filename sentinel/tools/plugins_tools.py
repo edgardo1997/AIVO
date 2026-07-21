@@ -11,7 +11,7 @@ class PluginListTool(Tool):
             id="plugins.list",
             name="List Plugins",
             description="List all registered plugins",
-            version="0.1.0",
+            version="1.0.0",
             parameters={},
             required_permissions=["plugins.read"],
             timeout_seconds=10,
@@ -35,7 +35,7 @@ class PluginTemplatesTool(Tool):
             id="plugins.templates",
             name="Plugin Templates",
             description="List available plugin templates",
-            version="0.1.0",
+            version="1.0.0",
             parameters={},
             required_permissions=["plugins.read"],
             timeout_seconds=10,
@@ -59,7 +59,7 @@ class PluginLoadTool(Tool):
             id="plugins.load",
             name="Load Plugin",
             description="Load a plugin by ID",
-            version="0.1.0",
+            version="1.0.0",
             parameters={
                 "type": "object",
                 "properties": {
@@ -93,7 +93,7 @@ class PluginUnloadTool(Tool):
             id="plugins.unload",
             name="Unload Plugin",
             description="Unload a plugin by ID",
-            version="0.1.0",
+            version="1.0.0",
             parameters={
                 "type": "object",
                 "properties": {
@@ -123,7 +123,7 @@ class PluginReloadTool(Tool):
             id="plugins.reload",
             name="Reload Plugin",
             description="Reload a plugin by ID",
-            version="0.1.0",
+            version="1.0.0",
             parameters={
                 "type": "object",
                 "properties": {
@@ -153,7 +153,7 @@ class PluginToggleTool(Tool):
             id="plugins.toggle",
             name="Toggle Plugin",
             description="Enable or disable a plugin",
-            version="0.1.0",
+            version="1.0.0",
             parameters={
                 "type": "object",
                 "properties": {
@@ -183,7 +183,7 @@ class PluginCreateTool(Tool):
             id="plugins.create",
             name="Create Plugin",
             description="Create a new plugin from a template",
-            version="0.1.0",
+            version="1.0.0",
             parameters={
                 "type": "object",
                 "properties": {

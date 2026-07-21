@@ -108,8 +108,6 @@ async def get_trigger(trigger_id: str):
 async def create_trigger(body: CreateTriggerRequest):
     if not _engine:
         raise HTTPException(status_code=500, detail="Trigger engine not available")
-    if _engine.get_rule(body.id):
-        raise HTTPException(status_code=409, detail=f"Trigger '{body.id}' already exists")
     conditions = [
         TriggerCondition(metric=c.metric, operator=TriggerOperator(c.operator), value=c.value) for c in body.conditions
     ]
@@ -123,7 +121,8 @@ async def create_trigger(body: CreateTriggerRequest):
         cooldown_seconds=body.cooldown_seconds,
         enabled=body.enabled,
     )
-    _engine.add_rule(rule)
+    if not _engine.add_rule(rule, overwrite=False):
+        raise HTTPException(status_code=409, detail=f"Trigger '{body.id}' already exists")
     log.info("Trigger '%s' created via v1 API", body.id)
     return {"status": "created", "trigger_id": body.id}
 

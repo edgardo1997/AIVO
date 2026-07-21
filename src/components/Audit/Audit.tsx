@@ -55,6 +55,10 @@ export function Audit() {
       ]);
       let data = res.entries as AuditEntryFull[];
       if (statusFilter) data = data.filter((e) => e.status === statusFilter);
+      if (since) {
+        const start = new Date(since).getTime();
+        data = data.filter((e) => new Date(e.timestamp).getTime() >= start);
+      }
       if (search) {
         const q = search.toLowerCase();
         data = data.filter((e) =>

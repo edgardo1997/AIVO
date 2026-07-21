@@ -16,6 +16,27 @@ class AdvisoryService:
         self.config = config or AdvisoryConfig.from_env()
         self._confidence = ConfidenceEngine()
         self._rules = tuple(rules)
+        self._feedback: List[Dict[str, Any]] = []
+
+    def record_feedback(self, helpful: bool, insight_kind: str | None = None, execution_id: str | None = None) -> None:
+        self._feedback.append({
+            "helpful": helpful,
+            "insight_kind": insight_kind,
+            "execution_id": execution_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+
+    def feedback_stats(self) -> Dict[str, Any]:
+        total = len(self._feedback)
+        if not total:
+            return {"total": 0, "helpful_pct": 0.0, "total_helpful": 0, "total_unhelpful": 0}
+        helpful = sum(1 for f in self._feedback if f["helpful"])
+        return {
+            "total": total,
+            "helpful_pct": round(helpful / total * 100, 1),
+            "total_helpful": helpful,
+            "total_unhelpful": total - helpful,
+        }
 
     def analyze(self, result: Any) -> AdvisoryReport | None:
         if not self.config.enabled:

@@ -6,7 +6,7 @@ interface IntentInputProps {
   placeholder?: string;
 }
 
-export function IntentInput({ onSend, disabled, placeholder = "What do you want to do?" }: IntentInputProps) {
+export function IntentInput({ onSend, disabled, placeholder = "¿Qué quieres que haga Sentinel?" }: IntentInputProps) {
   const [text, setText] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -31,7 +31,7 @@ export function IntentInput({ onSend, disabled, placeholder = "What do you want 
         style={{ flex: 1 }}
       />
       <button className="btn btn-primary" onClick={handleSend} disabled={disabled || !text.trim()}>
-        {disabled ? "Processing..." : "Go"}
+        {disabled ? "Procesando..." : "Continuar"}
       </button>
     </div>
   );

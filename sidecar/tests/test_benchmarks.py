@@ -15,19 +15,27 @@ import pytest
 from fastapi.testclient import TestClient
 from main import app, _rate_limiter
 from modules.permissions import _svc as perm_svc
-from services.rate_limiter import SlidingWindowRateLimiter
+
+pytestmark = pytest.mark.performance
 
 client = TestClient(app)
-perm_svc.set_level("admin")
-
-# Create an unlimited rate limiter for benchmarks
-_unlimited = SlidingWindowRateLimiter(window_seconds=1, max_buckets=1)
-_original_allow = _rate_limiter.allow
-_rate_limiter.allow = lambda key, limit=999999: type("_", (), {"allowed": True, "remaining": 999, "retry_after": 0})()
 
 
-@pytest.fixture(scope="session", autouse=True)
-def warmup():
+@pytest.fixture(scope="module", autouse=True)
+def benchmark_configuration():
+    """Keep benchmark-only mutations isolated from the regression suite."""
+    original_allow = _rate_limiter.allow
+    perm_svc.set_level("admin")
+    _rate_limiter.allow = lambda key, limit=999999: type(  # noqa: ARG005
+        "_", (), {"allowed": True, "remaining": 999, "retry_after": 0}
+    )()
+    yield
+    _rate_limiter.allow = original_allow
+    perm_svc.set_level("confirm")
+
+
+@pytest.fixture(scope="module", autouse=True)
+def warmup(benchmark_configuration):
     """Warm up the orchestrator singleton (first-call latency is high)."""
     _rate_limiter.clear()
     client.post("/api/sentinel/process", json={"utterance": "cpu usage"})

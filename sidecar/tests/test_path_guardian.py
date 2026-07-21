@@ -28,6 +28,7 @@ auth = IdentityContext(
 )
 
 
+@pytest.mark.security
 class TestPathPolicy:
     def test_allowed_paths_are_expanded(self):
         paths = get_allowed_paths()
@@ -50,6 +51,7 @@ class TestPathPolicy:
             assert not matched, f"Should NOT detect as sensitive: {name}"
 
 
+@pytest.mark.security
 class TestPathGuardianValid:
     def test_read_temp_file(self):
         tmp = tempfile.gettempdir()
@@ -76,6 +78,7 @@ class TestPathGuardianValid:
         assert result.allowed, f"Should allow search in TEMP: {result.reason}"
 
 
+@pytest.mark.security
 class TestPathGuardianBlocked:
     def test_blocked_windows_system32(self):
         result = guardian.validate_read("C:\\Windows\\System32\\drivers\\etc\\hosts", auth)
@@ -97,6 +100,7 @@ class TestPathGuardianBlocked:
         assert result.risk_level == "critical", f"Risk should be critical, got: {result.risk_level}"
 
 
+@pytest.mark.security
 class TestPathTraversal:
     def test_simple_dotdot(self):
         result = guardian.validate_read("..\\..\\etc\\passwd", auth)
@@ -111,6 +115,7 @@ class TestPathTraversal:
         assert not result.allowed
 
 
+@pytest.mark.security
 class TestSymlinkProtection:
     def test_symlink_blocked(self):
         tmp = tempfile.gettempdir()
@@ -140,6 +145,7 @@ class TestSymlinkProtection:
                     pass
 
 
+@pytest.mark.security
 class TestEdgeCases:
     def test_empty_path(self):
         result = guardian.validate_read("", auth)
@@ -180,6 +186,7 @@ class TestEdgeCases:
             assert result.risk_level == "low"
 
 
+@pytest.mark.security
 class TestFullIntegration:
     def test_deny_temp_read_ssh(self):
         result = guardian.validate_read(os.path.expandvars("%USERPROFILE%\\.ssh\\config"), auth)

@@ -6,6 +6,7 @@ vi.mock("../api", () => ({
   api: {
     sentinel: {
       process: vi.fn().mockResolvedValue({
+        presentation: { version: 1, mode: "user", status: "completed", title: "Acción completada", summary: "El procesador está usando 45%.", risk: { level: "low", score: null }, evidence: { required: 1, verified: 1, satisfied: true, sources: [] }, next_action: null, details: null },
         approved: true, simulated: false, blocked: false, action_id: null, error: null,
         decision: "approved", decision_reason: "Safe operation",
         intent: { action: "monitor", target: "cpu", confidence: 0.95, raw_input: "show me cpu", parameters: {} },
@@ -35,30 +36,44 @@ import { api } from "../api";
 describe("Sentinel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
   });
 
   it("muestra IntentInput", async () => {
     render(<Sentinel />);
-    expect(await screen.findByPlaceholderText("What do you want to do?")).toBeInTheDocument();
+    expect(await screen.findByPlaceholderText("¿Qué quieres que haga Sentinel?")).toBeInTheDocument();
   });
 
   it("envía query", async () => {
     render(<Sentinel />);
-    await screen.findByPlaceholderText("What do you want to do?");
+    await screen.findByPlaceholderText("¿Qué quieres que haga Sentinel?");
 
-    const input = screen.getByPlaceholderText("What do you want to do?");
+    const input = screen.getByPlaceholderText("¿Qué quieres que haga Sentinel?");
     fireEvent.change(input, { target: { value: "show me cpu" } });
-    fireEvent.click(screen.getByText("Go"));
+    fireEvent.click(screen.getByText("Continuar"));
 
     await waitFor(() => {
-      expect(api.sentinel.process).toHaveBeenCalledWith("show me cpu", {});
+      expect(api.sentinel.process).toHaveBeenCalledWith("show me cpu", { presentation_mode: "user" });
     });
-    expect(await screen.findByText("Get CPU info")).toBeInTheDocument();
+    expect(screen.getByText("Acción completada")).toBeInTheDocument();
+    expect(screen.getByText("El procesador está usando 45%.")).toBeInTheDocument();
     expect(screen.getByText("Safe operation")).toBeInTheDocument();
   });
 
-  it("muestra dry-run checkbox", async () => {
+  it("solicita detalles técnicos solo cuando el usuario los activa", async () => {
     render(<Sentinel />);
-    expect(await screen.findByText("Dry-run")).toBeInTheDocument();
+    fireEvent.click(await screen.findByText("Detalles técnicos"));
+    const input = screen.getByPlaceholderText("¿Qué quieres que haga Sentinel?");
+    fireEvent.change(input, { target: { value: "show me cpu" } });
+    fireEvent.click(screen.getByText("Continuar"));
+
+    await waitFor(() => {
+      expect(api.sentinel.process).toHaveBeenCalled();
+    });
+  });
+
+  it("mantiene la simulación dentro de los detalles técnicos", async () => {
+    render(<Sentinel />);
+    expect(screen.queryByText("Solo simular")).not.toBeInTheDocument();
   });
 });

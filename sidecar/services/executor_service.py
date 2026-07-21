@@ -4,6 +4,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import threading
 from typing import Any, Dict, Optional
 
 from sentinel.core.tool import Tool, ToolResult, ToolSpec, ToolStatus
@@ -48,12 +49,23 @@ def _load_destructive_patterns():
     return data.get("destructive_patterns", [])
 
 
-DESTRUCTIVE_PATTERNS = _load_destructive_patterns()
+DESTRUCTIVE_PATTERNS: list[str] | None = None
+_patterns_lock = threading.RLock()
 
 
 def _reload_patterns():
     global DESTRUCTIVE_PATTERNS
-    DESTRUCTIVE_PATTERNS = _load_destructive_patterns()
+    with _patterns_lock:
+        DESTRUCTIVE_PATTERNS = _load_destructive_patterns()
+
+
+def _destructive_patterns() -> list[str]:
+    global DESTRUCTIVE_PATTERNS
+    if DESTRUCTIVE_PATTERNS is None:
+        with _patterns_lock:
+            if DESTRUCTIVE_PATTERNS is None:
+                DESTRUCTIVE_PATTERNS = _load_destructive_patterns()
+    return DESTRUCTIVE_PATTERNS
 
 
 PolicyStore.get_instance().on_reload(_reload_patterns)
@@ -62,7 +74,7 @@ EXECUTOR_COMMAND_SPEC = ToolSpec(
     id="executor.command",
     name="Execute Command",
     description="Execute a system command with safety validation",
-    version="0.1.0",
+    version="1.0.0",
     parameters={
         "type": "object",
         "properties": {
@@ -82,7 +94,7 @@ EXECUTOR_LAUNCH_SPEC = ToolSpec(
     id="executor.launch",
     name="Launch Application",
     description="Launch an application by name or path",
-    version="0.1.0",
+    version="1.0.0",
     parameters={
         "type": "object",
         "properties": {
@@ -100,7 +112,7 @@ EXECUTOR_KILL_SPEC = ToolSpec(
     id="executor.kill",
     name="Kill Process",
     description="Terminate a process by PID",
-    version="0.1.0",
+    version="1.0.0",
     parameters={
         "type": "object",
         "properties": {
@@ -117,7 +129,7 @@ EXECUTOR_RESTART_SPEC = ToolSpec(
     id="executor.restart",
     name="Restart Process",
     description="Restart a process that was previously killed",
-    version="0.1.0",
+    version="1.0.0",
     parameters={
         "type": "object",
         "properties": {
@@ -194,7 +206,11 @@ class ExecutorService(Tool):
 
     async def execute_launch(self, params: Dict[str, Any], context: Dict[str, Any]) -> ToolResult:
         try:
-            result = self.launch_app(params["app_name"], params.get("args", ""))
+            result = self.launch_app(
+                params["app_name"],
+                params.get("args", ""),
+                elevated=bool(params.get("elevated", False)),
+            )
             return ToolResult.ok(data=result, tool_id="executor.launch")
         except Exception as e:
             return ToolResult.fail(error=str(e), tool_id="executor.launch")
@@ -236,7 +252,7 @@ class ExecutorService(Tool):
 
     def classify_command(self, cmd: str) -> str:
         cmd_lower = cmd.lower()
-        for pattern in DESTRUCTIVE_PATTERNS:
+        for pattern in _destructive_patterns():
             if pattern.lower() in cmd_lower:
                 return f"DESTRUCTIVE: {pattern.strip()}"
         first_word = cmd.split(None, 1)[0].lower() if cmd.strip() else ""
@@ -338,12 +354,18 @@ class ExecutorService(Tool):
         except (ImportError, psutil.NoSuchProcess, psutil.AccessDenied):
             pass
 
-    def launch_app(self, app_name: str, args: str = "") -> dict:
+    def launch_app(self, app_name: str, args: str = "", *, elevated: bool = False) -> dict:
         from fastapi import HTTPException
+        import webbrowser
 
         app_name = app_name.strip()
         if not app_name:
             raise HTTPException(400, "app_name cannot be empty")
+        if app_name.lower() in {"browser", "navegador", "default-browser"}:
+            if not webbrowser.open("about:blank", new=2):
+                raise HTTPException(500, "The default browser did not accept the request")
+            self._log_action("app_launched", "default browser", "success")
+            return {"success": True, "message": "Opened the default browser", "app": "default-browser"}
         if ".." in app_name or "/" in app_name or "\\" in app_name:
             raise HTTPException(400, "Invalid app_name: path traversal detected")
 
@@ -355,16 +377,95 @@ class ExecutorService(Tool):
                     return {"success": True, "plugin": pr["plugin"], "handled": True}
 
         try:
-            app_path = shutil.which(app_name) or app_name
+            app_path = self._resolve_windows_app(app_name)
+            if not app_path:
+                raise FileNotFoundError(f"Application '{app_name}' is not installed")
+            if elevated:
+                if os.name != "nt":
+                    raise RuntimeError("Elevated launch is only supported on Windows")
+                import ctypes
+
+                result = ctypes.windll.shell32.ShellExecuteW(None, "runas", app_path, args or None, None, 1)
+                if result <= 32:
+                    raise RuntimeError(f"Windows rejected the elevated launch request (code {result})")
+                self._log_action("app_launch_elevation_requested", app_name, "success")
+                return {
+                    "success": True,
+                    "message": f"Windows accepted the elevation request for {app_name}",
+                    "app": app_name,
+                    "elevation_requested": True,
+                }
             parsed_args = shlex.split(args, posix=False) if args else []
-            subprocess.Popen(
+            process = subprocess.Popen(
                 [app_path, *parsed_args], shell=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
             )
             self._log_action("app_launched", f"{app_name} {args}", "success")
-            return {"success": True, "message": f"Launched {app_name}"}
+            return {"success": True, "message": f"Launched {app_name}", "app": app_name, "pid": process.pid}
         except Exception as e:
             self._log_action("app_launch_error", f"{app_name}: {str(e)}", "error")
             raise HTTPException(status_code=500, detail=str(e))
+
+    @staticmethod
+    def _resolve_windows_app(app_name: str) -> Optional[str]:
+        aliases = {
+            "edge": "msedge", "brave": "brave", "chrome": "chrome", "firefox": "firefox",
+            "calculadora": "calc", "calculator": "calc", "bloc de notas": "notepad",
+            "notepad": "notepad", "explorador": "explorer", "explorador de archivos": "explorer",
+            "file explorer": "explorer", "administrador de tareas": "taskmgr", "task manager": "taskmgr",
+            "paint": "mspaint", "terminal": "wt", "powershell": "powershell", "cmd": "cmd",
+        }
+        executable = aliases.get(app_name.lower(), app_name)
+        if not executable.lower().endswith(".exe"):
+            executable += ".exe"
+        direct = shutil.which(executable) or shutil.which(executable[:-4])
+        if direct:
+            return direct
+        if os.name == "nt":
+            try:
+                import winreg
+                subkey = rf"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\{executable}"
+                for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+                    try:
+                        with winreg.OpenKey(hive, subkey) as key:
+                            value = winreg.QueryValue(key, None)
+                            if value and os.path.isfile(value):
+                                return value
+                    except OSError:
+                        continue
+
+                # Programs that do not publish App Paths normally appear in
+                # Windows' uninstall catalog. Match the display name and use
+                # its registered executable icon when it points to a real exe.
+                query = app_name.casefold()
+                uninstall_roots = (
+                    r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+                    r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
+                )
+                matches = []
+                for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+                    for root in uninstall_roots:
+                        try:
+                            with winreg.OpenKey(hive, root) as parent:
+                                for index in range(winreg.QueryInfoKey(parent)[0]):
+                                    try:
+                                        with winreg.OpenKey(parent, winreg.EnumKey(parent, index)) as item:
+                                            display = str(winreg.QueryValueEx(item, "DisplayName")[0]).strip()
+                                            if query not in display.casefold():
+                                                continue
+                                            icon = str(winreg.QueryValueEx(item, "DisplayIcon")[0]).strip().strip('"')
+                                            candidate = icon.rsplit(",", 1)[0].strip().strip('"')
+                                            if candidate.lower().endswith(".exe") and os.path.isfile(candidate):
+                                                score = 0 if display.casefold() == query else len(display)
+                                                matches.append((score, candidate))
+                                    except OSError:
+                                        continue
+                        except OSError:
+                            continue
+                if matches:
+                    return min(matches, key=lambda match: match[0])[1]
+            except ImportError:
+                pass
+        return None
 
     def kill_process(self, pid: int) -> dict:
         from fastapi import HTTPException
@@ -416,24 +517,28 @@ class ExecutorService(Tool):
 
     def which_app(self, name: str) -> dict:
         from fastapi import HTTPException
+        from sentinel.core.application_knowledge import get_application_knowledge
 
         if not name or "/" in name or "\\" in name:
             raise HTTPException(400, "Invalid app name")
-        path = shutil.which(name)
-        return {"name": name, "path": path, "found": path is not None}
+        profile = get_application_knowledge().lookup(name)
+        launchable = bool(profile and profile.executable)
+        return {
+            "name": name,
+            "path": profile.executable if profile else None,
+            "found": launchable,
+            "installed": profile is not None,
+            "launchable": launchable,
+            "profile": profile.to_dict() if profile else None,
+        }
 
     def list_installed_apps(self) -> list:
-        paths = os.environ.get("PATH", "").split(os.pathsep)
-        apps = set()
-        for p in paths:
-            if os.path.isdir(p):
-                for f in os.listdir(p):
-                    if f.endswith(".exe") and not f.startswith("uninstall"):
-                        apps.add(f.replace(".exe", ""))
-        return sorted(apps)[:200]
+        from sentinel.core.application_knowledge import get_application_knowledge
+
+        return [profile.name for profile in get_application_knowledge().discover(limit=200)]
 
     def get_destructive_patterns(self) -> dict:
-        return {"patterns": DESTRUCTIVE_PATTERNS}
+        return {"patterns": _destructive_patterns()}
 
     def _is_file_operation(self, command: str) -> bool:
         file_keywords = {
@@ -450,7 +555,7 @@ class ExecutorService(Tool):
             "rmdir",
         }
         lower = command.strip().lower()
-        for pattern in DESTRUCTIVE_PATTERNS:
+        for pattern in _destructive_patterns():
             if any(kw in pattern.lower() for kw in file_keywords):
                 if pattern.lower() in lower:
                     return True

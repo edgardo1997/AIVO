@@ -1,59 +1,69 @@
-﻿<div align="center">
-  <h1>◇ Sentinel</h1>
-  <p><strong>Trust Layer for AI-OS Interaction</strong></p>
-  <p>A security layer between AI agents and your operating system — policies, audit, and execution control.</p>
-  <br/>
-  <p>
-    <img src="https://img.shields.io/badge/python-3.12-blue" alt="Python 3.12"/>
-    <img src="https://img.shields.io/badge/version-1.0.0-green" alt="v1.0.0"/>
-    <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT"/>
-    <img src="https://img.shields.io/github/v/release/anomalyco/sentinel" alt="GitHub Release"/>
-  </p>
-</div>
+# Sentinel
 
-## What is Sentinel?
+Sentinel es una plataforma local de coordinación inteligente para Windows. Interpreta una solicitud, construye un plan, evalúa políticas y permisos, ejecuta herramientas autorizadas y conserva una auditoría de lo ocurrido.
 
-Sentinel is a **Trust Layer** — it sits between AI agents and your operating system, enforcing security policies, auditing every execution, and redacting sensitive data from outputs.
+Sentinel no es un modelo de IA ni un chatbot independiente. Los modelos y herramientas son recursos que el runtime selecciona y controla.
 
-## Quick Start
+## Estado del producto
 
-### Docker
+La versión 1.0 está en estabilización. El repositorio contiene componentes experimentales que no forman parte del flujo comercial actual. La interfaz entregada se concentra en el Workbench de Sentinel.
 
-```bash
-docker pull ghcr.io/anomalyco/sentinel:latest
-docker run -d -p 8765:8765 ghcr.io/anomalyco/sentinel:latest
+No existe todavía una imagen Docker soportada ni un despliegue servidor multiusuario. El objetivo actual es una aplicación local de escritorio para Windows.
+
+## Flujo de confianza
+
+Toda operación debe seguir este recorrido:
+
+```text
+Identidad → Contexto → Intención → Plan → Validación → Políticas
+          → Autorización → Ejecución → Calidad → Auditoría
 ```
 
-Open http://localhost:8765
+Una herramienta no debe ejecutarse fuera del gateway controlado.
 
-### Windows
+## Ejecutar el entorno de desarrollo
 
-Download the MSI installer from the [Releases page](https://github.com/anomalyco/sentinel/releases).
+Requisitos:
 
-## Architecture
+- Windows 10 u 11.
+- Node.js 22.
+- Python 3.12.
+- Rust estable para ejecutar Tauri.
 
+Desde la raíz del repositorio:
+
+```powershell
+npm ci
+python -m pip install -r sidecar/requirements-dev.txt
+npm run tauri:dev
 ```
-Identity → Intent → Decision → Policy → Gateway → Execution → Quality → Audit
+
+El comando debe ejecutarse dentro del directorio del proyecto, no desde `C:\Windows\System32`.
+
+## Validación
+
+```powershell
+npm run build
+npm test -- --run
+python -m ruff check sentinel sidecar
+python -m pytest
+cargo check --manifest-path src-tauri/Cargo.toml
 ```
 
-Every tool execution goes through this 7-step pipeline. No bypass is allowed.
+## Datos y privacidad
 
-## Features
+Sentinel guarda estado local dentro de los directorios de aplicación del usuario y protege sus directorios sensibles con ACL de Windows. Las claves de proveedores no deben colocarse en archivos versionados.
 
-- **YAML Policies** — Configure permission levels, destructive patterns, and tool access without touching code
-- **Hot Reload** — Edit policy YAML files and reload without restarting
-- **Quality Gate** — Automatic detection and redaction of API keys, tokens, and secrets in tool outputs
-- **SQLite Storage** — All audit logs, execution history, and config in a single database file
-- **API v1** — Professional REST API with OpenAPI spec
+El modelo local es opcional y sólo debe instalarse mediante una acción explícita del usuario. No se descarga automáticamente al iniciar Sentinel.
 
-## Documentation
+## Publicación
 
-- [Getting Started](docs/getting-started.md)
-- [Policies Guide](docs/policies-guide.md)
-- [API Reference](docs/api-reference.md)
-- [Deployment Guide](docs/deployment.md)
-- [OpenAPI Spec](docs/openapi.yaml)
+Los instaladores destinados a usuarios deben construirse exclusivamente desde el workflow de release, firmarse y acompañarse de hashes, SBOM y procedencia verificable. Los artefactos creados manualmente son sólo para desarrollo.
 
-## License
+## Documentación
 
-MIT
+- [Inicio](docs/getting-started.md)
+- [Políticas](docs/policies-guide.md)
+- [API](docs/api-reference.md)
+- [Despliegue](docs/deployment.md)
+- [Seguridad](SECURITY.md)

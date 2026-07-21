@@ -11,7 +11,7 @@ class AuditListTool(Tool):
             id="audit.list",
             name="List Audit Log",
             description="Retrieve audit log entries with optional limit and action filter",
-            version="0.1.0",
+            version="1.0.0",
             parameters={
                 "type": "object",
                 "properties": {

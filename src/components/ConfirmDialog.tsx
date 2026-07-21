@@ -54,13 +54,13 @@ export function ConfirmDialog({ open, title, message, details, onConfirm, onDeny
           {details}
         </div>
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-          <button className="btn btn-ghost" onClick={onCancel}>Cancel</button>
+          <button className="btn btn-ghost" onClick={onCancel}>Cancelar</button>
           <button className="btn btn-ghost" onClick={onDeny} style={{ borderColor: "var(--danger)", color: "var(--danger)" }}>
-            Deny
+            Denegar
           </button>
           <button className="btn btn-primary" onClick={onConfirm}
             style={{ background: "var(--danger)", color: "white" }}>
-            Approve & Execute
+            Aprobar y Ejecutar
           </button>
         </div>
       </div>

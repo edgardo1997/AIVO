@@ -1,6 +1,8 @@
 import os
 import sys
 import tempfile
+import json
+from types import SimpleNamespace
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -28,7 +30,6 @@ class TestDetectType:
         assert _detect_type(pathlib.Path("config.yaml")) == "text"
         assert _detect_type(pathlib.Path("data.csv")) == "csv"
         assert _detect_type(pathlib.Path("data.json")) == "json"
-
     def test_code_files(self):
         import pathlib
 
@@ -55,6 +56,25 @@ class TestDetectType:
 
         assert _detect_type(pathlib.Path("file.xyz")) == "unknown"
         assert _detect_type(pathlib.Path("file")) == "unknown"
+
+
+class TestPipelineApiErrors:
+    def test_ingest_failure_does_not_expose_internal_exception(self, monkeypatch):
+        from modules import sentinel_bridge
+
+        class FailingPipeline:
+            def ingest(self, *_args, **_kwargs):
+                raise RuntimeError("C:/secret/customer/document.txt")
+
+        orchestrator = SimpleNamespace(_file_pipeline=FailingPipeline())
+        monkeypatch.setattr(sentinel_bridge, "get_orchestrator", lambda: orchestrator)
+
+        response = sentinel_bridge.pipeline_ingest({"path": "document.txt"})
+        payload = json.loads(response.body)
+
+        assert response.status_code == 500
+        assert payload["error"] == "File ingestion failed"
+        assert "secret" not in response.body.decode()
 
 
 class TestExtractors:

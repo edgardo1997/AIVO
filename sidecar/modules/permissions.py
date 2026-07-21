@@ -17,7 +17,7 @@ router = APIRouter()
 # Module-level state — encapsulated (not exported), owned by _svc
 _pending_actions = PendingActionsDict()
 _emergency_stop = EmergencyStopFlag()
-_state_lock = threading.Lock()
+_state_lock = threading.RLock()
 
 # Service is the sole owner of pending actions + emergency stop state
 _svc = PermissionsService(

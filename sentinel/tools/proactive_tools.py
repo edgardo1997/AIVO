@@ -11,7 +11,7 @@ class ProactiveSuggestionsTool(Tool):
             id="proactive.suggestions",
             name="Get Proactive Suggestions",
             description="List current proactive suggestions, trends, and engine status",
-            version="0.1.0",
+            version="1.0.0",
             parameters={},
             required_permissions=["proactive.read"],
             timeout_seconds=10,
@@ -35,7 +35,7 @@ class ProactiveDismissTool(Tool):
             id="proactive.dismiss",
             name="Dismiss Suggestion",
             description="Dismiss a proactive suggestion by id or uid",
-            version="0.1.0",
+            version="1.0.0",
             parameters={
                 "type": "object",
                 "properties": {
@@ -65,7 +65,7 @@ class ProactiveTrendTool(Tool):
             id="proactive.trend",
             name="Get Metrics Trend",
             description="Get CPU, memory, and disk usage trends over time",
-            version="0.1.0",
+            version="1.0.0",
             parameters={},
             required_permissions=["proactive.read"],
             timeout_seconds=10,
@@ -78,3 +78,27 @@ class ProactiveTrendTool(Tool):
             return ToolResult.ok(data=result, tool_id="proactive.trend")
         except Exception as e:
             return ToolResult.fail(error=str(e), tool_id="proactive.trend")
+
+
+class ProactiveRestartTool(Tool):
+    def __init__(self, service):
+        self._svc = service
+
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            id="proactive.restart_engine",
+            name="Restart Proactive Engine",
+            description="Restart the proactive monitoring engine",
+            version="1.0.0",
+            parameters={},
+            required_permissions=["proactive.write"],
+            timeout_seconds=10,
+            category="proactive",
+        )
+
+    async def execute(self, params: Dict[str, Any], context: Dict[str, Any]) -> ToolResult:
+        try:
+            result = self._svc.restart_engine()
+            return ToolResult.ok(data=result, tool_id="proactive.restart_engine")
+        except Exception as e:
+            return ToolResult.fail(error=str(e), tool_id="proactive.restart_engine")

@@ -1,5 +1,7 @@
 import os
+import sqlite3
 import sys
+import threading
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -18,6 +20,25 @@ from sentinel.core.model_router import TaskType
 
 
 class TestCostTrackerBasic:
+    def test_close_releases_worker_connections_and_allows_reopen(self, tmp_path):
+        tracker = CostTracker(db_path=str(tmp_path / "threaded-cost.db"))
+        worker_connections = []
+
+        def open_connection():
+            connection = tracker._get_conn()
+            connection.execute("SELECT 1")
+            worker_connections.append(connection)
+
+        worker = threading.Thread(target=open_connection)
+        worker.start()
+        worker.join()
+
+        tracker.close()
+
+        with pytest.raises(sqlite3.ProgrammingError, match="closed database"):
+            worker_connections[0].execute("SELECT 1")
+        assert tracker.get_total_cost() == 0.0
+
     def test_record_and_query(self, tmp_path):
         ct = CostTracker(db_path=str(tmp_path / "cost.db"))
         ct.record_cost("openrouter", "gpt-4o", TaskType.QUICK, 100, 20)

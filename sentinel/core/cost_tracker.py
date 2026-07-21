@@ -104,15 +104,40 @@ class CostTracker:
     def __init__(self, db_path: str):
         self._db_path = db_path
         self._local = threading.local()
+        self._connections: set[sqlite3.Connection] = set()
+        self._connections_lock = threading.Lock()
+        self._connection_generation = 0
         self._budgets: List[BudgetConfig] = []
         self._init_db()
 
     def _get_conn(self) -> sqlite3.Connection:
-        if not hasattr(self._local, "conn") or self._local.conn is None:
-            self._local.conn = sqlite3.connect(self._db_path)
-            self._local.conn.row_factory = sqlite3.Row
-            self._local.conn.execute("PRAGMA journal_mode=WAL")
+        if (
+            not hasattr(self._local, "conn")
+            or self._local.conn is None
+            or getattr(self._local, "generation", -1) != self._connection_generation
+        ):
+            with self._connections_lock:
+                conn = sqlite3.connect(self._db_path, check_same_thread=False)
+                conn.row_factory = sqlite3.Row
+                conn.execute("PRAGMA journal_mode=WAL")
+                self._connections.add(conn)
+                self._local.conn = conn
+                self._local.generation = self._connection_generation
         return self._local.conn
+
+    def close(self) -> None:
+        """Release every SQLite handle opened by this tracker."""
+        with self._connections_lock:
+            connections = list(self._connections)
+            self._connections.clear()
+            self._connection_generation += 1
+        for conn in connections:
+            try:
+                conn.close()
+            except sqlite3.Error:
+                pass
+        self._local.conn = None
+        self._local.generation = self._connection_generation
 
     def _init_db(self) -> None:
         Path(self._db_path).parent.mkdir(parents=True, exist_ok=True)

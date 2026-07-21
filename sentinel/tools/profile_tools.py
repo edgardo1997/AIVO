@@ -18,7 +18,7 @@ class ProfileGetTool(Tool):
             id="profile.get",
             name="Get Profile",
             description="Get the user profile and all preferences.",
-            version="0.1.0",
+            version="1.0.0",
             category=_TOOL_CATEGORY,
             parameters={
                 "type": "object",
@@ -53,7 +53,7 @@ class ProfileUpdateTool(Tool):
             id="profile.update",
             name="Update Profile",
             description="Update profile fields. Allowed: username, display_name, avatar, theme, timezone, locale, bio, tags.",
-            version="0.1.0",
+            version="1.0.0",
             category=_TOOL_CATEGORY,
             parameters={
                 "type": "object",
@@ -94,7 +94,7 @@ class ProfilePreferenceTool(Tool):
             id="profile.preference",
             name="Manage Preferences",
             description="Get, set, or delete user preferences. Action: get, set, delete, list.",
-            version="0.1.0",
+            version="1.0.0",
             category=_TOOL_CATEGORY,
             parameters={
                 "type": "object",
@@ -155,7 +155,7 @@ class ProfileExportTool(Tool):
             id="profile.export",
             name="Export Profile",
             description="Export the user profile and all preferences as JSON.",
-            version="0.1.0",
+            version="1.0.0",
             category=_TOOL_CATEGORY,
             parameters={
                 "type": "object",
@@ -186,7 +186,7 @@ class ProfilePresetTool(Tool):
             id="profile.preset",
             name="Manage Profile Presets",
             description="Save, apply, list, or delete profile configuration presets. Action: save, apply, list, delete.",
-            version="0.1.0",
+            version="1.0.0",
             category=_TOOL_CATEGORY,
             parameters={
                 "type": "object",
@@ -244,7 +244,7 @@ class ProfileHistoryTool(Tool):
             id="profile.history",
             name="Profile History",
             description="View recent profile and preference changes.",
-            version="0.1.0",
+            version="1.0.0",
             category=_TOOL_CATEGORY,
             parameters={
                 "type": "object",

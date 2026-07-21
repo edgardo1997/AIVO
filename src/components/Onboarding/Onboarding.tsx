@@ -1,25 +1,74 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { api } from "../../api";
+import type { OnboardingStep } from "../../types";
 
-const steps = [
-  { title: "Sentinel coordina; tú autorizas", body: "Toda herramienta pasa por identidad, políticas, confirmación, ejecución, calidad y auditoría." },
-  { title: "Elige privacidad y costo", body: "Puedes usar Ollama local o proveedores remotos. Sentinel nunca selecciona un proveedor sin credenciales disponibles." },
-  { title: "Empieza en modo Confirmar", body: "Revisa cada acción visible sobre archivos, aplicaciones o procesos. Puedes cambiar permisos granulares después." },
-];
+interface Props {
+  onComplete: () => void;
+  onSkip: () => void;
+  onNavigate?: (tab: string) => void;
+}
 
-export function Onboarding({ onComplete }: { onComplete: () => void }) {
-  const [step, setStep] = useState(0);
-  const current = steps[step];
-  return <div style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(5,8,15,.86)", display: "grid", placeItems: "center" }}>
-    <div className="card" style={{ width: "min(560px, calc(100vw - 32px))", padding: 28 }}>
-      <div className="text-muted" style={{ marginBottom: 8 }}>Primer inicio · {step + 1} de {steps.length}</div>
-      <h2>{current.title}</h2>
-      <p style={{ color: "var(--text-secondary)", lineHeight: 1.7 }}>{current.body}</p>
-      <div style={{ display: "flex", justifyContent: "space-between", marginTop: 24 }}>
-        <button className="btn btn-ghost" disabled={step === 0} onClick={() => setStep(step - 1)}>Atrás</button>
-        <button className="btn btn-primary" onClick={() => step < steps.length - 1 ? setStep(step + 1) : onComplete()}>
-          {step < steps.length - 1 ? "Continuar" : "Entrar a Sentinel"}
-        </button>
+export function Onboarding({ onComplete, onSkip, onNavigate }: Props) {
+  const [steps, setSteps] = useState<OnboardingStep[]>([]);
+  const [current, setCurrent] = useState(0);
+
+  useEffect(() => {
+    api.help.onboardingSteps().then((r) => setSteps(r.steps)).catch(() => {});
+  }, []);
+
+  if (steps.length === 0) return null;
+
+  const step = steps[current];
+  const isLast = current === steps.length - 1;
+
+  const handleNext = () => {
+    if (isLast) {
+      onComplete();
+    } else {
+      setCurrent((c) => c + 1);
+    }
+  };
+
+  return (
+    <div role="dialog" aria-modal="true" aria-labelledby="sentinel-onboarding-title" style={{
+      position: "fixed", inset: 0, zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center",
+      background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)",
+    }}>
+      <div className="card" style={{ maxWidth: 540, width: "90%", padding: 32, textAlign: "center" }}>
+        <div style={{ fontSize: 48, marginBottom: 16 }}>{step.icon}</div>
+        <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }}>
+          Primer inicio · {current + 1} de {steps.length}
+        </div>
+        <h3 id="sentinel-onboarding-title" style={{ fontSize: 20, fontWeight: 600, marginBottom: 12 }}>{step.title}</h3>
+        <p style={{ fontSize: 14, color: "var(--text-secondary)", lineHeight: 1.6, marginBottom: 24 }}>
+          {step.description}
+        </p>
+
+        {step.action && (
+          <div style={{ marginBottom: 16 }}>
+            <button className="btn btn-primary" onClick={() => { if (onNavigate) onNavigate(step.action!.tab); onComplete(); }}>
+              {step.action.label}
+            </button>
+          </div>
+        )}
+
+        <div style={{ display: "flex", justifyContent: "center", gap: 8, marginBottom: 20 }}>
+          {steps.map((_, i) => (
+            <div key={i} aria-hidden="true" style={{
+              width: i === current ? 24 : 8, height: 8, borderRadius: 4,
+              background: i === current ? "var(--accent)" : "var(--border)",
+              transition: "all 0.2s",
+            }} />
+          ))}
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+          <button className="btn btn-ghost" onClick={onSkip} style={{ fontSize: 12 }}>Omitir recorrido</button>
+          <button className="btn btn-primary" onClick={handleNext}>
+            {isLast ? "Comenzar" : "Continuar"}
+          </button>
+        </div>
       </div>
     </div>
-  </div>;
+  );
 }

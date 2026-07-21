@@ -5,5 +5,8 @@
   "author": "AIVO",
   "description": "Custom health checks and extended alerts for system monitoring",
   "hooks": ["on_metrics", "on_schedule"],
-  "enabled": true
+  "enabled": true,
+  "permissions": [],
+  "homepage": "",
+  "license": "MIT"
 }

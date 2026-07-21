@@ -1,7 +1,7 @@
 @echo off
-title AIVO Setup
+title Sentinel - Entorno de desarrollo
 echo ========================================
-echo   AIVO - AI System Control Setup
+echo   Sentinel - Entorno de desarrollo
 echo ========================================
 echo.
 

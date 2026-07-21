@@ -1,5 +1,6 @@
 import json
 import logging
+import threading
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -13,20 +14,26 @@ router = APIRouter()
 
 _engine: Optional[TriggerEngine] = None
 _db: Optional[DatabaseManager] = None
+_state_lock = threading.RLock()
+_loaded_database_id: Optional[int] = None
 
 
 def get_engine() -> TriggerEngine:
     global _engine
-    if _engine is None:
-        _engine = TriggerEngine()
-    return _engine
+    with _state_lock:
+        if _engine is None:
+            _engine = TriggerEngine()
+        return _engine
 
 
 def wire_dependencies(db: DatabaseManager) -> None:
-    global _db, _engine
-    _db = db
-    _engine = get_engine()
-    _load_from_db()
+    global _db, _engine, _loaded_database_id
+    with _state_lock:
+        _db = db
+        _engine = get_engine()
+        if _loaded_database_id != id(db):
+            _load_from_db()
+            _loaded_database_id = id(db)
 
 
 def _load_from_db() -> None:
@@ -110,9 +117,11 @@ def _wrap_engine_for_persistence() -> None:
 
     orig_add = engine.add_rule
 
-    def wrapped_add(rule: TriggerRule) -> None:
-        orig_add(rule)
-        _save_rule(rule)
+    def wrapped_add(rule: TriggerRule, *, overwrite: bool = True) -> bool:
+        added = orig_add(rule, overwrite=overwrite)
+        if added:
+            _save_rule(rule)
+        return added
 
     engine.add_rule = wrapped_add
 
@@ -148,14 +157,12 @@ def _wrap_engine_for_persistence() -> None:
     engine.update_rule = wrapped_update
 
 
-wrap_done = False
-
-
 def ensure_wired() -> None:
-    global wrap_done
-    if not wrap_done:
-        _wrap_engine_for_persistence()
-        wrap_done = True
+    with _state_lock:
+        engine = get_engine()
+        if not getattr(engine, "_sentinel_persistence_wired", False):
+            _wrap_engine_for_persistence()
+            engine._sentinel_persistence_wired = True
 
 
 # --- API endpoints ---
@@ -189,10 +196,6 @@ def create_trigger(body: dict):
         from fastapi import HTTPException
 
         raise HTTPException(status_code=400, detail="id is required")
-    if engine.get_rule(rule_id):
-        from fastapi import HTTPException
-
-        raise HTTPException(status_code=409, detail=f"Trigger '{rule_id}' already exists")
     conditions = [TriggerCondition.from_dict(c) for c in body.get("conditions", [])]
     action_data = body.get("action")
     action = TriggerAction.from_dict(action_data) if action_data else None
@@ -205,7 +208,10 @@ def create_trigger(body: dict):
         cooldown_seconds=body.get("cooldown_seconds", 300),
         enabled=body.get("enabled", True),
     )
-    engine.add_rule(rule)
+    if not engine.add_rule(rule, overwrite=False):
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=409, detail=f"Trigger '{rule_id}' already exists")
     log.info("Trigger '%s' created via API", rule_id)
     return {"status": "created", "trigger_id": rule_id}
 

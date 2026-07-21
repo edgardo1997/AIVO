@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useMode } from "../../contexts/AppContext";
 import type { AdvisoryAction, AdvisoryReport } from "../../types";
 
 interface Props {
@@ -8,6 +9,8 @@ interface Props {
 }
 
 export function AdvisoryNotice({ report, onDelegate, onDismiss }: Props) {
+  const { mode } = useMode();
+  const isDev = mode === "developer";
   const [details, setDetails] = useState(false);
   if (!report?.should_notify) return null;
   const color = report.intervention_level >= 3 ? "var(--danger)" : report.intervention_level === 2 ? "var(--warning)" : "var(--accent)";
@@ -30,7 +33,7 @@ export function AdvisoryNotice({ report, onDelegate, onDismiss }: Props) {
       <div style={{ marginTop: 10 }}>
         {report.insights.map((item, index) => <div key={`${item.kind}-${index}`} style={{ marginTop: 6 }}><strong>{item.title}:</strong> {item.detail}</div>)}
       </div>
-      {details && <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--border)", fontSize: 12 }}>
+      {(details || isDev) && <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--border)", fontSize: 12 }}>
         <div><strong>A favor:</strong> {report.positive_factors.join(" · ") || "Sin factores adicionales"}</div>
         <div style={{ marginTop: 4 }}><strong>En contra:</strong> {report.negative_factors.join(" · ") || "Sin factores negativos"}</div>
         <div style={{ marginTop: 4 }}><strong>Evidencia:</strong> {report.evidence.map((e) => `${e.id} (${e.verified ? "verificada" : "no verificada"})`).join(" · ") || "No declarada"}</div>

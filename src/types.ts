@@ -3,25 +3,17 @@ export type TabType =
   | "monitor"
   | "chat"
   | "sentinel"
-  | "execute"
-  | "console"
   | "files"
+  | "knowledge"
+  | "memory"
+  | "permissions"
+  | "vault"
   | "fleet"
   | "plugins"
-  | "permissions"
-  | "policies"
   | "agents"
   | "triggers"
-  | "audit"
-  | "profile"
   | "settings"
-  | "observability"
-  | "feedback-costs"
-  | "vault"
-  | "knowledge"
-  | "reports"
-  | "memory"
-  | "alertas";
+  | "help";
 
 export interface V1ExecuteRequest {
   tool_id: string;
@@ -150,6 +142,34 @@ export interface FleetStatus {
   api_url: string;
   remote_enabled: boolean;
   paired: boolean;
+  device_count: number;
+}
+
+export interface FleetDevice {
+  device_id: string;
+  name: string;
+  device_type: string;
+  os: string;
+  version: string;
+  ip: string;
+  port: number;
+  last_seen: string | null;
+  is_self: boolean;
+  notes: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SyncLogEntry {
+  id: number;
+  direction: string;
+  peer_id: string;
+  peer_url: string;
+  status: string;
+  config_keys: string;
+  error: string;
+  started_at: string;
+  completed_at: string | null;
 }
 
 export interface PluginInfo {
@@ -163,6 +183,23 @@ export interface PluginInfo {
   loaded: boolean;
   error?: string;
   is_builtin?: boolean;
+  permissions?: string[];
+  homepage?: string;
+  license?: string;
+}
+
+export interface MarketplacePlugin {
+  id: string;
+  name: string;
+  version: string;
+  author: string;
+  description: string;
+  hooks: string[];
+  permissions: string[];
+  download_url: string;
+  homepage: string;
+  license: string;
+  updated: string;
 }
 
 export interface AgentInfo {
@@ -217,6 +254,7 @@ export interface PlanStepItem {
 }
 
 export interface SentinelResponse {
+  presentation?: SentinelPresentation;
   approved: boolean;
   simulated?: boolean;
   blocked?: boolean;
@@ -255,9 +293,47 @@ export interface SentinelResponse {
   step_results?: StepResultItem[] | null;
   rollback_actions?: { step_id: string; rollback_tool_id: string; success: boolean; error?: string | null }[];
   advisory?: AdvisoryReport | null;
+  grounding_results?: GroundingEvidence[];
+  grounding_satisfied?: boolean;
+  execution_id?: string;
+}
+
+export interface GroundingEvidence {
+  category: string;
+  required: boolean;
+  grounded: boolean;
+  source: string;
+  tool_id?: string | null;
+  timestamp?: string;
+  freshness_seconds?: number;
+  reason?: string;
+  error?: string | null;
+}
+
+export interface SentinelPresentation {
+  version: number;
+  mode: "user" | "developer";
+  status: "completed" | "needs_approval" | "preview" | "failed" | "not_executed";
+  title: string;
+  summary: string;
+  risk: { level: "unknown" | "low" | "medium" | "high" | "critical"; score?: number | null };
+  evidence: {
+    required: number;
+    verified: number;
+    satisfied: boolean;
+    sources: { category?: string; tool?: string | null; verified: boolean }[];
+  };
+  next_action?: string | null;
+  details?: {
+    intent?: { action: string; target: string; confidence: number };
+    decision?: { value: string; reason: string } | null;
+    tools?: string[];
+    error?: string | null;
+  } | null;
 }
 
 export interface ApproveResponse {
+  presentation?: SentinelPresentation;
   blocked: boolean;
   approved: boolean;
   action_id?: string | null;
@@ -693,6 +769,33 @@ export interface ProfilePreset {
   created_at?: string;
 }
 
+export interface ConversationMessage {
+  id: string;
+  prompt: string;
+  response?: string;
+  provider?: string;
+  model?: string;
+  pipeline?: unknown;
+  performance?: {
+    time_to_first_token_ms: number;
+    generation_ms: number;
+    output_tokens: number;
+    tokens_per_second: number;
+  };
+  elapsed?: number;
+  error?: string;
+  errorCode?: string;
+  retryable?: boolean;
+}
+
+export interface ConversationThread {
+  session_id: string;
+  title: string;
+  messages: ConversationMessage[];
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ProfileSearchResult {
   user_id: string;
   username: string;
@@ -701,4 +804,131 @@ export interface ProfileSearchResult {
   theme: string;
   bio: string;
   tags: string[];
+}
+
+export interface HelpTopic {
+  id: string;
+  title: string;
+  category: string;
+  icon: string;
+  content: string;
+}
+
+export interface HelpCategory {
+  id: string;
+  title: string;
+  icon: string;
+  order: number;
+}
+
+export interface OnboardingStep {
+  id: string;
+  title: string;
+  description: string;
+  icon: string;
+  action?: { tab: string; label: string };
+}
+
+export interface RecoveryStatus {
+  circuit_breakers: { name: string; state: string; failure_count: number; last_failure: string | null }[];
+  tool_recovery: Record<string, unknown>;
+  model_fallback: Record<string, unknown>;
+  offline_queue: { id: string; tool_id: string; status: string; created_at: string; error?: string }[];
+  network: { online: boolean; last_check?: string };
+  healthy: boolean;
+}
+
+export interface HealthCheckResult {
+  sidecar_responding: boolean;
+  offline_items: number;
+  circuit_breaker_count: number;
+}
+
+export interface ProactiveSuggestion {
+  id: string;
+  uid: string;
+  title: string;
+  message: string;
+  priority: string;
+  icon: string;
+  value: number;
+  timestamp: number;
+}
+
+export interface ProactiveTrend {
+  reliable: boolean;
+  old_avg?: Record<string, number>;
+  new_avg?: Record<string, number>;
+  trends?: Record<string, string>;
+}
+
+export interface ProactiveStatus {
+  suggestions: ProactiveSuggestion[];
+  trends: ProactiveTrend;
+  engine_active: boolean;
+}
+
+export interface ComponentDuration {
+  component: string;
+  label: string;
+  avg_duration_ms: number;
+  max_duration_ms: number;
+  sample_count: number;
+}
+
+export interface ToolUsageStat {
+  tool: string;
+  calls: number;
+  share_pct: number;
+  failures: number;
+  failure_rate: number;
+}
+
+export interface ThroughputStats {
+  requests_per_minute: number;
+  window_seconds: number;
+}
+
+export interface BottleneckInfo {
+  component: string;
+  label: string;
+  avg_duration_ms: number;
+  max_duration_ms: number;
+  sample_count: number;
+  bottleneck_score: number;
+  failure_rate: number;
+}
+
+export interface PipelineMetricsOverview {
+  summary: {
+    total_events: number;
+    total_failures: number;
+  };
+  component_durations: ComponentDuration[];
+  tool_usage: ToolUsageStat[];
+  throughput: ThroughputStats;
+  bottlenecks: BottleneckInfo[];
+}
+
+export interface TimelineEventSummary {
+  event_type: string;
+  status: string;
+  timestamp: number;
+  tool: string | null;
+  message: string | null;
+  duration: number | null;
+  progress: number | null;
+}
+
+export interface TimelineNode {
+  component: string;
+  label: string;
+  events: TimelineEventSummary[];
+  duration_ms: number;
+  status: string;
+}
+
+export interface TimelineTree {
+  request_id: string;
+  children: TimelineNode[];
 }

@@ -128,7 +128,7 @@ class TestCircuitBreakerIntegration:
         )
         # patch _call_provider to succeed
 
-        def mock_call(decision, provider, messages, model_override=None):
+        def mock_call(decision, provider, messages, model_override=None, **kwargs):
             return {"response": "ok", "provider": decision.provider_id, "model": decision.model, "usage": None}
 
         mr._call_provider = mock_call
@@ -141,7 +141,7 @@ class TestCircuitBreakerIntegration:
         mr = ModelRouter(providers=[ProviderSpec("ollama", "Ollama", [TaskType.QUICK], requires_key=False)])
         mr._circuit_breaker = CircuitBreaker(failure_threshold=1)
 
-        def mock_call(decision, provider, messages, model_override=None):
+        def mock_call(decision, provider, messages, model_override=None, **kwargs):
             raise ConnectionError("API unavailable")
 
         mr._call_provider = mock_call

@@ -4,6 +4,7 @@ installed applications, connected fleet, active goals, permissions, and capabili
 This is the core of Sentinel's "understand the context" responsibility.
 """
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional
@@ -34,6 +35,7 @@ class DeepContextEngine:
         get_permission_level_fn: Optional[Callable[[], str]] = None,
         get_capabilities_fn: Optional[Callable[[], List[Dict[str, Any]]]] = None,
         get_connected_tools_fn: Optional[Callable[[], List[str]]] = None,
+        get_hardware_profile_fn: Optional[Callable[[], Dict[str, Any]]] = None,
     ):
         self._system = system_context or SystemContextEngine(collect_processes=False)
         self._app_discovery = app_discovery_fn
@@ -42,6 +44,7 @@ class DeepContextEngine:
         self._get_permission_level = get_permission_level_fn
         self._get_capabilities = get_capabilities_fn
         self._get_connected_tools = get_connected_tools_fn
+        self._get_hardware_profile = get_hardware_profile_fn
 
     async def collect(self) -> Dict[str, Any]:
         """Collect all available context. Returns a dict compatible with orchestrator context."""
@@ -59,13 +62,20 @@ class DeepContextEngine:
 
         try:
             if self._app_discovery:
-                apps = self._app_discovery()
+                apps = await asyncio.to_thread(self._app_discovery)
                 ctx["installed_apps"] = apps
                 ctx["installed_apps_count"] = len(apps) if apps else 0
         except Exception as e:
             log.warning("Failed to collect installed apps: %s", e)
             ctx["installed_apps"] = []
             ctx["installed_apps_count"] = 0
+
+        try:
+            if self._get_hardware_profile:
+                ctx["hardware"] = await asyncio.to_thread(self._get_hardware_profile)
+        except Exception as e:
+            log.warning("Failed to collect hardware profile: %s", e)
+            ctx["hardware"] = {"confidence": 0.0, "errors": [type(e).__name__]}
 
         try:
             if self._fleet_status:

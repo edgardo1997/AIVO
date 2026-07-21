@@ -1,8 +1,13 @@
+import asyncio
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Pattern
 import logging
 import re
 import json
+
+from sentinel.core.event_bus import EventBus
+from sentinel.core.events import SentinelEvent
+from sentinel.core import event_types
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +19,7 @@ class Intent:
     parameters: Dict[str, Any] = field(default_factory=dict)
     confidence: float = 1.0
     raw_input: str = ""
+    grounding_requirements: List[Any] = field(default_factory=list)  # GroundingRequirement objects
 
 
 @dataclass
@@ -27,6 +33,18 @@ class IntentPattern:
 
 
 DEFAULT_PATTERNS = [
+    IntentPattern(
+        action="analyze",
+        target="system.health",
+        patterns=[
+            r"(?:analiza|analizar|diagnostica|diagnosticar|revisa|revisar|eval[uú]a|evaluar).*(?:estado|salud|rendimiento|riesgo).*(?:equipo|pc|computadora|ordenador|sistema)",
+            r"(?:analiza|analizar|diagnostica|diagnosticar|revisa|revisar|eval[uú]a|evaluar).*(?:equipo|pc|computadora|ordenador|sistema).*(?:estado|salud|rendimiento|riesgo)",
+            r"(?:diagn[oó]stico|an[aá]lisis).*(?:completo|general|integral).*(?:equipo|pc|computadora|ordenador|sistema)",
+            r"(?:analyze|diagnose|review|evaluate).*(?:system|computer|pc).*(?:health|status|performance|risk)",
+        ],
+        priority=10,
+        description="Analyze overall system resource health",
+    ),
     IntentPattern(
         action="query",
         target="system.cpu",
@@ -42,9 +60,9 @@ DEFAULT_PATTERNS = [
         action="query",
         target="system.memory",
         patterns=[
-            r"(ram|memory|memoria)",
-            r"(ram|memory).*(usage|used|free|available|percent)",
-            r"(how much|cuanta).*(ram|memory|memoria)",
+            r"\b(ram|memory|memoria)\b",
+            r"\b(ram|memory)\b.*\b(usage|used|free|available|percent)\b",
+            r"(how much|cu[aá]nta).*\b(ram|memory|memoria)\b",
         ],
         priority=10,
         description="Query memory usage",
@@ -88,11 +106,76 @@ DEFAULT_PATTERNS = [
         target="system.info",
         patterns=[
             r"(system|sistema).*(info|information|status|estado)",
-            r"(how is|como esta).*(pc|system|sistema)",
+            r"(how is|c[oó]mo est[aá]).*(pc|system|sistema)",
             r"(system|sistema).*(health|salud)",
         ],
         priority=5,
         description="Query full system info",
+    ),
+    IntentPattern(
+        action="query",
+        target="app.discovery",
+        patterns=[
+            r"(?:muestra|mu[eé]strame|mostrar|lista|listar|descubre|descubrir).*(?:aplicaciones|apps|programas).*(?:instaladas|disponibles|abrir)",
+            r"(?:qu[eé]|cu[aá]les).*(?:aplicaciones|apps|programas).*(?:puedes|puede).*(?:abrir|usar)",
+            r"(?:list|show|discover).*(?:installed|available).*(?:applications|apps|programs)",
+        ],
+        priority=10,
+        description="Discover installed applications Sentinel can open",
+        extractors={"action": lambda _text: "list", "limit": lambda _text: 30},
+    ),
+    IntentPattern(
+        action="execute",
+        target="executor.launch",
+        patterns=[
+            r"(?:abre|abrir|inicia|iniciar|lanza|lanzar|open|start|launch).*(?:navegador|browser)",
+            r"(?:navegador|browser).*(?:abre|abrir|inicia|iniciar|open|start|launch)",
+        ],
+        priority=10,
+        description="Open the system default browser",
+        extractors={"app_name": lambda _t: "default-browser"},
+    ),
+    IntentPattern(
+        action="execute",
+        target="executor.launch",
+        patterns=[
+            r"(?:abre|abrir|inicia|iniciar|lanza|lanzar|open|start|launch).*(?:brave|chrome|edge|firefox)",
+        ],
+        priority=10,
+        description="Open a named web browser",
+        extractors={
+            "app_name": lambda text: (
+                re.search(r"\b(brave|chrome|edge|firefox)\b", text, re.IGNORECASE).group(1).lower()
+            ),
+        },
+    ),
+    IntentPattern(
+        action="execute",
+        target="executor.launch",
+        patterns=[r"(?:abre|abrir|inicia|iniciar|lanza|lanzar|open|start|launch).*\b(?:powershell|terminal|cmd)\b"],
+        priority=10,
+        description="Open a Windows terminal application",
+        extractors={
+            "app_name": lambda text: re.search(r"\b(powershell|terminal|cmd)\b", text, re.IGNORECASE).group(1).lower(),
+            "elevated": lambda text: bool(
+                re.search(r"(?:administrador|administrator|admin|elevad[oa]|run\s*as)", text, re.IGNORECASE)
+            ),
+        },
+    ),
+    IntentPattern(
+        action="execute",
+        target="executor.launch",
+        patterns=[
+            r"^(?:abre|abrir|inicia|iniciar|lanza|lanzar|open|start|launch)\s+.+$",
+        ],
+        priority=8,
+        description="Open an installed application",
+        extractors={
+            "app_name": lambda text: _extract_app_name(text),
+            "elevated": lambda text: bool(
+                re.search(r"(?:administrador|administrator|admin|elevad[oa]|run\s*as)", text, re.IGNORECASE)
+            ),
+        },
     ),
     IntentPattern(
         action="execute",
@@ -108,7 +191,7 @@ DEFAULT_PATTERNS = [
         },
     ),
     IntentPattern(
-        action="query",
+        action="analyze",
         target="system.health",
         patterns=[
             r"(analyze|analizar|diagnose|diagnosticar).*(system|sistema|health|salud|pc)",
@@ -194,6 +277,20 @@ def _extract_command(text: str) -> str:
     return text
 
 
+def _extract_app_name(text: str) -> str:
+    value = re.sub(
+        r"(?i)^(?:abre|abrir|inicia|iniciar|lanza|lanzar|open|start|launch)\s+",
+        "",
+        text.strip(),
+    )
+    value = re.sub(r"(?i)^(?:la|el|una|un)\s+(?:app|aplicaci[oó]n|programa)\s+(?:de\s+)?", "", value)
+    value = re.sub(r"(?i)^(?:la|el|una|un)\s+", "", value)
+    value = value.strip(" .?!")
+    if value.lower() in {"otra", "otro", "una", "uno", "eso", "esa", "ese", "la misma", "el mismo"}:
+        return ""
+    return value
+
+
 INTENT_LLM_PROMPT = """You are an intent classifier for a system orchestration platform called Sentinel.
 Given a user utterance, classify it into ONE of these action/target pairs and return ONLY valid JSON.
 
@@ -207,6 +304,7 @@ Valid targets and their descriptions:
 - system.info: General system info
 - system.health: System health analysis
 - system.uptime: System uptime queries
+- app.discovery: Discover installed applications and executable capabilities
 - executor.command: Run a command/shell
 - executor.kill: Kill/terminate a process
 - executor.launch: Launch/start an application
@@ -221,9 +319,17 @@ Respond with JSON only:
 
 
 class IntentEngine:
-    def __init__(self, patterns: Optional[List[IntentPattern]] = None, model_router=None):
+    def __init__(
+        self,
+        patterns: Optional[List[IntentPattern]] = None,
+        model_router=None,
+        grounding_engine=None,
+        event_bus: Optional[EventBus] = None,
+    ):
         self._patterns = list(DEFAULT_PATTERNS) if patterns is None else patterns
         self._model_router = model_router
+        self._grounding_engine = grounding_engine
+        self._event_bus = event_bus
         self._compiled: List[tuple[Pattern, IntentPattern]] = []
         for p in self._patterns:
             for pat in p.patterns:
@@ -233,8 +339,34 @@ class IntentEngine:
                 except re.error as e:
                     logger.warning("Invalid pattern '%s': %s", pat, e)
 
+    def set_event_bus(self, event_bus: EventBus) -> None:
+        self._event_bus = event_bus
+
     def set_model_router(self, router) -> None:
         self._model_router = router
+
+    def set_grounding_engine(self, engine) -> None:
+        self._grounding_engine = engine
+
+    def _emit(self, event_type: str, *, session_id: str = "", request_id: str = "", status: str = "", message: Optional[str] = None, details: Optional[Dict[str, Any]] = None) -> None:
+        if self._event_bus is None:
+            return
+        event = SentinelEvent.new(
+            event_type=event_type,
+            session_id=session_id or "",
+            request_id=request_id or "",
+            component="intent_engine",
+            status=status,
+            message=message,
+            details=details,
+        )
+        asyncio.ensure_future(self._event_bus.emit(event))
+
+    def attach_grounding(self, intent: Intent) -> Intent:
+        """Attach objective evidence requirements without executing tools."""
+        if self._grounding_engine:
+            intent.grounding_requirements = self._grounding_engine.analyze_requirement(intent)
+        return intent
 
     def register_pattern(self, pattern: IntentPattern) -> None:
         self._patterns.append(pattern)
@@ -245,8 +377,29 @@ class IntentEngine:
                 logger.warning("Invalid pattern '%s': %s", pat, e)
 
     def parse(self, utterance: str, context: Optional[Dict[str, Any]] = None) -> Intent:
+        sid = (context or {}).get("session_id", "")
+        rid = (context or {}).get("execution_id", "")
+        self._emit(event_types.INTENT_DETECTING, session_id=sid, request_id=rid, message=utterance)
+        normalized = utterance.strip().lower()
+        if normalized in {"", "?", "¿?", "ok", "okay", "vale", "gracias", "qué hacemos", "que hacemos"}:
+            result = Intent(
+                action=INTENT_FALLBACK.action,
+                target=INTENT_FALLBACK.target,
+                confidence=INTENT_FALLBACK.confidence,
+                raw_input=utterance,
+            )
+            self._emit(event_types.INTENT_DETECTED, session_id=sid, request_id=rid, status="completed", details={"action": result.action, "target": result.target, "confidence": result.confidence})
+            return result
         regex_intent = self._parse_with_regex(utterance)
         if regex_intent.confidence >= 0.6 or not self._model_router:
+            self._emit(event_types.INTENT_DETECTED, session_id=sid, request_id=rid, status="completed", details={"action": regex_intent.action, "target": regex_intent.target, "confidence": regex_intent.confidence})
+            return regex_intent
+        if not context and not re.search(
+            r"\b(abre|abrir|inicia|iniciar|lanza|lanzar|ejecuta|ejecutar|busca|buscar|mata|matar|open|start|launch|run|find|kill)\b",
+            utterance,
+            re.IGNORECASE,
+        ):
+            self._emit(event_types.INTENT_DETECTED, session_id=sid, request_id=rid, status="completed", details={"action": regex_intent.action, "target": regex_intent.target, "confidence": regex_intent.confidence})
             return regex_intent
         llm_intent = self._parse_with_llm(utterance, context)
         if llm_intent and llm_intent.confidence > regex_intent.confidence:
@@ -256,7 +409,9 @@ class IntentEngine:
                 regex_intent.confidence,
                 utterance,
             )
+            self._emit(event_types.INTENT_DETECTED, session_id=sid, request_id=rid, status="completed", details={"action": llm_intent.action, "target": llm_intent.target, "confidence": llm_intent.confidence})
             return llm_intent
+        self._emit(event_types.INTENT_DETECTED, session_id=sid, request_id=rid, status="completed", details={"action": regex_intent.action, "target": regex_intent.target, "confidence": regex_intent.confidence})
         return regex_intent
 
     def _parse_with_regex(self, utterance: str) -> Intent:
@@ -277,6 +432,8 @@ class IntentEngine:
             )
         matches.sort(key=lambda m: m[1], reverse=True)
         best_pattern, best_score = matches[0]
+        if best_pattern.priority >= 10:
+            best_score = max(best_score, 0.75)
         params: Dict[str, Any] = {}
         for key, extractor in best_pattern.extractors.items():
             try:
@@ -325,6 +482,28 @@ class IntentEngine:
             params = parsed.get("parameters", {})
             if not isinstance(params, dict):
                 params = {}
+            valid_targets = {pattern.target for pattern in self._patterns}
+            valid_actions = {pattern.action for pattern in self._patterns}
+            if target not in valid_targets or action not in valid_actions:
+                logger.warning("LLM returned unsupported intent: %s/%s", action, target)
+                return None
+            required_parameter = {
+                "executor.command": "command",
+                "executor.launch": "app_name",
+                "executor.kill": "pid",
+            }.get(target)
+            if required_parameter and not params.get(required_parameter):
+                logger.warning("LLM intent %s omitted required parameter %s", target, required_parameter)
+                return None
+            if target == "executor.launch":
+                params["elevated"] = bool(
+                    params.get("elevated")
+                    or re.search(
+                        r"(?:administrador|administrator|admin|elevad[oa]|run\s*as)",
+                        utterance,
+                        re.IGNORECASE,
+                    )
+                )
             return Intent(
                 action=action,
                 target=target,

@@ -138,6 +138,10 @@ class TestOrchestratorMultiModel:
             context_engine=None,
             memory=None,
         )
+        # This test isolates model selection. Executable-plan validation is
+        # covered separately and an empty ToolGateway intentionally has no
+        # registered capabilities.
+        orch._validate_executable_plan = MagicMock(return_value=None)
         orch._intent_engine.parse.return_value = Intent(
             action="execute",
             target="executor.launch",

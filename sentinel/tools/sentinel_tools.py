@@ -11,7 +11,7 @@ class SentinelProcessTool(Tool):
             id="sentinel.process",
             name="Sentinel Process",
             description="Process a natural language intent through the Sentinel pipeline",
-            version="0.1.0",
+            version="1.0.0",
             parameters={
                 "type": "object",
                 "properties": {

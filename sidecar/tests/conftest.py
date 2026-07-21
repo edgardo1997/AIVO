@@ -7,7 +7,8 @@ import tempfile
 from fastapi.testclient import TestClient
 from unittest.mock import patch
 
-os.environ["AIVO_TESTING"] = "1"
+os.environ["SENTINEL_ENABLE_ACL"] = "0"
+os.environ["SENTINEL_ENABLE_FLEET_STARTUP"] = "0"
 os.environ.setdefault("SENTINEL_JWT_SECRET", "sentinel-test-jwt-secret-not-for-production")
 _test_data_dir = tempfile.mkdtemp(prefix="sentinel-tests-")
 os.environ["SENTINEL_DB_PATH"] = os.path.join(_test_data_dir, "sentinel-test.db")
@@ -17,14 +18,26 @@ _aivo_dir = os.path.join(_sidecar_dir, "..")
 sys.path.insert(0, os.path.abspath(_sidecar_dir))
 sys.path.insert(0, os.path.abspath(_aivo_dir))
 
-from main import app, _rate_limiter
+from main import app, _rate_limiter, initialize_runtime
 from modules.auth import IdentityContext
 from modules.permissions import _svc as perm_svc
+
+import windows_acl
+import repositories.database as db_mod
+
+windows_acl.ACL_ENABLED = False
+db_mod._TESTING = True
 
 app.state._test_mode = True
 app.state._test_secret = "valid-test-token"
 
 TEST_IDENTITY = IdentityContext.test_identity().to_dict()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def initialized_test_runtime():
+    """Tests opt into runtime registration instead of relying on import side effects."""
+    initialize_runtime()
 
 
 def admin_mode():
@@ -72,6 +85,15 @@ def clean_state():
         "ai_config",
         {"provider": "openrouter", "api_key": "", "model": "gpt-4o", "base_url": ""},
     )
+    try:
+        from modules.sentinel_bridge import get_orchestrator
+
+        orch = get_orchestrator()
+        rl = getattr(orch, "_rate_limiter", None)
+        if rl is not None:
+            rl.clear()
+    except Exception:
+        pass
     try:
         from modules.sentinel_bridge import get_memory
 

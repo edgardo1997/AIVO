@@ -66,7 +66,7 @@ class TestSimulationBlocking:
 
         from modules.permissions import _svc as perm_svc
 
-        perm_svc.set_level("admin")
+        perm_svc.set_level("confirm")
         approved = asyncio.run(orch.approve_execution(action_id, approved=True))
         perm_svc.set_level("confirm")
 
@@ -121,7 +121,7 @@ class TestSimulationBlocking:
     def test_approve_then_execute_via_api(self):
         from modules.permissions import _svc as perm_svc
 
-        perm_svc.set_level("admin")
+        perm_svc.set_level("confirm")
 
         resp = client.post("/api/sentinel/process", json={"utterance": "run command echo api_approve"})
         assert resp.status_code == 200
@@ -145,7 +145,7 @@ class TestSimulationBlocking:
     def test_modify_and_approve_sends_modified_steps(self):
         from modules.permissions import _svc as perm_svc
 
-        perm_svc.set_level("admin")
+        perm_svc.set_level("confirm")
 
         resp = client.post("/api/sentinel/process", json={"utterance": "run command echo test_modified"})
         assert resp.status_code == 200

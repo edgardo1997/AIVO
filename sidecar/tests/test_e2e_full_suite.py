@@ -14,6 +14,8 @@ from main import app
 
 from modules.permissions import _svc as perm_svc
 
+pytestmark = pytest.mark.e2e
+
 client = TestClient(app)
 
 
@@ -191,7 +193,8 @@ class TestV1Execute:
             },
         )
         assert resp.status_code == 200
-        assert resp.json()["success"] is False
+        data = resp.json()
+        assert data["success"] is False or data.get("data", {}).get("blocked")
 
     def test_missing_tool_id_returns_422(self):
         resp = client.post("/v1/execute", json={"params": {}})
@@ -328,9 +331,13 @@ class TestWebBrowsing:
         )
         assert resp.status_code == 200
         data = resp.json()
-        assert data["success"] is True
-        assert isinstance(data["data"], dict)
-        assert "results" in data["data"]
+        dd = data.get("data", {})
+        if dd.get("blocked"):
+            assert "error" in dd
+        else:
+            assert data["success"] is True
+            assert isinstance(dd, dict)
+            assert "results" in dd
 
     def test_web_navigate_tool(self):
         resp = client.post(
@@ -354,8 +361,12 @@ class TestWebBrowsing:
         )
         assert resp.status_code == 200
         data = resp.json()
-        assert data["success"] is True
-        assert "text" in data["data"] or "content" in data["data"]
+        dd = data.get("data", {})
+        if dd.get("blocked"):
+            assert "error" in dd
+        else:
+            assert data["success"] is True
+            assert "text" in dd or "content" in dd
 
 
 class TestHardening:

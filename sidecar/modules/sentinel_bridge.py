@@ -2,16 +2,63 @@ import asyncio
 import json
 import logging
 import os
+import re
+import time
 import uuid
 from dataclasses import asdict
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, Response, StreamingResponse
+from modules.auth import IdentityContext, request_identity, require_admin_identity
+from sentinel.conversation import ConversationRequest
+from sentinel.presentation import PresentationLayer, PresentationMode
 
 log = logging.getLogger("sentinel.sentinel_bridge")
 
 router = APIRouter()
+_presentation = PresentationLayer()
+
+_STREAM_END = object()
+_STREAM_IDLE_TIMEOUT_SECONDS = 30.0
+_CONVERSATION_ID = re.compile(r"^[A-Za-z0-9._-]{1,80}$")
+_MAX_CONVERSATION_BYTES = 2 * 1024 * 1024
+
+
+def _ndjson(event: Dict[str, Any]) -> bytes:
+    return (json.dumps(event, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
+
+
+def _next_stream_event(iterator):
+    try:
+        return next(iterator)
+    except StopIteration:
+        return _STREAM_END
+
+
+def _close_stream_iterator(iterator) -> None:
+    """Best-effort release of a provider stream without blocking the event loop."""
+    close = getattr(iterator, "close", None)
+    if not callable(close):
+        return
+    try:
+        close()
+    except Exception:
+        # A timed-out ``next`` may still be unwinding in its worker thread. The
+        # request must still finish cleanly even if that third-party iterator
+        # rejects a concurrent close operation.
+        log.debug("Provider stream could not be closed cleanly", exc_info=True)
+
+
+def _close_stream_after_pending_step(finished, iterator) -> None:
+    """Consume an abandoned step result and close its iterator once resumable."""
+    try:
+        finished.result()
+    except (asyncio.CancelledError, Exception):
+        # The response already reported its governed timeout/interruption.
+        pass
+    _close_stream_iterator(iterator)
 
 
 def _file_pipeline():
@@ -45,12 +92,15 @@ async def export_report(body: dict, request: Request):
     )
 
 
-def _require_admin() -> None:
-    from modules.permissions import _svc as perm_svc
+_require_admin = require_admin_identity
 
-    level = perm_svc.repo.load().get("level", "confirm")
-    if level != "admin":
-        raise HTTPException(status_code=403, detail=f"Admin level required, current level: {level}")
+
+def _scoped_user_id(request: Request, requested_user_id: str = "") -> str:
+    """Keep profile access owner-scoped unless an administrator explicitly selects a user."""
+    identity = request_identity(request)
+    if requested_user_id and requested_user_id != identity.user_id and identity.level != "admin":
+        raise HTTPException(status_code=403, detail="Cannot access another user's profile")
+    return requested_user_id or identity.user_id
 
 
 def _validate_capabilities(caps: List[str]) -> List[str]:
@@ -68,6 +118,12 @@ def get_orchestrator():
     from modules import get_sentinel_orchestrator
 
     return get_sentinel_orchestrator()
+
+
+def get_advisory_service():
+    orch = get_orchestrator()
+    svc = getattr(orch, "_advisory", None)
+    return svc
 
 
 def reset_bridge():
@@ -89,6 +145,8 @@ def get_memory():
 
 
 def _memory_record(record) -> Dict[str, Any]:
+    outcome = "failed" if record.error or (record.tool_result and record.tool_result.get("success") is False) else "succeeded"
+    confidence = 0.95 if record.tool_result and outcome == "succeeded" else 0.85 if record.tool_result else 0.75 if record.error else 0.65
     return {
         "execution_id": record.execution_id,
         "timestamp": record.timestamp,
@@ -98,7 +156,131 @@ def _memory_record(record) -> Dict[str, Any]:
         "error": record.error,
         "duration_ms": record.duration_ms,
         "session_id": record.context_summary.get("session_id"),
+        "memory": {
+            "source": "orchestrator.execution",
+            "confidence": confidence,
+            "outcome": outcome,
+            "advisory_only": True,
+        },
     }
+
+
+def _conversation_db():
+    from repositories.database import DatabaseManager
+
+    return DatabaseManager()
+
+
+def _validate_conversation_id(session_id: str) -> str:
+    value = str(session_id).strip()
+    if not _CONVERSATION_ID.fullmatch(value):
+        raise HTTPException(status_code=422, detail="Invalid conversation id")
+    return value
+
+
+def _normalize_conversation_messages(value: Any) -> List[Dict[str, Any]]:
+    if not isinstance(value, list) or len(value) > 200:
+        raise HTTPException(status_code=422, detail="messages must be a list with at most 200 items")
+    allowed = {
+        "id", "prompt", "response", "provider", "model", "pipeline",
+        "performance", "elapsed", "error", "errorCode", "retryable",
+    }
+    messages: List[Dict[str, Any]] = []
+    for raw in value:
+        if not isinstance(raw, dict):
+            raise HTTPException(status_code=422, detail="Each message must be an object")
+        message = {key: raw[key] for key in allowed if key in raw}
+        for key in ("id", "prompt", "response", "provider", "model", "error", "errorCode"):
+            if key in message and message[key] is not None:
+                maximum = 100_000 if key in {"prompt", "response"} else 500
+                message[key] = str(message[key])[:maximum]
+        if "elapsed" in message and message["elapsed"] is not None:
+            try:
+                message["elapsed"] = max(0.0, float(message["elapsed"]))
+            except (TypeError, ValueError):
+                message.pop("elapsed")
+        if "retryable" in message:
+            message["retryable"] = bool(message["retryable"])
+        messages.append(message)
+    try:
+        encoded = json.dumps(messages, ensure_ascii=False, separators=(",", ":"))
+    except (TypeError, ValueError) as error:
+        raise HTTPException(status_code=422, detail="Conversation contains invalid data") from error
+    if len(encoded.encode("utf-8")) > _MAX_CONVERSATION_BYTES:
+        raise HTTPException(status_code=413, detail="Conversation is too large")
+    return messages
+
+
+def _persist_conversation_turn(
+    user_id: str,
+    session_id: Optional[str],
+    prompt: str,
+    response: str,
+    *,
+    provider: Optional[str] = None,
+    model: Optional[str] = None,
+    pipeline: Optional[Dict[str, Any]] = None,
+    performance: Optional[Dict[str, Any]] = None,
+    interrupted: bool = False,
+) -> None:
+    if not session_id or not response:
+        return
+    message: Dict[str, Any] = {
+        "id": uuid.uuid4().hex,
+        "prompt": prompt[:100_000],
+        "response": response[:100_000],
+        "pipeline": pipeline,
+        "performance": performance,
+    }
+    if provider:
+        message["provider"] = provider[:500]
+    if model:
+        message["model"] = model[:500]
+    if interrupted:
+        message["error"] = "La respuesta fue interrumpida antes de completarse."
+    _conversation_db().append_conversation_message(
+        user_id=user_id,
+        session_id=session_id,
+        title=prompt[:70] or "Nueva operación",
+        message=message,
+        updated_at=datetime.now(timezone.utc).isoformat(),
+    )
+
+
+def _generation_metrics(started_at: float, first_delta_at: Optional[float], text: str) -> Dict[str, Any]:
+    from sentinel.core.context_window import count_tokens
+
+    finished_at = time.perf_counter()
+    output_tokens = count_tokens(text)
+    active_seconds = max(finished_at - (first_delta_at or started_at), 0.001)
+    return {
+        "time_to_first_token_ms": round(((first_delta_at or finished_at) - started_at) * 1000, 1),
+        "generation_ms": round((finished_at - started_at) * 1000, 1),
+        "output_tokens": output_tokens,
+        "tokens_per_second": round(output_tokens / active_seconds, 2),
+    }
+
+
+def _stream_error_info(error: Exception) -> Dict[str, Any]:
+    detail = str(error).lower()
+    provider_match = re.search(r"provider\s+([a-z0-9_.-]+)", detail)
+    provider = provider_match.group(1) if provider_match else None
+    if "unavailable" in detail or "no available" in detail:
+        code = "provider_unavailable"
+        message = "No hay un proveedor de IA disponible en este momento."
+    elif "timeout" in detail or "timed out" in detail:
+        code = "provider_timeout"
+        message = "El proveedor tardó demasiado en responder."
+    elif "connect" in detail or "connection" in detail:
+        code = "provider_connection"
+        message = "No se pudo conectar con el proveedor de IA."
+    elif "interrupted" in detail:
+        code = "provider_interrupted"
+        message = "El proveedor interrumpió la respuesta antes de terminar."
+    else:
+        code = "stream_failure"
+        message = "La respuesta se interrumpió antes de terminar."
+    return {"message": message, "detail": code, "retryable": True, "provider": provider}
 
 
 def _step_result(step) -> Dict[str, Any]:
@@ -121,6 +303,52 @@ async def create_memory_session(body: dict, request: Request):
     return {"session_id": uuid.uuid4().hex[:16], "label": str(body.get("label", ""))[:100]}
 
 
+@router.get("/conversations")
+async def list_conversations(request: Request, limit: int = Query(100, ge=1, le=200)):
+    user_id = request_identity(request).user_id
+    return {"conversations": _conversation_db().list_conversations(user_id, limit)}
+
+
+@router.get("/conversations/{session_id}")
+async def get_conversation(session_id: str, request: Request):
+    user_id = request_identity(request).user_id
+    conversation = _conversation_db().get_conversation(
+        user_id, _validate_conversation_id(session_id)
+    )
+    if conversation is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return conversation
+
+
+@router.put("/conversations/{session_id}")
+async def save_conversation(session_id: str, body: dict, request: Request):
+    user_id = request_identity(request).user_id
+    safe_session_id = _validate_conversation_id(session_id)
+    messages = _normalize_conversation_messages(body.get("messages", []))
+    title = str(body.get("title", "")).strip()[:120] or "Nueva operación"
+    updated_at = datetime.now(timezone.utc).isoformat()
+    return _conversation_db().upsert_conversation(
+        user_id, safe_session_id, title, messages, updated_at
+    )
+
+
+@router.delete("/conversations/{session_id}")
+async def delete_conversation(session_id: str, request: Request):
+    identity = request_identity(request)
+    safe_session_id = _validate_conversation_id(session_id)
+    deleted = _conversation_db().delete_conversation(identity.user_id, safe_session_id)
+    try:
+        from modules.audit import _svc as audit_service
+
+        if deleted:
+            audit_service.log_action(
+                "conversation_delete", safe_session_id, "success", user=identity.user_id
+            )
+    except Exception:
+        log.exception("Could not audit conversation deletion")
+    return {"deleted": deleted, "session_id": safe_session_id}
+
+
 @router.get("/memory/sessions")
 async def list_memory_sessions(request: Request, limit: int = Query(50, ge=1, le=200)):
     from modules.auth import request_identity
@@ -136,10 +364,9 @@ async def get_memory_session(session_id: str, request: Request, limit: int = Que
 
     identity = request_identity(request).to_dict()
     memory = get_memory() or get_orchestrator()._memory
-    owned = {item["session_id"] for item in memory.list_sessions(identity["user_id"], limit=200)}
-    if session_id not in owned:
+    records = memory.get_session_history(session_id, limit=limit, user_id=identity["user_id"])
+    if not records:
         return JSONResponse(status_code=404, content={"error": "Session not found"})
-    records = memory.get_session_history(session_id, limit=limit)
     return {"session_id": session_id, "records": [_memory_record(record) for record in reversed(records)]}
 
 
@@ -170,6 +397,38 @@ async def delete_memory_session(session_id: str, request: Request):
     return {"deleted": True, "session_id": session_id, "records_deleted": deleted}
 
 
+@router.get("/memory/environment")
+async def list_environment_memory(request: Request, limit: int = Query(50, ge=1, le=200)):
+    """Expose only the current user's privacy-safe environmental observations."""
+    identity = request_identity(request)
+    memory = get_memory() or get_orchestrator()._memory
+    changes = memory.get_environment_changes(identity.user_id, limit=limit)
+    return {
+        "changes": [asdict(change) for change in changes],
+        "advisory_only": True,
+        "privacy": "No activity, file content, browser history, executable paths or secrets are stored.",
+    }
+
+
+@router.delete("/memory/environment")
+async def delete_environment_memory(request: Request):
+    identity = request_identity(request)
+    memory = get_memory() or get_orchestrator()._memory
+    deleted = memory.delete_environment_data(identity.user_id)
+    try:
+        from modules.audit import _svc as audit_service
+
+        audit_service.log_action(
+            "environment_memory_delete",
+            f"records={deleted}",
+            "success",
+            user=identity.user_id,
+        )
+    except Exception:
+        log.exception("Could not audit environmental memory deletion")
+    return {"deleted": True, "records_deleted": deleted}
+
+
 @router.get("/permissions/rules")
 async def list_granular_permission_rules(request: Request):
     from modules.permissions import _svc
@@ -179,7 +438,7 @@ async def list_granular_permission_rules(request: Request):
 
 @router.post("/permissions/rules")
 async def add_granular_permission_rule(body: dict, request: Request):
-    _require_admin()
+    _require_admin(request)
     from modules.permissions import _svc
 
     try:
@@ -190,7 +449,7 @@ async def add_granular_permission_rule(body: dict, request: Request):
 
 @router.delete("/permissions/rules/{rule_id}")
 async def delete_granular_permission_rule(rule_id: str, request: Request):
-    _require_admin()
+    _require_admin(request)
     from modules.permissions import _svc
 
     if not _svc.remove_rule(rule_id):
@@ -206,8 +465,10 @@ async def process_utterance(body: dict, request: Request):
     utterance = body.get("utterance", "")
     if not utterance:
         return {"error": "utterance is required"}
-    session_id = body.get("session_id")
+    raw_session_id = body.get("session_id")
+    session_id = _validate_conversation_id(raw_session_id) if raw_session_id else None
     dry_run = body.get("dry_run", False)
+    presentation_mode = PresentationMode.parse(body.get("presentation_mode"))
     result = await orch.process(
         utterance,
         identity=request_identity(request).to_dict(),
@@ -224,6 +485,8 @@ async def process_utterance(body: dict, request: Request):
         }
 
     return {
+        "presentation": result.presentation if result.presentation is not None
+            else _presentation.present(result, presentation_mode),
         "simulated": result.simulated,
         "approved": result.approved,
         "blocked": result.blocked,
@@ -270,6 +533,8 @@ async def process_utterance(body: dict, request: Request):
         "step_results": [_step_result(s) for s in result.step_results] if result.step_results else None,
         "rollback_actions": result.rollback_actions,
         "advisory": result.advisory.to_dict() if result.advisory else None,
+        "grounding_results": result.grounding_results,
+        "grounding_satisfied": result.grounding_satisfied,
     }
 
 
@@ -296,6 +561,8 @@ async def process_multi_agent(body: dict, request: Request):
     return {
         "success": result.tool_result.success if result.tool_result else False,
         "error": result.error,
+        "grounding_results": result.grounding_results,
+        "grounding_satisfied": result.grounding_satisfied,
         "sub_task_results": [
             {
                 "sub_task_id": s.step_id,
@@ -312,14 +579,16 @@ async def process_multi_agent(body: dict, request: Request):
 
 # ── Vault endpoints ──────────────────────────────────────────
 @router.get("/vault/entries")
-async def vault_list(category: str = ""):
+async def vault_list(request: Request, category: str = ""):
+    _require_admin(request)
     vault = get_vault_manager()
     entries = vault.list_entries(category)
     return {"entries": [e.to_dict() for e in entries], "total": len(entries)}
 
 
 @router.get("/vault/entries/{vault_id}")
-async def vault_get(vault_id: str):
+async def vault_get(vault_id: str, request: Request):
+    _require_admin(request)
     vault = get_vault_manager()
     entry = vault.get_entry(vault_id)
     if not entry:
@@ -328,7 +597,8 @@ async def vault_get(vault_id: str):
 
 
 @router.post("/vault/entries")
-async def vault_create(body: dict):
+async def vault_create(body: dict, request: Request):
+    _require_admin(request)
     from sentinel.core.vault import VaultEntry
 
     vault = get_vault_manager()
@@ -340,7 +610,8 @@ async def vault_create(body: dict):
 
 
 @router.patch("/vault/entries/{vault_id}")
-async def vault_update(vault_id: str, body: dict):
+async def vault_update(vault_id: str, body: dict, request: Request):
+    _require_admin(request)
     vault = get_vault_manager()
     ok = vault.update_entry(vault_id, **body)
     if not ok:
@@ -349,7 +620,8 @@ async def vault_update(vault_id: str, body: dict):
 
 
 @router.delete("/vault/entries/{vault_id}")
-async def vault_delete(vault_id: str):
+async def vault_delete(vault_id: str, request: Request):
+    _require_admin(request)
     vault = get_vault_manager()
     ok = vault.delete_entry(vault_id)
     if not ok:
@@ -358,7 +630,8 @@ async def vault_delete(vault_id: str):
 
 
 @router.post("/vault/entries/{vault_id}/reveal")
-async def vault_reveal(vault_id: str):
+async def vault_reveal(vault_id: str, request: Request):
+    _require_admin(request)
     vault = get_vault_manager()
     value = vault.reveal_value(vault_id)
     if value is None:
@@ -367,7 +640,8 @@ async def vault_reveal(vault_id: str):
 
 
 @router.post("/vault/entries/{vault_id}/rotate")
-async def vault_rotate_secret(vault_id: str):
+async def vault_rotate_secret(vault_id: str, request: Request):
+    _require_admin(request)
     vault = get_vault_manager()
     ok = vault.rotate_secret(vault_id)
     if not ok:
@@ -376,7 +650,8 @@ async def vault_rotate_secret(vault_id: str):
 
 
 @router.post("/vault/rotate-master-key")
-async def vault_rotate_master():
+async def vault_rotate_master(request: Request):
+    _require_admin(request)
     vault = get_vault_manager()
     ok = vault.rotate_master_key()
     if not ok:
@@ -385,14 +660,16 @@ async def vault_rotate_master():
 
 
 @router.get("/vault/audit")
-async def vault_audit(vault_id: str = "", limit: int = 50):
+async def vault_audit(request: Request, vault_id: str = "", limit: int = 50):
+    _require_admin(request)
     vault = get_vault_manager()
     entries = vault.get_audit_log(vault_id, limit)
     return {"audit": [e.__dict__ for e in entries]}
 
 
 @router.get("/vault/status")
-async def vault_status():
+async def vault_status(request: Request):
+    _require_admin(request)
     vault = get_vault_manager()
     entries = vault.list_entries()
     has_fernet = vault._fernet is not None
@@ -419,22 +696,48 @@ def _build_pipeline_summary(result) -> str:
     return " | ".join(parts)
 
 
+def _format_verified_system_result(target: str, data: Any) -> Optional[str]:
+    return _presentation.format_verified_result(target, data)
+
+
+def _format_governed_outcome(result) -> Optional[str]:
+    """Describe an executable turn from trusted pipeline state only.
+
+    Model-generated prose must never be allowed to turn a rejection, pending
+    confirmation, or tool failure into a success claim.
+    """
+    if not result or result.plan.intent.confidence < 0.6:
+        return None
+    return _presentation.summary(result)
+
+
 def _build_chat_pipeline_trace(result) -> Dict[str, Any]:
     plan = result.plan
+    step_count = len(plan.plan.steps) if plan.plan and plan.plan.steps else 0
+    context_factors = result.decision.context_factors if result.decision else []
     return {
+        "presentation": _presentation.present(result, PresentationMode.USER),
         "intent": {
             "action": plan.intent.action,
             "target": plan.intent.target,
             "confidence": plan.intent.confidence,
             "raw_input": plan.intent.raw_input,
         },
+        "plan": {
+            "steps": step_count,
+        },
         "decision": {
             "decision": result.decision.decision if result.decision else None,
+            "base_risk_score": result.decision.base_risk_score if result.decision else None,
+            "context_modifier": result.decision.context_modifier if result.decision else None,
             "final_risk_score": result.decision.final_risk_score if result.decision else None,
             "reason": result.decision.reason if result.decision else None,
+            "context_factors": context_factors,
         }
         if result.decision
         else None,
+        "grounding_results": result.grounding_results or [],
+        "grounding_satisfied": result.grounding_satisfied,
         "advisory": result.advisory.to_dict() if result.advisory else None,
         "tool_result": {
             "success": result.tool_result.success if result.tool_result else None,
@@ -448,7 +751,20 @@ def _build_chat_pipeline_trace(result) -> Dict[str, Any]:
         "action_id": result.action_id,
         "simulation_summary": result.simulation_summary,
         "error": result.error,
+        "execution_id": result.execution_id,
     }
+
+
+@router.post("/advisory/feedback")
+async def advisory_feedback(body: dict, request: Request):
+    helpful = body.get("helpful", False)
+    insight_kind = body.get("insight_kind")
+    execution_id = body.get("execution_id")
+    svc = get_advisory_service()
+    if svc:
+        svc.record_feedback(helpful, insight_kind, execution_id)
+        return {"status": "ok", "stats": svc.feedback_stats()}
+    return {"status": "error", "detail": "Advisory service not available"}
 
 
 @router.post("/chat")
@@ -460,22 +776,94 @@ async def sentinel_chat(body: dict, request: Request):
     identity = request_identity(request).to_dict()
     message = body.get("message", "")
     history = body.get("context", [])
-    session_id = body.get("session_id")
+    raw_session_id = body.get("session_id")
+    session_id = _validate_conversation_id(raw_session_id) if raw_session_id else None
 
     if not message:
-        return {"response": "Please provide a message.", "provider": None, "model": None, "pipeline": None}
+        return {
+            "response": "Please provide a message.",
+            "provider": None,
+            "model": None,
+            "pipeline": None,
+            "conversation_mode": "core",
+            "capabilities": ai_svc.conversation_capabilities(),
+        }
 
-    result = await orch.process(message, identity=identity, session_id=session_id)
-    intent = result.plan.intent
-    pipeline_summary = _build_pipeline_summary(result)
-    pipeline_trace = _build_chat_pipeline_trace(result)
+    result = None
+    pipeline_summary = "No orchestration context is available for this turn."
+    pipeline_trace = None
+    actionable = False
+    preflight_intent = orch.classify_intent(message)
+    requires_pipeline = preflight_intent.confidence >= 0.6
+    if not requires_pipeline:
+        pipeline_trace = {
+            "intent": {
+                "action": preflight_intent.action,
+                "target": preflight_intent.target,
+                "confidence": preflight_intent.confidence,
+                "raw_input": preflight_intent.raw_input,
+            },
+            "decision": None,
+            "advisory": None,
+            "tool_result": None,
+            "simulated": False,
+            "approved": False,
+            "blocked": False,
+            "action_id": None,
+            "simulation_summary": None,
+            "error": None,
+        }
+        pipeline_summary = (
+            "Conversation-only route selected: no executable system intent was detected, "
+            "so no tool was planned or authorized."
+        )
+    try:
+        # Planning enriches conversation, but it must never hold the chat open.
+        # A timed-out planner is discarded and the always-available conversation
+        # layer still answers the user.
+        if requires_pipeline:
+            result = await asyncio.wait_for(
+                orch.process(message, identity=identity, session_id=session_id),
+                timeout=15,
+            )
+            intent = result.plan.intent
+            pipeline_summary = _build_pipeline_summary(result)
+            pipeline_trace = _build_chat_pipeline_trace(result)
+            actionable = intent.confidence >= 0.6
+    except Exception:
+        log.exception("Orchestration unavailable; conversation continuity remains active")
 
-    actionable = intent.confidence >= 0.6
+    # Educational and code answers can exceed the short-answer budget. The
+    # provider retains its own timeout, so the request remains bounded.
+    _AI_TIMEOUT = 48
 
-    _AI_TIMEOUT = 30
+    conversation_mode = "core"
+    conversation_capabilities = ai_svc.conversation_capabilities()
 
-    if actionable and result.tool_result and result.tool_result.success:
-        tool_data = result.tool_result.data
+    if actionable and result:
+        governed_response = _format_governed_outcome(result)
+        if governed_response:
+            try:
+                await asyncio.to_thread(
+                    _persist_conversation_turn,
+                    identity["user_id"],
+                    session_id,
+                    message,
+                    governed_response,
+                    provider="sentinel_core",
+                    pipeline=pipeline_trace,
+                )
+            except Exception:
+                log.exception("Could not persist conversation turn")
+            return {
+                "response": governed_response,
+                "provider": "sentinel_core",
+                "model": None,
+                "pipeline": pipeline_trace,
+                "conversation_mode": "core",
+                "capabilities": conversation_capabilities,
+            }
+        tool_data = result.tool_result.data if result.tool_result else None
         try:
             ctx = list(history) if history else []
             if ctx:
@@ -486,22 +874,30 @@ async def sentinel_chat(body: dict, request: Request):
                     message=f"User said: {message}\n\nTool result:\n{json.dumps(tool_data, indent=2) if tool_data else '(empty)'}",
                     context=ctx or None,
                     system_prompt="You are Sentinel, an intelligent PC orchestration assistant. The system executed a tool based on the user's request. Format the tool result as a concise, natural response to the user. Be direct and helpful.",
+                    purpose="tool_result",
+                    tool_result=tool_data,
                 ),
                 timeout=_AI_TIMEOUT,
             )
             response_text = fmt_response.get("response", "")
             provider = fmt_response.get("provider")
             model = fmt_response.get("model")
+            conversation_mode = fmt_response.get("conversation_mode", conversation_mode)
+            conversation_capabilities = fmt_response.get("capabilities", conversation_capabilities)
         except asyncio.TimeoutError:
-            log.warning("AI formatting timed out, using raw tool data")
-            response_text = json.dumps(tool_data, indent=2) if tool_data else "Task completed."
-            provider = None
-            model = None
-        except Exception as e:
-            log.warning("AI formatting failed for tool result, using raw data: %s", e)
-            response_text = json.dumps(tool_data, indent=2) if tool_data else "Task completed."
-            provider = None
-            model = None
+            log.warning("Advanced result formatting timed out; using core conversation")
+            core = ai_svc._conversation.respond(
+                ConversationRequest(message=message, purpose="tool_result", tool_result=tool_data)
+            ).to_dict()
+            response_text, provider, model = core["response"], None, None
+            conversation_mode, conversation_capabilities = core["conversation_mode"], core["capabilities"]
+        except Exception:
+            log.exception("Result formatting failed; using core conversation")
+            core = ai_svc._conversation.respond(
+                ConversationRequest(message=message, purpose="tool_result", tool_result=tool_data)
+            ).to_dict()
+            response_text, provider, model = core["response"], None, None
+            conversation_mode, conversation_capabilities = core["conversation_mode"], core["capabilities"]
     else:
         try:
             ctx = list(history) if history else []
@@ -525,29 +921,229 @@ async def sentinel_chat(body: dict, request: Request):
             response_text = chat_response.get("response", "")
             provider = chat_response.get("provider")
             model = chat_response.get("model")
+            conversation_mode = chat_response.get("conversation_mode", conversation_mode)
+            conversation_capabilities = chat_response.get("capabilities", conversation_capabilities)
         except asyncio.TimeoutError:
-            log.error("AI chat timed out")
-            response_text = "I'm sorry, the AI provider did not respond in time. Please check your AI configuration."
-            provider = None
-            model = None
-        except Exception as e:
-            log.error("AI chat failed: %s", e)
-            response_text = f"Error connecting to AI. Provider may not be configured. Details: {e}"
-            provider = None
-            model = None
+            log.warning("Advanced chat timed out; using core conversation")
+            core = ai_svc._conversation.respond(ConversationRequest(message=message, context=ctx)).to_dict()
+            response_text, provider, model = core["response"], None, None
+            conversation_mode, conversation_capabilities = core["conversation_mode"], core["capabilities"]
+        except Exception:
+            log.exception("Chat integration failed; using core conversation")
+            core = ai_svc._conversation.respond(ConversationRequest(message=message, context=ctx)).to_dict()
+            response_text, provider, model = core["response"], None, None
+            conversation_mode, conversation_capabilities = core["conversation_mode"], core["capabilities"]
 
+    try:
+        await asyncio.to_thread(
+            _persist_conversation_turn,
+            identity["user_id"],
+            session_id,
+            message,
+            response_text,
+            provider=provider,
+            model=model,
+            pipeline=pipeline_trace,
+        )
+    except Exception:
+        log.exception("Could not persist conversation turn")
     return {
         "response": response_text,
         "provider": provider,
         "model": model,
         "pipeline": pipeline_trace,
+        "conversation_mode": conversation_mode,
+        "capabilities": conversation_capabilities,
     }
+
+
+@router.post("/chat/stream")
+async def sentinel_chat_stream(body: dict, request: Request):
+    """Stream a governed conversation as newline-delimited JSON events."""
+    from modules.ai_provider import _svc as ai_svc
+
+    message = str(body.get("message", "")).strip()
+    history = body.get("context", [])
+    raw_session_id = body.get("session_id")
+    session_id = _validate_conversation_id(raw_session_id) if raw_session_id else None
+    identity = request_identity(request).to_dict()
+
+    async def events():
+        if not message:
+            yield _ndjson({"type": "error", "message": "Please provide a message."})
+            return
+
+        yield _ndjson({"type": "status", "stage": "planning"})
+        turn_started = time.perf_counter()
+        response_parts: List[str] = []
+        response_provider: Optional[str] = None
+        response_model: Optional[str] = None
+        performance_metrics: Optional[Dict[str, Any]] = None
+        persisted = False
+
+        async def persist(interrupted: bool = False) -> None:
+            nonlocal persisted
+            if persisted or not response_parts:
+                return
+            try:
+                await asyncio.to_thread(
+                    _persist_conversation_turn,
+                    identity["user_id"],
+                    session_id,
+                    message,
+                    "".join(response_parts),
+                    provider=response_provider,
+                    model=response_model,
+                    pipeline=pipeline_trace,
+                    performance=performance_metrics,
+                    interrupted=interrupted,
+                )
+                persisted = True
+            except Exception:
+                log.exception("Could not persist conversation turn")
+
+        result = None
+        pipeline_trace = None
+        pipeline_summary = "No orchestration context is available for this turn."
+        orchestrator = get_orchestrator()
+        preflight_intent = orchestrator.classify_intent(message)
+        requires_pipeline = preflight_intent.confidence >= 0.6
+        if requires_pipeline:
+            try:
+                result = await asyncio.wait_for(
+                    orchestrator.process(message, identity=identity, session_id=session_id),
+                    timeout=15,
+                )
+                pipeline_trace = _build_chat_pipeline_trace(result)
+                pipeline_summary = _build_pipeline_summary(result)
+            except Exception:
+                log.exception("Streaming orchestration unavailable; conversation remains active")
+        else:
+            pipeline_summary = (
+                "Conversation-only route selected: no executable system intent was detected, "
+                "so no tool was planned or authorized."
+            )
+
+        yield _ndjson(
+            {
+                "type": "pipeline",
+                "pipeline": pipeline_trace,
+                "stage": "generating",
+                "planning_ms": round((time.perf_counter() - turn_started) * 1000, 1),
+                "route": "governed" if requires_pipeline else "conversation",
+            }
+        )
+        generation_started = time.perf_counter()
+        first_delta_at: Optional[float] = None
+
+        actionable = bool(result and result.plan.intent.confidence >= 0.6)
+        if actionable and result:
+            verified = _format_governed_outcome(result)
+            if verified:
+                yield _ndjson(
+                    {"type": "meta", "provider": "sentinel_core", "model": None}
+                )
+                yield _ndjson({"type": "delta", "text": verified})
+                response_parts.append(verified)
+                response_provider = "sentinel_core"
+                first_delta_at = time.perf_counter()
+                performance_metrics = _generation_metrics(
+                    generation_started, first_delta_at, verified
+                )
+                await persist()
+                yield _ndjson({"type": "metrics", **performance_metrics})
+                yield _ndjson({"type": "done"})
+                return
+
+        enriched_context = list(history) if isinstance(history, list) else []
+        enriched_context.append(
+            {"role": "system", "content": f"Sentinel pipeline context:\n{pipeline_summary}"}
+        )
+        iterator = ai_svc.stream_chat(
+            message=message,
+            context=enriched_context,
+            system_prompt=(
+                "You are Sentinel, the local trust and orchestration layer between the user, "
+                "AI models, tools, and the operating system. Explain decisions accurately and "
+                "never claim an action occurred unless the supplied pipeline confirms it."
+            ),
+        )
+        pending_next = None
+        try:
+            while not await request.is_disconnected():
+                pending_next = asyncio.create_task(
+                    asyncio.to_thread(_next_stream_event, iterator)
+                )
+                event = await asyncio.wait_for(
+                    asyncio.shield(pending_next),
+                    timeout=_STREAM_IDLE_TIMEOUT_SECONDS,
+                )
+                pending_next = None
+                if event is _STREAM_END:
+                    await persist(interrupted=True)
+                    return
+                if event.get("type") == "meta":
+                    response_provider = event.get("provider")
+                    response_model = event.get("model")
+                elif event.get("type") == "delta":
+                    if first_delta_at is None:
+                        first_delta_at = time.perf_counter()
+                    response_parts.append(str(event.get("text", "")))
+                elif event.get("type") == "done":
+                    performance_metrics = _generation_metrics(
+                        generation_started, first_delta_at, "".join(response_parts)
+                    )
+                    await persist()
+                    yield _ndjson({"type": "metrics", **performance_metrics})
+                yield _ndjson(event)
+            await persist(interrupted=True)
+        except asyncio.TimeoutError:
+            log.warning("Conversation stream exceeded the inactivity timeout")
+            await persist(interrupted=True)
+            yield _ndjson(
+                {
+                    "type": "error",
+                    "message": "El modelo dejó de responder. Intenta nuevamente.",
+                    "detail": "stream_idle_timeout",
+                    "retryable": True,
+                    "provider": response_provider,
+                }
+            )
+        except Exception as error:
+            log.exception("Conversation stream failed")
+            await persist(interrupted=True)
+            yield _ndjson({"type": "error", **_stream_error_info(error)})
+        finally:
+            if pending_next is not None and not pending_next.done():
+                # ``asyncio.to_thread`` cannot interrupt a synchronous ``next``.
+                # Close again as soon as that in-flight call releases the
+                # generator so a timeout or disconnect cannot strand it.
+                pending_next.add_done_callback(
+                    lambda finished: _close_stream_after_pending_step(
+                        finished, iterator
+                    )
+                )
+            await asyncio.to_thread(_close_stream_iterator, iterator)
+
+    return StreamingResponse(
+        events(),
+        media_type="application/x-ndjson",
+        headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
+    )
 
 
 @router.get("/capabilities")
 def get_capabilities():
     orch = get_orchestrator()
     return orch.get_capabilities()
+
+
+@router.get("/conversation/capabilities")
+def get_conversation_capabilities():
+    from modules.ai_provider import _svc as ai_svc
+
+    get_orchestrator()
+    return ai_svc.conversation_capabilities()
 
 
 @router.get("/goals")
@@ -559,11 +1155,8 @@ def get_goals():
 
 
 @router.post("/goals")
-def post_goal(body: dict):
-    try:
-        _require_admin()
-    except PermissionError as e:
-        return JSONResponse({"error": str(e)}, status_code=403)
+def post_goal(body: dict, request: Request):
+    _require_admin(request)
     goal_registry = get_goal_registry()
     if goal_registry is None:
         get_orchestrator()
@@ -604,11 +1197,8 @@ def post_goal(body: dict):
 
 
 @router.delete("/goals/{goal_id}")
-def delete_goal(goal_id: str):
-    try:
-        _require_admin()
-    except PermissionError as e:
-        return JSONResponse({"error": str(e)}, status_code=403)
+def delete_goal(goal_id: str, request: Request):
+    _require_admin(request)
     goal_registry = get_goal_registry()
     if goal_registry is None:
         get_orchestrator()
@@ -621,11 +1211,8 @@ def delete_goal(goal_id: str):
 
 
 @router.patch("/goals/{goal_id}")
-def patch_goal(goal_id: str, body: dict):
-    try:
-        _require_admin()
-    except PermissionError as e:
-        return JSONResponse({"error": str(e)}, status_code=403)
+def patch_goal(goal_id: str, body: dict, request: Request):
+    _require_admin(request)
     goal_registry = get_goal_registry()
     if goal_registry is None:
         get_orchestrator()
@@ -665,11 +1252,8 @@ def patch_goal(goal_id: str, body: dict):
 
 
 @router.get("/goals/audit")
-def get_goal_audit():
-    try:
-        _require_admin()
-    except PermissionError as e:
-        return JSONResponse({"error": str(e)}, status_code=403)
+def get_goal_audit(request: Request):
+    _require_admin(request)
     goal_registry = get_goal_registry()
     if goal_registry is None:
         get_orchestrator()
@@ -757,6 +1341,7 @@ async def approve_execution(body: dict, request: Request):
     )
     plan = result.plan
     return {
+        "presentation": _presentation.present(result, PresentationMode.USER),
         "blocked": result.blocked,
         "approved": result.approved,
         "action_id": result.action_id,
@@ -802,6 +1387,7 @@ async def modify_and_approve(body: dict, request: Request):
         approver_identity=request_identity(request).to_dict(),
     )
     return {
+        "presentation": _presentation.present(result, PresentationMode.USER),
         "blocked": result.blocked,
         "approved": result.approved,
         "action_id": result.action_id,
@@ -1176,6 +1762,49 @@ def get_observability_traces(
     return {"traces": service.traces(limit=limit, tool_id=tool_id), "summary": service.summary()}
 
 
+@router.get("/observability/pipeline-metrics")
+def get_pipeline_metrics():
+    from modules import get_pipeline_metrics as _get_pm
+    svc = _get_pm()
+    return {
+        "summary": svc.summary(),
+        "component_durations": svc.component_durations(),
+        "tool_usage": svc.tool_usage(),
+        "throughput": svc.throughput(),
+        "bottlenecks": svc.bottlenecks(),
+    }
+
+
+@router.get("/observability/component-durations")
+def get_component_durations(limit: int = Query(50, ge=1, le=200)):
+    from modules import get_pipeline_metrics as _get_pm
+    return {"components": _get_pm().component_durations(limit=limit)}
+
+
+@router.get("/observability/tool-usage")
+def get_tool_usage(limit: int = Query(10, ge=1, le=50)):
+    from modules import get_pipeline_metrics as _get_pm
+    return {"tools": _get_pm().tool_usage(limit=limit)}
+
+
+@router.get("/observability/throughput")
+def get_throughput():
+    from modules import get_pipeline_metrics as _get_pm
+    return _get_pm().throughput()
+
+
+@router.get("/observability/bottlenecks")
+def get_bottlenecks(limit: int = Query(5, ge=1, le=20)):
+    from modules import get_pipeline_metrics as _get_pm
+    return {"bottlenecks": _get_pm().bottlenecks(limit=limit)}
+
+
+@router.get("/observability/timeline/{request_id}")
+def get_timeline(request_id: str):
+    from modules import get_pipeline_metrics as _get_pm
+    return _get_pm().timeline(request_id)
+
+
 @router.post("/recovery/circuit-breaker/reset")
 def reset_recovery_circuit(body: dict):
     """Reset one explicitly typed circuit; avoids ambiguous cross-resource resets."""
@@ -1196,9 +1825,16 @@ def reset_recovery_circuit(body: dict):
 @router.get("/model-router/status")
 def get_model_router_status(refresh: bool = Query(False)):
     """Expose routing readiness without leaking API keys."""
+    from sentinel.core.hardware_intelligence import get_hardware_profiler
+
     router = get_orchestrator()._model_router
     if router is None:
-        return {"enabled": False, "providers": [], "recent_decisions": []}
+        return {
+            "enabled": False,
+            "providers": [],
+            "recent_decisions": [],
+            "hardware": get_hardware_profiler().profile(refresh=refresh).to_routing_context(),
+        }
     providers = router.list_providers()
     if refresh:
         snapshot = router.availability_snapshot(refresh=True)
@@ -1210,6 +1846,7 @@ def get_model_router_status(refresh: bool = Query(False)):
         "providers": providers,
         "fallback": router.fallback_stats(),
         "recent_decisions": router.routing_history(limit=20),
+        "hardware": get_hardware_profiler().profile(refresh=refresh).to_routing_context(),
     }
 
 
@@ -1601,8 +2238,25 @@ def pipeline_ingest(body: dict):
             repo=body.get("repo", False),
         )
         return result.to_dict()
-    except Exception as e:
-        return {"error": str(e), "files_processed": 0, "files_failed": 1}
+    except (FileNotFoundError, ValueError):
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": "The requested path could not be ingested",
+                "files_processed": 0,
+                "files_failed": 1,
+            },
+        )
+    except Exception:
+        log.exception("File pipeline ingestion failed")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": "File ingestion failed",
+                "files_processed": 0,
+                "files_failed": 1,
+            },
+        )
 
 
 @router.get("/pipeline/status")
@@ -1689,7 +2343,8 @@ def _get_hardening(orch):
 
 
 @router.get("/hardening/config")
-def hardening_config():
+def hardening_config(request: Request):
+    _require_admin(request)
     orch = get_orchestrator()
     h = _get_hardening(orch)
     if h is None:
@@ -1698,7 +2353,8 @@ def hardening_config():
 
 
 @router.put("/hardening/config")
-def hardening_update_config(body: dict):
+def hardening_update_config(body: dict, request: Request):
+    _require_admin(request)
     orch = get_orchestrator()
     h = _get_hardening(orch)
     if h is None:
@@ -1718,7 +2374,8 @@ def hardening_update_config(body: dict):
 
 
 @router.put("/hardening/tool-override/{tool_id}")
-def hardening_tool_override(tool_id: str, body: dict):
+def hardening_tool_override(tool_id: str, body: dict, request: Request):
+    _require_admin(request)
     orch = get_orchestrator()
     h = _get_hardening(orch)
     if h is None:
@@ -1733,7 +2390,8 @@ def hardening_tool_override(tool_id: str, body: dict):
 
 
 @router.delete("/hardening/tool-override/{tool_id}")
-def hardening_remove_override(tool_id: str):
+def hardening_remove_override(tool_id: str, request: Request):
+    _require_admin(request)
     orch = get_orchestrator()
     h = _get_hardening(orch)
     if h is None:
@@ -1743,18 +2401,20 @@ def hardening_remove_override(tool_id: str):
 
 
 @router.post("/hardening/circuit-breaker/reset")
-def hardening_reset_circuits(body: dict = {}):
+def hardening_reset_circuits(request: Request, body: Optional[dict] = None):
+    _require_admin(request)
     orch = get_orchestrator()
     h = _get_hardening(orch)
     if h is None:
         return {"enabled": False}
-    tool_id = body.get("tool_id", "")
+    tool_id = (body or {}).get("tool_id", "")
     count = h.circuit_breaker.reset(tool_id if tool_id else None)
     return {"reset": tool_id or "all", "circuits_reset": count}
 
 
 @router.get("/hardening/health")
-def hardening_health():
+def hardening_health(request: Request):
+    _require_admin(request)
     orch = get_orchestrator()
     h = _get_hardening(orch)
     if h is None:
@@ -1775,11 +2435,11 @@ def _get_profile_mgr():
 
 
 @router.get("/profile")
-def profile_get(user_id: str = ""):
+def profile_get(request: Request, user_id: str = ""):
     pm = _get_profile_mgr()
     if pm is None:
         return {"enabled": False}
-    uid = user_id or "local-user"
+    uid = _scoped_user_id(request, user_id)
     profile = pm.get_profile(uid)
     if profile is None:
         profile = pm.get_or_create_profile(uid)
@@ -1789,11 +2449,11 @@ def profile_get(user_id: str = ""):
 
 
 @router.patch("/profile")
-def profile_update(body: dict):
+def profile_update(body: dict, request: Request):
     pm = _get_profile_mgr()
     if pm is None:
         return {"enabled": False}
-    uid = body.get("user_id", "local-user")
+    uid = _scoped_user_id(request, str(body.get("user_id", "")))
     pm.get_or_create_profile(uid)
     allowed = {"username", "display_name", "avatar", "theme", "timezone", "locale", "bio", "tags"}
     updates = {k: v for k, v in body.items() if k in allowed}
@@ -1802,21 +2462,21 @@ def profile_update(body: dict):
 
 
 @router.get("/profile/preferences")
-def profile_preferences(user_id: str = ""):
+def profile_preferences(request: Request, user_id: str = ""):
     pm = _get_profile_mgr()
     if pm is None:
         return {"enabled": False}
-    uid = user_id or "local-user"
+    uid = _scoped_user_id(request, user_id)
     prefs = pm.get_all_preferences(uid)
     return {"preferences": prefs, "count": len(prefs)}
 
 
 @router.put("/profile/preferences")
-def profile_set_preference(body: dict):
+def profile_set_preference(body: dict, request: Request):
     pm = _get_profile_mgr()
     if pm is None:
         return {"enabled": False}
-    uid = body.get("user_id", "local-user")
+    uid = _scoped_user_id(request, str(body.get("user_id", "")))
     key = body.get("key", "")
     value = body.get("value")
     if not key:
@@ -1827,11 +2487,11 @@ def profile_set_preference(body: dict):
 
 
 @router.delete("/profile/preferences")
-def profile_delete_preference(key: str = "", user_id: str = ""):
+def profile_delete_preference(request: Request, key: str = "", user_id: str = ""):
     pm = _get_profile_mgr()
     if pm is None:
         return {"enabled": False}
-    uid = user_id or "local-user"
+    uid = _scoped_user_id(request, user_id)
     if not key:
         return {"error": "key is required"}
     pm.delete_preference(uid, key)
@@ -1839,51 +2499,51 @@ def profile_delete_preference(key: str = "", user_id: str = ""):
 
 
 @router.get("/profile/history")
-def profile_history(user_id: str = "", limit: int = 50):
+def profile_history(request: Request, user_id: str = "", limit: int = 50):
     pm = _get_profile_mgr()
     if pm is None:
         return {"enabled": False}
-    uid = user_id or "local-user"
+    uid = _scoped_user_id(request, user_id)
     history = pm.get_profile_history(uid, limit=limit)
     return {"history": history, "count": len(history)}
 
 
 @router.get("/profile/export")
-def profile_export(user_id: str = ""):
+def profile_export(request: Request, user_id: str = ""):
     pm = _get_profile_mgr()
     if pm is None:
         return {"enabled": False}
-    uid = user_id or "local-user"
+    uid = _scoped_user_id(request, user_id)
     data = pm.export_profile(uid)
     return data
 
 
 @router.post("/profile/import")
-def profile_import(body: dict):
+def profile_import(body: dict, request: Request):
     pm = _get_profile_mgr()
     if pm is None:
         return {"enabled": False}
-    uid = body.get("user_id", "local-user")
+    uid = _scoped_user_id(request, str(body.get("user_id", "")))
     result = pm.import_profile(uid, body)
     return result
 
 
 @router.get("/profile/presets")
-def profile_presets(user_id: str = ""):
+def profile_presets(request: Request, user_id: str = ""):
     pm = _get_profile_mgr()
     if pm is None:
         return {"enabled": False}
-    uid = user_id or "local-user"
+    uid = _scoped_user_id(request, user_id)
     presets = pm.list_presets(uid)
     return {"presets": presets, "count": len(presets)}
 
 
 @router.post("/profile/presets")
-def profile_save_preset(body: dict):
+def profile_save_preset(body: dict, request: Request):
     pm = _get_profile_mgr()
     if pm is None:
         return {"enabled": False}
-    uid = body.get("user_id", "local-user")
+    uid = _scoped_user_id(request, str(body.get("user_id", "")))
     preset_name = body.get("preset_name", "")
     if not preset_name:
         return {"error": "preset_name is required"}
@@ -1894,11 +2554,11 @@ def profile_save_preset(body: dict):
 
 
 @router.post("/profile/presets/apply")
-def profile_apply_preset(body: dict):
+def profile_apply_preset(body: dict, request: Request):
     pm = _get_profile_mgr()
     if pm is None:
         return {"enabled": False}
-    uid = body.get("user_id", "local-user")
+    uid = _scoped_user_id(request, str(body.get("user_id", "")))
     preset_name = body.get("preset_name", "")
     if not preset_name:
         return {"error": "preset_name is required"}
@@ -1907,11 +2567,11 @@ def profile_apply_preset(body: dict):
 
 
 @router.delete("/profile/presets")
-def profile_delete_preset(body: dict):
+def profile_delete_preset(body: dict, request: Request):
     pm = _get_profile_mgr()
     if pm is None:
         return {"enabled": False}
-    uid = body.get("user_id", "local-user")
+    uid = _scoped_user_id(request, str(body.get("user_id", "")))
     preset_name = body.get("preset_name", "")
     if not preset_name:
         return {"error": "preset_name is required"}
@@ -1920,7 +2580,8 @@ def profile_delete_preset(body: dict):
 
 
 @router.get("/profile/search")
-def profile_search(query: str = "", limit: int = 20):
+def profile_search(request: Request, query: str = "", limit: int = 20):
+    _require_admin(request)
     pm = _get_profile_mgr()
     if pm is None:
         return {"enabled": False, "results": []}

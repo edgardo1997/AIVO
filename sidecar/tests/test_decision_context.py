@@ -74,6 +74,41 @@ class TestContextFactorsExtraction:
 
 
 class TestDecisionEngineWithContext:
+    def test_view_mode_rejects_system_modification(self):
+        engine = DecisionEngine(get_permission_level=lambda: "view")
+        plan = Plan(
+            steps=[PlanStep(id="launch", tool_id="executor.launch", estimated_impact="medium")],
+            intent=Intent(action="execute", target="executor.launch", raw_input="open powershell"),
+            risk_score=0.1,
+        )
+
+        result = engine.evaluate(plan)
+
+        assert result.decision == Decision.REJECT
+        assert "Read-only" in result.reason
+
+    def test_admin_mode_auto_approves_high_but_reversible_action(self):
+        engine = DecisionEngine(get_permission_level=lambda: "admin")
+        plan = Plan(
+            steps=[
+                PlanStep(
+                    id="launch",
+                    tool_id="executor.launch",
+                    estimated_impact="high",
+                    is_reversible=True,
+                )
+            ],
+            intent=Intent(action="execute", target="executor.launch", raw_input="open powershell"),
+            risk_score=0.7,
+        )
+
+        result = engine.evaluate(
+            plan,
+            {"simulation": {"overall_risk": "high", "has_irreversible": False, "summary": "launch"}},
+        )
+
+        assert result.decision == Decision.APPROVE
+
     def test_evaluate_without_context_still_works(self):
         engine = DecisionEngine(get_permission_level=lambda: "admin")
         plan = _make_plan(risk=0.2)

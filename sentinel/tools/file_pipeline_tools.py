@@ -16,7 +16,7 @@ class PipelineIngestTool(Tool):
             name="Ingest File",
             description="Ingest a file, directory, or git repository into the knowledge base. "
             "Supported: text, code, PDF, images (OCR optional), DOCX, CSV, EPUB, git repos.",
-            version="0.1.0",
+            version="1.0.0",
             category="pipeline",
             parameters={
                 "type": "object",
@@ -51,7 +51,7 @@ class PipelineStatusTool(Tool):
             id="pipeline.status",
             name="Pipeline Status",
             description="Get file ingestion pipeline statistics.",
-            version="0.1.0",
+            version="1.0.0",
             category="pipeline",
             parameters={},
             required_permissions=["filesystem.read"],
@@ -70,7 +70,7 @@ class PipelineReportTool(Tool):
             id="pipeline.report",
             name="Generate Report from Files",
             description="Read bounded local sources and generate a sourced report with an available model.",
-            version="0.1.0",
+            version="1.0.0",
             category="pipeline",
             timeout_seconds=120,
             parameters={

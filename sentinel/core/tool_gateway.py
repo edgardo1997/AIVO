@@ -11,6 +11,10 @@ from .policy_engine import PolicyEngine
 from .context import ContextEngine
 from .quality_gate import QualityGate
 from .recovery import ErrorClassifier
+from .grounding import GroundingEngine, GroundingRequirement, GroundingCategory
+from .events import SentinelEvent
+from .event_bus import EventBus
+from . import event_types
 
 if TYPE_CHECKING:
     from .capability_registry import CapabilityRegistry
@@ -24,11 +28,15 @@ class ToolGateway:
         policy_engine: Optional[PolicyEngine] = None,
         context_engine: Optional[ContextEngine] = None,
         quality_gate: Optional[QualityGate] = None,
+        grounding_engine: Optional[GroundingEngine] = None,
+        event_bus: Optional[EventBus] = None,
     ):
+        self._event_bus = event_bus
         self._tools: Dict[str, Tool] = {}
         self._policy_engine = policy_engine
         self._context_engine = context_engine
         self._quality_gate = quality_gate or QualityGate()
+        self._grounding_engine = grounding_engine
         self._capability_registry: Any = None
         self._audit_service: Any = None
         self._agent_registry: Any = None
@@ -72,6 +80,26 @@ class ToolGateway:
         context["_confirmation_grant"] = {"action_id": action_id, "tool_id": grant.tool_id, "user_id": grant.user_id}
         return await self.execute(grant.tool_id, grant.params, context)
 
+    def set_event_bus(self, event_bus: EventBus) -> None:
+        self._event_bus = event_bus
+        if self._policy_engine:
+            self._policy_engine.set_event_bus(event_bus)
+
+    async def _emit(self, event_type: str, *, tool_id: str = "", status: str = "", details: Optional[Dict[str, Any]] = None, context: Optional[Dict[str, Any]] = None) -> None:
+        if self._event_bus is None:
+            return
+        ctx = context or {}
+        event = SentinelEvent.new(
+            event_type=event_type,
+            session_id=ctx.get("session_id", ""),
+            request_id=ctx.get("execution_id", ""),
+            component="tool_gateway",
+            status=status,
+            tool=tool_id,
+            details=details,
+        )
+        await self._event_bus.emit(event)
+
     def set_policy_engine(self, engine: PolicyEngine) -> None:
         self._policy_engine = engine
 
@@ -89,6 +117,9 @@ class ToolGateway:
 
     def set_trigger_engine(self, engine: Any) -> None:
         self._trigger_engine = engine
+
+    def set_grounding_engine(self, engine: GroundingEngine) -> None:
+        self._grounding_engine = engine
 
     def register(self, tool: Tool) -> None:
         spec = tool.spec()
@@ -156,6 +187,7 @@ class ToolGateway:
             }
             return result
 
+        await self._emit(event_types.TOOL_SEARCHING, tool_id=tool_id, context=ctx)
         tool = self._tools.get(tool_id)
         if not tool:
             return ToolResult.fail(error=f"Tool '{tool_id}' not found", tool_id=tool_id)
@@ -163,6 +195,8 @@ class ToolGateway:
         spec = tool.spec()
         if spec.status == ToolStatus.DISABLED:
             return ToolResult.fail(error=f"Tool '{tool_id}' is disabled", tool_id=tool_id)
+
+        await self._emit(event_types.TOOL_SELECTED, tool_id=tool_id, context=ctx)
 
         if self._context_engine and "system" not in ctx:
             try:
@@ -216,10 +250,15 @@ class ToolGateway:
                 result.policy_result = policy_data
                 return result
 
-            if policy_result.effect == PolicyEffect.REQUIRE_CONFIRM:
+            if policy_result.effect == PolicyEffect.REQUIRE_CONFIRM and not ctx.get("_orchestrator_approval"):
                 action_id = None
                 if self._confirmation_broker is not None:
-                    action_id = self._confirmation_broker.request(tool_id, params, ctx, policy_result.reason)
+                    risk_level = policy_result.context.get("level", "unknown") if policy_result.context else "unknown"
+                    plan_id = ctx.get("plan_id", "")
+                    action_id = self._confirmation_broker.request(
+                        tool_id, params, ctx, policy_result.reason,
+                        risk_level=risk_level, plan_id=plan_id,
+                    )
                 if self._audit_service:
                     self._audit_service.log_action(
                         "confirmation_pending",
@@ -263,6 +302,31 @@ class ToolGateway:
                 result.policy_decision = "_audit_preflight_failed"
                 result.policy_result = policy_data
                 return result
+
+        # Grounding enforcement: verify required grounding before execution
+        if self._grounding_engine:
+            try:
+                grounding_requirements = ctx.get("grounding_requirements", [])
+                if grounding_requirements:
+                    logger.info("Enforcing %d grounding requirement(s) for tool %s", len(grounding_requirements), tool_id)
+                    for req in grounding_requirements:
+                        if getattr(req, "required", False):
+                            result_gr = await self._grounding_engine.enforce_grounding(req, ctx)
+                            if not result_gr.grounded:
+                                logger.warning("Required grounding failed for %s: %s", req.category.value, result_gr.error)
+                                return ToolResult.fail(
+                                    error=f"Required grounding for {req.category.value} not satisfied: {result_gr.error}",
+                                    tool_id=tool_id,
+                                )
+                            logger.debug("Grounding satisfied for %s via %s", req.category.value, result_gr.source)
+            except Exception as e:
+                logger.error("Grounding enforcement failed: %s", e)
+                return ToolResult.fail(
+                    error=f"Grounding enforcement error: {e}",
+                    tool_id=tool_id,
+                )
+
+        await self._emit(event_types.TOOL_STARTED, tool_id=tool_id, context=ctx)
 
         span_id = (
             self._observability.start(
@@ -324,6 +388,7 @@ class ToolGateway:
                 blocked.quality_result = quality_data
                 if span_id:
                     self._observability.finish(span_id, False, "quality", quality_data, blocked.policy_decision)
+                await self._emit(event_types.TOOL_FINISHED, tool_id=tool_id, status="blocked", context=ctx, details={"elapsed_ms": elapsed})
                 return blocked
             if quality.redacted:
                 logger.info("QualityGate redacted output for %s", tool_id)
@@ -334,6 +399,7 @@ class ToolGateway:
                 if not result.success and self._hardening is not None:
                     category = ErrorClassifier.classify(result.error or "", tool_id).value
                 self._observability.finish(span_id, result.success, category, quality_data, result.policy_decision)
+            await self._emit(event_types.TOOL_FINISHED, tool_id=tool_id, status="completed" if result.success else "failed", context=ctx, details={"elapsed_ms": elapsed})
             return result
         except asyncio.TimeoutError:
             elapsed = (time.monotonic() - start) * 1000
@@ -344,6 +410,7 @@ class ToolGateway:
                 self._hardening.record_timeout()
             if span_id:
                 self._observability.finish(span_id, False, "transient")
+            await self._emit(event_types.TOOL_FINISHED, tool_id=tool_id, status="timeout", context=ctx, details={"elapsed_ms": elapsed})
             return ToolResult.fail(
                 error=f"Tool '{tool_id}' timed out after {elapsed:.0f}ms",
                 tool_id=tool_id,
@@ -358,6 +425,7 @@ class ToolGateway:
                     self._hardening.circuit_breaker.record_failure(tool_id)
             if span_id:
                 self._observability.finish(span_id, False, category.value if self._hardening is not None else "fatal")
+            await self._emit(event_types.TOOL_FINISHED, tool_id=tool_id, status="error", context=ctx, details={"elapsed_ms": elapsed, "error": str(e)})
             return ToolResult.fail(
                 error=f"Execution error: {e}",
                 tool_id=tool_id,

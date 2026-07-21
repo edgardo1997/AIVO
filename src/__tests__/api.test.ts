@@ -57,7 +57,7 @@ describe('API Layer', () => {
       const data = await api.monitor.system();
       expect(data.hostname).toBe('test-pc');
       const headers = new Headers(mockFetch.mock.calls[0][1].headers);
-      expect(headers.get('Authorization')).toBe('Bearer sentinel-test-session');
+      expect(headers.get('Authorization')).toBe('Bearer sentinel-dev-session');
     });
 
     it('fetches cpu info', async () => {
@@ -80,6 +80,14 @@ describe('API Layer', () => {
     it('handles non-ok response', async () => {
       mockFetch.mockResolvedValueOnce({ ok: false, text: async () => 'Server error' });
       await expect(api.monitor.system()).rejects.toThrow('Server error');
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('never retries a mutable request after a server error', async () => {
+      mockFetch.mockResolvedValueOnce({ ok: false, status: 500, text: async () => 'Server error' });
+      await expect(api.ai.setConfig({ provider: 'test', api_key: '', base_url: '', model: '' }))
+        .rejects.toThrow('Server error');
+      expect(mockFetch).toHaveBeenCalledTimes(1);
     });
 
     it('throws on failed execution', async () => {
@@ -157,6 +165,41 @@ describe('API Layer', () => {
   });
 
   describe('Sentinel', () => {
+    it('persists and deletes conversation history through the owner-scoped API', async () => {
+      mockFetch
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ session_id: 'thread-1', title: 'Python', messages: [] }) })
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ deleted: true, session_id: 'thread-1' }) });
+
+      await api.sentinel.saveConversation('thread-1', { title: 'Python', messages: [] });
+      await api.sentinel.deleteConversation('thread-1');
+
+      expect(mockFetch.mock.calls[0][0]).toContain('/api/sentinel/conversations/thread-1');
+      expect(mockFetch.mock.calls[0][1].method).toBe('PUT');
+      expect(mockFetch.mock.calls[1][1].method).toBe('DELETE');
+    });
+
+    it('parses progressive chat events even when network chunks split JSON lines', async () => {
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode('{"type":"status","stage":"planning"}\n{"type":"del'));
+          controller.enqueue(encoder.encode('ta","text":"Hola "}\n{"type":"delta","text":"mundo"}\n'));
+          controller.enqueue(encoder.encode('{"type":"done"}\n'));
+          controller.close();
+        },
+      });
+      mockFetch.mockResolvedValueOnce({ ok: true, body: stream });
+      const events: { type: string; text?: string }[] = [];
+
+      await api.sentinel.streamChat('hola', [], 'conversation-1', (event) => events.push(event));
+
+      expect(events.map((event) => event.type)).toEqual(['status', 'delta', 'delta', 'done']);
+      expect(events.filter((event) => event.type === 'delta').map((event) => event.text).join('')).toBe('Hola mundo');
+      const request = mockFetch.mock.calls[0];
+      expect(request[0]).toContain('/api/sentinel/chat/stream');
+      expect(JSON.parse(request[1].body)).toMatchObject({ session_id: 'conversation-1' });
+    });
+
     it('processes natural language', async () => {
       mockFetch.mockResolvedValueOnce(mockV1Response({ approved: true, intent: { action: 'run', target: 'echo', confidence: 0.9, raw_input: 'echo hello' }, plan: { risk_score: 0, steps: [] }, decision: 'approve', tool_result: null }));
       const data = await api.sentinel.process('echo hello');
@@ -166,6 +209,14 @@ describe('API Layer', () => {
   });
 
   describe('v1Api', () => {
+    it('may retry a read-only request after a transient server error', async () => {
+      mockFetch
+        .mockResolvedValueOnce({ ok: false, status: 503, text: async () => 'Unavailable' })
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => [] });
+      await expect(v1Api.listPolicies()).resolves.toEqual([]);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
     it('lists policies', async () => {
       mockFetch.mockResolvedValueOnce({ ok: true, json: async () => [{ id: 'test', description: 'test policy', source: 'yaml' }] });
       const data = await v1Api.listPolicies();

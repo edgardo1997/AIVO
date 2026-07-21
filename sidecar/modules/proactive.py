@@ -1,30 +1,13 @@
 import logging
-import os
 from fastapi import APIRouter, HTTPException
 from services.proactive_service import ProactiveService
 
 log = logging.getLogger("sentinel.proactive")
-router = APIRouter()
+router = APIRouter(prefix="/api/proactive")
 _svc = ProactiveService()
 
-# Re-exports for backward compatibility
-SUGGESTIONS = _svc.suggestions
-METRICS_HISTORY = _svc.metrics_history
-engine_active = _svc.engine_active
-
-
-# Wire dependencies (called from main.py after all modules loaded)
-def wire_dependencies(permissions_svc, audit_svc):
-    _svc.set_permissions_service(permissions_svc)
-    _svc.set_audit_service(audit_svc)
-    # plugins_svc and ai_svc omitted — legacy modules, no longer wired
-
-
-# Disabled: Proactive Engine violates "Sentinel never initiates actions"
-# @router.on_event("startup")
-# def start_engine():
-#     if not os.environ.get("AIVO_TESTING"):
-#         _svc.start()
+def wire_dependencies(permissions_svc=None, audit_svc=None):
+    pass
 
 
 @router.get("/suggestions")
@@ -34,12 +17,10 @@ def get_suggestions():
 
 @router.post("/suggestions/{suggestion_id}/dismiss")
 def dismiss_suggestion(suggestion_id: str):
-    return _svc.dismiss_suggestion(suggestion_id)
-
-
-@router.post("/suggestions/{suggestion_id}/execute")
-async def execute_suggestion(suggestion_id: str):
-    return await _svc.execute_suggestion(suggestion_id)
+    result = _svc.dismiss_suggestion(suggestion_id)
+    if result["status"] == "not_found":
+        raise HTTPException(status_code=404, detail="Suggestion not found")
+    return result
 
 
 @router.get("/metrics-history")

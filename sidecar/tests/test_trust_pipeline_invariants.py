@@ -64,7 +64,10 @@ def test_identity_permissions_restrict_remote_capabilities():
 
 def test_policy_is_authorization_authority_not_decision_recommendation():
     class AlwaysRejectDecision:
-        def evaluate(self, plan, context):
+        def should_skip_decision(self, intent):
+            return False
+
+        def evaluate(self, plan, context, simulation_result=None):
             return DecisionResult(
                 decision=Decision.REJECT,
                 plan=plan,
@@ -84,24 +87,26 @@ def test_policy_is_authorization_authority_not_decision_recommendation():
         )
     )
     assert result.decision.decision == Decision.REJECT
-    assert result.tool_result.success is True
-    assert "policy-authority" in result.tool_result.data["stdout"]
+    assert result.error is not None
+    assert "rejected" in result.error.lower()
+    assert result.tool_result is None or result.tool_result.success is False
 
 
 def test_pipeline_audit_persists_actual_policy_and_quality_results():
-    permissions_service.set_level("view")
+    permissions_service.set_level("confirm")
     response = client.post(
         "/v1/execute",
-        json={"tool_id": "system.info", "params": {}},
+        json={"tool_id": "system.cpu", "params": {}},
     )
     assert response.status_code == 200
     assert response.json()["success"] is True
 
     from modules.audit import _svc as audit_service
 
-    entries = audit_service.get_log(action_filter="pipeline.system.info")["entries"]
+    entries = audit_service.get_log(action_filter="pipeline.system.cpu")["entries"]
     assert entries
     pipeline = entries[0]["payload"]["pipeline"]
     assert pipeline["identity"]["is_authenticated"] is True
     assert pipeline["policy"]["effect"] == "allow"
     assert pipeline["quality"]["passed"] is True
+    permissions_service.set_level("confirm")

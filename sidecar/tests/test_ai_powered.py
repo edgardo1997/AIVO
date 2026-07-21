@@ -138,7 +138,7 @@ class TestAIDecisionEngine:
         result = engine.evaluate(plan)
         assert result.decision == Decision.APPROVE
 
-    def test_llm_adjusts_risk_down_for_safe_plan(self):
+    def test_llm_cannot_lower_objective_risk(self):
         router = MagicMock()
         router._key_map = {"openrouter": "sk-test"}
         router.chat.return_value = {
@@ -155,9 +155,10 @@ class TestAIDecisionEngine:
             intent=None, steps=[PlanStep(id="s1", tool_id="system.cpu", description="check cpu")], risk_score=0.5
         )
         result = engine.evaluate(plan)
-        assert result.decision == Decision.APPROVE
+        assert result.decision == Decision.REQUIRE_CONFIRM
+        assert result.final_risk_score == 0.5
 
-    def test_llm_adjusts_risk_up_for_destructive_plan(self):
+    def test_llm_cannot_raise_objective_risk(self):
         router = MagicMock()
         router._key_map = {"openrouter": "sk-test"}
         router.chat.return_value = {
@@ -180,7 +181,8 @@ class TestAIDecisionEngine:
             risk_score=0.5,
         )
         result = engine.evaluate(plan)
-        assert result.decision == Decision.REJECT
+        assert result.decision == Decision.REQUIRE_CONFIRM
+        assert result.final_risk_score == 0.5
 
     def test_llm_failure_uses_rule_based(self):
         router = MagicMock()

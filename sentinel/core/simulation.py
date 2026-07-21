@@ -53,6 +53,9 @@ _TOOL_IMPACT: Dict[str, Dict[str, Any]] = {
     "system.disk": {"type": "read", "level": "none", "duration": 300},
     "system.network": {"type": "read", "level": "none", "duration": 500},
     "system.processes": {"type": "read", "level": "none", "duration": 300},
+    "system.gpu": {"type": "read", "level": "none", "duration": 500},
+    "hardware.intelligence": {"type": "read", "level": "none", "duration": 500},
+    "hardware.profile": {"type": "read", "level": "none", "duration": 500},
     "ai.chat": {"type": "read", "level": "none", "duration": 2000},
     "ai.analyze": {"type": "read", "level": "none", "duration": 3000},
     "ai.config": {"type": "config", "level": "medium", "duration": 200},
@@ -66,7 +69,6 @@ _TOOL_IMPACT: Dict[str, Dict[str, Any]] = {
     "executor.launch": {"type": "execute", "level": "high", "duration": 3000},
     "executor.kill": {"type": "system", "level": "high", "duration": 500, "irreversible": True},
     "app.discovery": {"type": "read", "level": "none", "duration": 1000},
-    "app.launch": {"type": "execute", "level": "low", "duration": 2000},
     "fleet.status": {"type": "read", "level": "none", "duration": 1000},
     "fleet.generate_pairing": {"type": "config", "level": "medium", "duration": 2000},
     "fleet.revoke_pairing": {"type": "config", "level": "high", "duration": 1000, "irreversible": True},
@@ -202,6 +204,40 @@ class SimulationEngine:
 
         elif tool_id in ("fleet.generate_pairing", "fleet.revoke_pairing"):
             network_access.append("fleet network")
+
+        deep_ctx = context.get("deep_context", {})
+        if isinstance(deep_ctx, dict):
+            hardware = deep_ctx.get("hardware", {})
+            installed_apps = deep_ctx.get("installed_apps", [])
+            if isinstance(hardware, dict):
+                gpu_avail = hardware.get("gpu_available")
+                if tool_id in ("executor.launch", "app.launch") and gpu_avail is False:
+                    if any(kw in description.lower() for kw in ("gpu", "cuda", "render", "3d", "video", "graphics", "machine learning", "ai", "tensor")):
+                        warnings.append("No GPU detected — GPU-dependent launch may fail or use CPU fallback")
+                if tool_id in ("system.gpu", "hardware.intelligence") and gpu_avail is False:
+                    warnings.append("No GPU detected on this system")
+                vram = hardware.get("gpu_vram_gb")
+                if vram is not None and isinstance(vram, (int, float)) and vram < 4 and tool_id in ("executor.launch", "app.launch"):
+                    if any(kw in description.lower() for kw in ("llm", "ai", "model", "stable diffusion", "training")):
+                        warnings.append(f"Low GPU VRAM ({vram}GB) — LLM/AI task may be slow or fail")
+            if isinstance(installed_apps, list):
+                if tool_id == "executor.launch":
+                    app_name = str(params.get("app", params.get("name", ""))).casefold().removesuffix(".exe")
+                    if app_name:
+                        found = any(
+                            str(a.get("name", "")).casefold().removesuffix(".exe") == app_name
+                            for a in installed_apps if isinstance(a, dict)
+                        )
+                        if not found:
+                            warnings.append(f"App '{app_name}' not found in installed catalog")
+
+        env_changes = context.get("environment_changes", [])
+        if env_changes:
+            change_types = {c.get("change_type") for c in env_changes if isinstance(c, dict)}
+            if "hardware_capacity_changed" in change_types:
+                warnings.append("Hardware configuration recently changed — execution may behave differently")
+            if "application_removed" in change_types:
+                warnings.append("An application was recently removed — verify required tools still exist")
 
         sys_summary = context.get("system_summary", {})
         cpu = sys_summary.get("cpu_percent", 0)

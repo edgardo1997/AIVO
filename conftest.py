@@ -26,6 +26,9 @@ INTEGRATION_TOKENS = ("integration", "_api", "workflow", "bootstrap", "desktop_i
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     """Give every test exactly one independently executable suite marker."""
     for item in items:
+        existing_markers = {marker.name for marker in item.iter_markers()}
+        if "performance" in existing_markers:
+            continue
         filename = Path(str(item.path)).name
         if filename == "test_benchmarks.py":
             marker = "performance"
@@ -37,7 +40,8 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
             marker = "integration"
         else:
             marker = "unit"
-        item.add_marker(getattr(pytest.mark, marker))
+        if marker not in existing_markers:
+            item.add_marker(getattr(pytest.mark, marker))
 
 
 @pytest.fixture(scope="session", autouse=True)

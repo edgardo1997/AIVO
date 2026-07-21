@@ -18,7 +18,7 @@ class WebNavigateTool(Tool):
             id="web.navigate",
             name="Navigate Web",
             description="Navigate to a URL, extract page text and links. Returns title, text preview, and link count.",
-            version="0.1.0",
+            version="1.0.0",
             category=_TOOL_CATEGORY,
             parameters={
                 "type": "object",
@@ -51,7 +51,7 @@ class WebExtractTool(Tool):
             id="web.extract",
             name="Extract Web Text",
             description="Fetch a URL and return the full extracted text content (no links).",
-            version="0.1.0",
+            version="1.0.0",
             category=_TOOL_CATEGORY,
             parameters={
                 "type": "object",
@@ -82,7 +82,7 @@ class WebSearchTool(Tool):
             id="web.search",
             name="Web Search",
             description="Search the web using DuckDuckGo HTML search. Returns a list of result URLs and titles.",
-            version="0.1.0",
+            version="1.0.0",
             category=_TOOL_CATEGORY,
             parameters={
                 "type": "object",

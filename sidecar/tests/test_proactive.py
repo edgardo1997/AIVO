@@ -6,6 +6,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from fastapi.testclient import TestClient
 from main import app
+from modules import get_sentinel_goal_registry, proactive as proactive_mod
+from repositories import async_engine
 
 client = TestClient(app)
 
@@ -33,3 +35,21 @@ def test_health():
     resp = client.get("/api/health")
     assert resp.status_code == 200
     assert resp.json() == {"status": "ok"}
+
+
+@pytest.mark.integration
+def test_runtime_services_follow_application_lifespan():
+    proactive_mod._svc.stop()
+
+    with TestClient(app) as runtime_client:
+        assert runtime_client.get("/api/health").status_code == 200
+        assert runtime_client.get("/api/sentinel/goals").status_code == 200
+        assert proactive_mod._svc._engine_thread is not None
+        assert proactive_mod._svc._engine_thread.is_alive()
+        assert async_engine._async_engine_instance is not None
+        assert get_sentinel_goal_registry() is not None
+
+    assert proactive_mod._svc._engine_thread is None
+    assert proactive_mod._svc.engine_active is False
+    assert async_engine._async_engine_instance is None
+    assert get_sentinel_goal_registry() is None

@@ -4,6 +4,8 @@ import logging
 
 from .planner import Plan
 from .intent import Intent
+from .objective_risk_assessor import ObjectiveRiskAssessor, ObjectiveRiskAssessment
+from .simulation import SimulatedImpact, SimulationResult
 
 logger = logging.getLogger(__name__)
 
@@ -77,20 +79,6 @@ def _extract_context_factors(context: Dict[str, Any]) -> List[str]:
     return factors
 
 
-DECISION_LLM_PROMPT = """You are a risk assessor for a system orchestration platform called Sentinel.
-Given a plan with steps and current system context, evaluate the risk of executing this plan.
-
-Analyze:
-1. What each step does
-2. Whether steps are destructive or irreversible
-3. Current system stress (high CPU, memory, disk)
-4. Whether this is a good time to execute
-
-Return ONLY valid JSON:
-{"risk_modifier": -0.2 to 0.3, "reason": "brief justification", "warnings": []}
-Positive modifier = higher risk, negative = lower risk."""
-
-
 class DecisionEngine:
     def __init__(
         self,
@@ -98,30 +86,41 @@ class DecisionEngine:
         require_confirm_threshold: float = 0.6,
         get_permission_level=None,
         model_router=None,
+        enable_llm_advisor: bool = True,
     ):
         self._auto_approve = auto_approve_threshold
         self._require_confirm = require_confirm_threshold
         self._get_level = get_permission_level or (lambda: "confirm")
         self._model_router = model_router
 
+        # Objective risk assessment (no LLM involvement — LLM has zero authority)
+        self._objective_assessor = ObjectiveRiskAssessor()
+
     def set_model_router(self, router) -> None:
         self._model_router = router
 
+    def set_enable_llm_advisor(self, enabled: bool) -> None:
+        pass
+
+    @staticmethod
     def _simulation_risk_overrides(
-        self, sim: Dict[str, Any], final_risk: float, power_level: str
+        sim_result: SimulationResult, final_risk: float, power_level: str
     ) -> tuple[float, Optional[str]]:
-        overall_risk = sim.get("overall_risk", "low")
-        has_irreversible = sim.get("has_irreversible", False)
+        overall_risk = sim_result.overall_risk
+        has_irreversible = any(i.irreversible for i in sim_result.impacts)
         forced_decision = None
 
         if overall_risk == "critical" and has_irreversible:
-            forced_decision = Decision.REJECT
+            if power_level != "admin":
+                forced_decision = Decision.REJECT
             final_risk = min(final_risk + 0.5, 1.0)
         elif overall_risk == "critical":
-            forced_decision = Decision.REQUIRE_CONFIRM
+            if power_level != "admin":
+                forced_decision = Decision.REQUIRE_CONFIRM
             final_risk = min(final_risk + 0.3, 1.0)
         elif overall_risk == "high":
-            forced_decision = Decision.REQUIRE_CONFIRM
+            if power_level != "admin":
+                forced_decision = Decision.REQUIRE_CONFIRM
             final_risk = min(final_risk + 0.2, 1.0)
         elif overall_risk == "medium":
             if power_level != "admin":
@@ -132,175 +131,183 @@ class DecisionEngine:
 
         return final_risk, forced_decision
 
-    def evaluate(self, plan: Plan, context: Optional[Dict[str, Any]] = None) -> DecisionResult:
-        base_risk = plan.risk_score
+    def evaluate(
+        self,
+        plan: Plan,
+        context: Optional[Dict[str, Any]] = None,
+        simulation_result: Optional[SimulationResult] = None,
+    ) -> DecisionResult:
+        # Evaluación OBJETIVA del riesgo — el LLM no participa en decisiones
         level = self._get_level()
-        context_factors = _extract_context_factors(context or {})
+        if (context or {}).get("_orchestrator_approval"):
+            level = "admin"
 
-        context_modifier = sum(CONTEXT_MODIFIERS.get(f, 0.0) for f in context_factors)
-        final_risk = min(base_risk + context_modifier, 1.0)
-
-        level_thresholds = IMPACT_THRESHOLDS.get(level, IMPACT_THRESHOLDS["confirm"])
-        auto_max = level_thresholds["auto"]
-        confirm_max = level_thresholds["confirm"]
-
-        irreversible_high_risk = any(
-            s.estimated_impact in ("high", "critical") and not s.is_reversible for s in plan.steps
+        objective_assessment = self._objective_assessor.assess(
+            plan,
+            context,
+            permission_level=level
         )
 
-        sim = (context or {}).get("simulation")
-        forced_decision = None
-        if sim:
-            final_risk, forced_decision = self._simulation_risk_overrides(sim, final_risk, level)
-
-        if forced_decision is None and (final_risk > auto_max or irreversible_high_risk):
-            llm_assessment = self._assess_risk_with_llm(plan, context)
-            if llm_assessment:
-                modifier = llm_assessment.get("risk_modifier", 0)
-                old_risk = final_risk
-                final_risk = min(max(final_risk + modifier, 0.0), 1.0)
-                context_modifier = final_risk - base_risk
-                logger.info(
-                    "LLM risk adjustment: %.2f -> %.2f (modifier=%.2f): %s",
-                    old_risk,
-                    final_risk,
-                    modifier,
-                    llm_assessment.get("reason", ""),
-                )
-
-        factors_str = f" | context={context_factors}" if context_factors else ""
-        sim_str = f" | sim={sim.get('overall_risk', '')}" if sim else ""
-
-        if forced_decision == Decision.REJECT:
-            logger.info(
-                "Plan REJECTED by simulation: risk=%s irreversible=%s level=%s%s%s",
-                sim.get("overall_risk"),
-                sim.get("has_irreversible"),
-                level,
-                factors_str,
-                sim_str,
-            )
+        if level == "view" and any(
+            step.estimated_impact not in ("low",) for step in plan.steps
+        ):
             return DecisionResult(
                 decision=Decision.REJECT,
                 plan=plan,
-                reason=f"Simulation detected critical+irreversible risk. {sim.get('summary', '')}",
-                context_factors=context_factors,
-                base_risk_score=base_risk,
-                context_modifier=context_modifier,
-                final_risk_score=final_risk,
+                reason="Read-only permission level cannot execute system modifications.",
+                context_factors=objective_assessment.context_factors,
+                base_risk_score=objective_assessment.base_risk,
+                context_modifier=objective_assessment.context_modifier,
+                final_risk_score=objective_assessment.final_risk,
             )
 
-        if forced_decision == Decision.REQUIRE_CONFIRM:
-            logger.info(
-                "Plan requires confirmation (simulation): risk=%s level=%s%s%s",
-                sim.get("overall_risk"),
-                level,
-                factors_str,
-                sim_str,
+        # Use typed SimulationResult if available; fall back to context dict
+        if simulation_result:
+            final_risk, forced_decision = self._simulation_risk_overrides(
+                simulation_result,
+                objective_assessment.final_risk,
+                level
             )
+            if forced_decision:
+                return self._create_forced_decision_result(
+                    forced_decision,
+                    plan,
+                    objective_assessment,
+                    simulation_result,
+                    level
+                )
+        elif (context or {}).get("simulation"):
+            sim_dict = context["simulation"]
+            fallback_impacts = []
+            if sim_dict.get("has_irreversible"):
+                fallback_impacts.append(SimulatedImpact(
+                    step_id="", tool_id="", description="",
+                    impact_type="system", impact_level="critical",
+                    estimated_duration_ms=0, irreversible=True,
+                ))
+            sim_result = SimulationResult(
+                plan_id="",
+                impacts=fallback_impacts,
+                pre_snapshot={},
+                overall_risk=sim_dict.get("overall_risk", "low"),
+                requires_confirmation=sim_dict.get("requires_confirmation", False),
+                summary=sim_dict.get("summary", ""),
+            )
+            final_risk, forced_decision = self._simulation_risk_overrides(
+                sim_result,
+                objective_assessment.final_risk,
+                level
+            )
+            if forced_decision:
+                return self._create_forced_decision_result(
+                    forced_decision,
+                    plan,
+                    objective_assessment,
+                    sim_result,
+                    level
+                )
+
+        if level != "admin":
+            if objective_assessment.should_reject_by_objective:
+                return DecisionResult(
+                    decision=Decision.REJECT,
+                    plan=plan,
+                    reason=f"Objective risk assessment rejected plan (risk={objective_assessment.final_risk:.2f}). Sources: {objective_assessment.data_sources}",
+                    context_factors=objective_assessment.context_factors,
+                    base_risk_score=objective_assessment.base_risk,
+                    context_modifier=objective_assessment.context_modifier,
+                    final_risk_score=objective_assessment.final_risk,
+                )
+
+            if objective_assessment.requires_confirmation_by_objective:
+                return DecisionResult(
+                    decision=Decision.REQUIRE_CONFIRM,
+                    plan=plan,
+                    reason=f"Objective risk assessment requires confirmation (risk={objective_assessment.final_risk:.2f}). Sources: {objective_assessment.data_sources}.",
+                    context_factors=objective_assessment.context_factors,
+                    base_risk_score=objective_assessment.base_risk,
+                    context_modifier=objective_assessment.context_modifier,
+                    final_risk_score=objective_assessment.final_risk,
+                )
+
+        # Paso 6: Auto-approve si riesgo es bajo según evaluación OBJETIVA
+        return DecisionResult(
+            decision=Decision.APPROVE,
+            plan=plan,
+            reason=f"Auto-approved by objective risk assessment (risk={objective_assessment.final_risk:.2f}). Sources: {objective_assessment.data_sources}",
+            context_factors=objective_assessment.context_factors,
+            base_risk_score=objective_assessment.base_risk,
+            context_modifier=objective_assessment.context_modifier,
+            final_risk_score=objective_assessment.final_risk,
+        )
+
+    async def evaluate_async(
+        self,
+        plan: Plan,
+        context: Optional[Dict[str, Any]] = None,
+        simulation_result: Optional[SimulationResult] = None,
+    ) -> DecisionResult:
+        """Evaluate objectively with zero LLM authority.
+
+        The decision is purely objective — no model is called during evaluation.
+        LLM advisory (if any) only runs post-execution in the Advisory layer,
+        where it can observe outcomes without affecting authorization.
+        """
+        return self.evaluate(plan, context, simulation_result=simulation_result)
+
+    def _create_forced_decision_result(
+        self,
+        forced_decision: str,
+        plan: Plan,
+        objective_assessment: ObjectiveRiskAssessment,
+        sim_result: SimulationResult,
+        level: str
+    ) -> DecisionResult:
+        if forced_decision == Decision.REJECT:
+            return DecisionResult(
+                decision=Decision.REJECT,
+                plan=plan,
+                reason=f"Simulation detected critical+irreversible risk. {sim_result.summary}. Objective risk: {objective_assessment.final_risk:.2f}",
+                context_factors=objective_assessment.context_factors,
+                base_risk_score=objective_assessment.base_risk,
+                context_modifier=objective_assessment.context_modifier,
+                final_risk_score=objective_assessment.final_risk,
+            )
+        elif forced_decision == Decision.REQUIRE_CONFIRM:
             return DecisionResult(
                 decision=Decision.REQUIRE_CONFIRM,
                 plan=plan,
-                reason=f"Simulation risk '{sim.get('overall_risk')}' requires confirmation. {sim.get('summary', '')}",
-                context_factors=context_factors,
-                base_risk_score=base_risk,
-                context_modifier=context_modifier,
-                final_risk_score=final_risk,
+                reason=f"Simulation risk '{sim_result.overall_risk}' requires confirmation. {sim_result.summary}. Objective risk: {objective_assessment.final_risk:.2f}",
+                context_factors=objective_assessment.context_factors,
+                base_risk_score=objective_assessment.base_risk,
+                context_modifier=objective_assessment.context_modifier,
+                final_risk_score=objective_assessment.final_risk,
             )
-
-        if final_risk <= auto_max and (not irreversible_high_risk or level == "admin"):
-            logger.info(
-                "Plan auto-approved: base=%.2f mod=%.2f final=%.2f level=%s%s%s",
-                base_risk,
-                context_modifier,
-                final_risk,
-                level,
-                factors_str,
-                sim_str,
-            )
+        else:
             return DecisionResult(
                 decision=Decision.APPROVE,
                 plan=plan,
-                reason=f"Auto-approved (risk={final_risk:.2f}, level={level}).",
-                context_factors=context_factors,
-                base_risk_score=base_risk,
-                context_modifier=context_modifier,
-                final_risk_score=final_risk,
+                reason=f"Auto-approved (risk={objective_assessment.final_risk:.2f}, level={level}).",
+                context_factors=objective_assessment.context_factors,
+                base_risk_score=objective_assessment.base_risk,
+                context_modifier=objective_assessment.context_modifier,
+                final_risk_score=objective_assessment.final_risk,
             )
-
-        if final_risk <= confirm_max:
-            logger.info(
-                "Plan requires confirmation: base=%.2f mod=%.2f final=%.2f level=%s%s%s",
-                base_risk,
-                context_modifier,
-                final_risk,
-                level,
-                factors_str,
-                sim_str,
-            )
-            return DecisionResult(
-                decision=Decision.REQUIRE_CONFIRM,
-                plan=plan,
-                reason=f"Risk score {final_risk:.2f} requires confirmation at level '{level}'.",
-                context_factors=context_factors,
-                base_risk_score=base_risk,
-                context_modifier=context_modifier,
-                final_risk_score=final_risk,
-            )
-
-        logger.info(
-            "Plan REJECTED: base=%.2f mod=%.2f final=%.2f > confirm_max=%.2f level=%s%s%s",
-            base_risk,
-            context_modifier,
-            final_risk,
-            confirm_max,
-            level,
-            factors_str,
-            sim_str,
-        )
-        return DecisionResult(
-            decision=Decision.REJECT,
-            plan=plan,
-            reason=f"Risk score {final_risk:.2f} exceeds maximum for level '{level}'.",
-            context_factors=context_factors,
-            base_risk_score=base_risk,
-            context_modifier=context_modifier,
-            final_risk_score=final_risk,
-        )
-
-    def _assess_risk_with_llm(self, plan: Plan, context: Optional[Dict[str, Any]] = None) -> Optional[Dict]:
-        from .model_router import TaskType
-
-        if not self._model_router:
-            return None
-        if not hasattr(self._model_router, "_key_map") or not self._model_router._key_map:
-            return None
-        try:
-            steps_text = "\n".join(
-                f"  - {s.tool_id}: {s.description} (impact={s.estimated_impact}, reversible={s.is_reversible})"
-                for s in plan.steps
-            )
-            context_text = ""
-            if context:
-                summary = context.get("system_summary", {})
-                if summary:
-                    context_text = f"\nSystem: cpu={summary.get('cpu_percent')}% mem={summary.get('memory_percent')}% disk={summary.get('disk_percent')}%"
-            messages = [
-                {"role": "system", "content": DECISION_LLM_PROMPT + context_text},
-                {"role": "user", "content": f"Plan steps:\n{steps_text}\n\nBase risk: {plan.risk_score}"},
-            ]
-            result = self._model_router.chat(messages, task_type=TaskType.ANALYSIS)
-            import json
-
-            text = result["response"].strip()
-            if text.startswith("```"):
-                text = text.split("\n", 1)[1] if "\n" in text else text[3:]
-                if text.endswith("```"):
-                    text = text[:-3].strip()
-            return json.loads(text)
-        except Exception as e:
-            logger.warning("LLM risk assessment failed: %s", e)
-            return None
 
     def should_skip_decision(self, intent: Intent) -> bool:
-        return intent.action in ("query",) and intent.confidence > 0.5
+        read_only_analysis_targets = {
+            "system.health",
+            "system.info",
+            "system.cpu",
+            "system.memory",
+            "system.disk",
+            "system.network",
+            "system.processes",
+            "system.gpu",
+            "app.discovery",
+        }
+        return intent.confidence > 0.5 and (
+            intent.action == "query"
+            or (intent.action == "analyze" and intent.target in read_only_analysis_targets)
+            or (intent.action == "execute" and intent.target in read_only_analysis_targets)
+        )

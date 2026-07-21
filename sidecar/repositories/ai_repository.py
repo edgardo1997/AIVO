@@ -10,7 +10,12 @@ class AIRepository:
         self._db = db
 
     def load(self) -> dict:
-        defaults = {"provider": "openrouter", "api_key": "", "model": "gpt-4o", "base_url": ""}
+        defaults = {
+            "provider": "sentinel_local",
+            "api_key": "",
+            "model": "Qwen3-1.7B-Q8_0.gguf",
+            "base_url": "http://127.0.0.1:11435/v1",
+        }
         if self._db:
             raw = self._db.config_get_json("ai_config")
             if raw:

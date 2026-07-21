@@ -18,6 +18,37 @@ from sentinel.core.context_window import (
 )
 
 
+def test_managed_qwen_window_matches_local_runtime_limit():
+    assert get_model_window("Qwen3-1.7B-Q8_0.gguf") == 4096
+
+
+def test_streaming_local_model_reserves_generation_capacity():
+    from services.ai_service import AIService
+
+    class Repo:
+        @staticmethod
+        def load():
+            return {"provider": "sentinel_local", "model": "Qwen3-1.7B-Q8_0.gguf"}
+
+    class ContextManager:
+        max_tokens = None
+
+        def manage(self, messages, **kwargs):
+            self.max_tokens = kwargs.get("max_tokens")
+            return {"messages": messages}
+
+    class Router:
+        @staticmethod
+        def chat_stream(*_args, **_kwargs):
+            yield {"type": "done"}
+
+    context_manager = ContextManager()
+    service = AIService(repo=Repo(), router=Router(), context_manager=context_manager)
+
+    assert list(service.stream_chat("Hola"))[-1] == {"type": "done"}
+    assert context_manager.max_tokens == 3072
+
+
 class TestTokenCounting:
     def test_count_tokens_empty(self):
         assert count_tokens("") == 0

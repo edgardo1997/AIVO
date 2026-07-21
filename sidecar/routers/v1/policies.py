@@ -1,9 +1,10 @@
 import logging
 from typing import List
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+from modules.auth import require_admin_identity
 from sentinel.core.policy_engine import PolicyEngine
 from sentinel.policies.loader import PolicyStore, load_yaml_policy
 
@@ -47,7 +48,8 @@ async def list_policies():
 
 
 @router.post("/policies", response_model=ReloadResponse)
-async def reload_policies():
+async def reload_policies(request: Request):
+    require_admin_identity(request)
     try:
         load_yaml_policy("destructive_patterns.yaml")
         load_yaml_policy("security.yaml")
@@ -55,5 +57,6 @@ async def reload_policies():
         store._notify()
         log.info("Policies reloaded from YAML")
         return ReloadResponse(status="ok")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as exc:
+        log.exception("Policy reload failed")
+        raise HTTPException(status_code=500, detail="Policy reload failed") from exc

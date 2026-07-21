@@ -1,3 +1,4 @@
+import asyncio
 import subprocess
 from typing import Any, Dict
 
@@ -6,13 +7,32 @@ import psutil
 from sentinel.core.tool import Tool, ToolResult, ToolSpec
 
 
+def _collect_processes(*, include_memory: bool = True) -> list[Dict[str, Any]]:
+    psutil.cpu_percent(interval=0.1)
+    processes = []
+    # `status` is an expensive Windows query and is not needed to rank or
+    # display the process list. Omitting it avoids protected-process stalls.
+    attrs = ["pid", "name", "cpu_percent"]
+    if include_memory:
+        attrs.append("memory_percent")
+    for proc in psutil.process_iter(attrs):
+        try:
+            info = proc.info
+            if info["cpu_percent"] is not None:
+                processes.append(info)
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+    processes.sort(key=lambda process: process.get("cpu_percent", 0) or 0, reverse=True)
+    return processes
+
+
 class SystemInfoTool(Tool):
     def spec(self) -> ToolSpec:
         return ToolSpec(
             id="system.info",
             name="System Information",
             description="Returns CPU, memory, disk, and network information from the system",
-            version="0.1.0",
+            version="1.0.0",
             parameters={},
             required_permissions=["system.read"],
             timeout_seconds=10,
@@ -20,7 +40,40 @@ class SystemInfoTool(Tool):
         )
 
     async def execute(self, params: Dict[str, Any], context: Dict[str, Any]) -> ToolResult:
-        cpu_percent = psutil.cpu_percent(interval=0.5)
+        system = context.get("system") if isinstance(context, dict) else None
+        if isinstance(system, dict) and system.get("cpu") and system.get("memory"):
+            cpu = system.get("cpu", {})
+            memory = system.get("memory", {}).get("virtual", {})
+            partitions = system.get("disk", {}).get("partitions", [])
+            disk = partitions[0] if partitions else {}
+            network = system.get("network", {})
+            boot = system.get("boot_time")
+            return ToolResult.ok(
+                data={
+                    "cpu": {
+                        "percent": cpu.get("percent"),
+                        "cores": cpu.get("cores_logical"),
+                    },
+                    "memory": {
+                        "total": memory.get("total"),
+                        "available": memory.get("available"),
+                        "percent": memory.get("percent"),
+                        "used": memory.get("used"),
+                    },
+                    "disk": {
+                        "total": disk.get("total"),
+                        "free": disk.get("free"),
+                        "percent": disk.get("percent"),
+                    },
+                    "network": {
+                        "bytes_sent": network.get("bytes_sent"),
+                        "bytes_recv": network.get("bytes_recv"),
+                    },
+                    "uptime_seconds": int(psutil.time.time() - boot) if boot else None,
+                }
+            )
+
+        cpu_percent = await asyncio.to_thread(psutil.cpu_percent, 0.1)
         cpu_count = psutil.cpu_count()
         mem = psutil.virtual_memory()
         disk = psutil.disk_usage("/")
@@ -55,7 +108,7 @@ class CpuInfoTool(Tool):
             id="system.cpu",
             name="CPU Information",
             description="Detailed per-core CPU usage and frequency",
-            version="0.1.0",
+            version="1.0.0",
             parameters={},
             required_permissions=["system.read"],
             timeout_seconds=10,
@@ -63,7 +116,20 @@ class CpuInfoTool(Tool):
         )
 
     async def execute(self, params: Dict[str, Any], context: Dict[str, Any]) -> ToolResult:
-        per_core = psutil.cpu_percent(interval=0.5, percpu=True)
+        system = context.get("system") if isinstance(context, dict) else None
+        cpu = system.get("cpu") if isinstance(system, dict) else None
+        if isinstance(cpu, dict) and cpu.get("per_core") is not None:
+            return ToolResult.ok(
+                data={
+                    "overall": cpu.get("percent"),
+                    "per_core": cpu.get("per_core"),
+                    "count": cpu.get("cores_logical"),
+                    "frequency": cpu.get("frequency", {}),
+                    "load_avg": cpu.get("load_avg"),
+                }
+            )
+
+        per_core = await asyncio.to_thread(psutil.cpu_percent, 0.1, True)
         freq = psutil.cpu_freq()
         data = {
             "overall": psutil.cpu_percent(interval=0),
@@ -85,7 +151,7 @@ class MemoryInfoTool(Tool):
             id="system.memory",
             name="Memory Information",
             description="RAM and swap memory usage details",
-            version="0.1.0",
+            version="1.0.0",
             parameters={},
             required_permissions=["system.read"],
             timeout_seconds=10,
@@ -113,7 +179,7 @@ class DiskInfoTool(Tool):
             id="system.disk",
             name="Disk Information",
             description="Disk partition usage and I/O statistics",
-            version="0.1.0",
+            version="1.0.0",
             parameters={},
             required_permissions=["system.read"],
             timeout_seconds=10,
@@ -153,7 +219,7 @@ class NetworkInfoTool(Tool):
             id="system.network",
             name="Network Information",
             description="Network I/O statistics and active connections",
-            version="0.1.0",
+            version="1.0.0",
             parameters={},
             required_permissions=["system.read"],
             timeout_seconds=10,
@@ -163,7 +229,10 @@ class NetworkInfoTool(Tool):
     async def execute(self, params: Dict[str, Any], context: Dict[str, Any]) -> ToolResult:
         io = psutil.net_io_counters()
         connections = []
-        for conn in psutil.net_connections()[:50]:
+        # Enumerating Windows connections may take seconds. Keep the explicit
+        # network tool complete without blocking every other async request.
+        raw_connections = await asyncio.to_thread(psutil.net_connections)
+        for conn in raw_connections[:50]:
             connections.append(
                 {
                     "fd": conn.fd,
@@ -189,7 +258,7 @@ class ProcessListTool(Tool):
             id="system.processes",
             name="Process List",
             description="List top processes sorted by CPU usage",
-            version="0.1.0",
+            version="1.0.0",
             parameters={
                 "type": "object",
                 "properties": {
@@ -197,7 +266,12 @@ class ProcessListTool(Tool):
                         "type": "integer",
                         "description": "Max processes to return",
                         "default": 20,
-                    }
+                    },
+                    "include_memory": {
+                        "type": "boolean",
+                        "description": "Include per-process memory percentage",
+                        "default": True,
+                    },
                 },
             },
             required_permissions=["system.read"],
@@ -206,18 +280,9 @@ class ProcessListTool(Tool):
         )
 
     async def execute(self, params: Dict[str, Any], context: Dict[str, Any]) -> ToolResult:
-        limit = params.get("limit", 20)
-        psutil.cpu_percent(interval=0.1)
-        processes = []
-        for proc in psutil.process_iter(["pid", "name", "cpu_percent", "memory_percent", "status"]):
-            try:
-                info = proc.info
-                if info["cpu_percent"] is not None:
-                    processes.append(info)
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                continue
-
-        processes.sort(key=lambda p: p.get("cpu_percent", 0) or 0, reverse=True)
+        limit = max(1, min(int(params.get("limit", 20)), 100))
+        include_memory = bool(params.get("include_memory", True))
+        processes = await asyncio.to_thread(_collect_processes, include_memory=include_memory)
         return ToolResult.ok(data={"processes": processes[:limit], "total": len(processes)})
 
 
@@ -227,7 +292,7 @@ class GpuInfoTool(Tool):
             id="system.gpu",
             name="GPU Information",
             description="GPU usage and memory statistics via nvidia-smi or wmic",
-            version="0.1.0",
+            version="1.0.0",
             parameters={},
             required_permissions=["system.read"],
             timeout_seconds=10,
@@ -237,7 +302,8 @@ class GpuInfoTool(Tool):
     async def execute(self, params: Dict[str, Any], context: Dict[str, Any]) -> ToolResult:
         gpus = []
         try:
-            out = subprocess.check_output(
+            out = await asyncio.to_thread(
+                subprocess.check_output,
                 [
                     "nvidia-smi",
                     "--query-gpu=index,name,utilization.gpu,memory.total,memory.used,memory.free,temperature.gpu",
@@ -266,7 +332,8 @@ class GpuInfoTool(Tool):
 
         if not gpus:
             try:
-                out = subprocess.check_output(
+                out = await asyncio.to_thread(
+                    subprocess.check_output,
                     ["wmic", "path", "win32_VideoController", "get", "name,adapterram,driverversion", "/format:csv"],
                     timeout=5,
                     text=True,
@@ -288,3 +355,56 @@ class GpuInfoTool(Tool):
         if not gpus:
             return ToolResult.ok(data={"gpus": [], "message": "No GPU information available"})
         return ToolResult.ok(data={"gpus": gpus})
+
+
+class SystemOptimizeTool(Tool):
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            id="system.optimize",
+            name="System Optimize",
+            description="Detect system context and apply optimal performance mode automatically (gaming, streaming, developer, performance, power_saver, balanced)",
+            version="1.0.0",
+            category="system",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "snapshot": {
+                        "type": "boolean",
+                        "description": "Create a snapshot before optimizing (default true)",
+                        "default": True,
+                    },
+                    "dry_run": {
+                        "type": "boolean",
+                        "description": "Only detect context and suggest mode, don't apply changes",
+                        "default": False,
+                    },
+                },
+                "required": [],
+            },
+            required_permissions=["system.write"],
+            timeout_seconds=30,
+        )
+
+    async def execute(self, params: Dict[str, Any], context: Dict[str, Any]) -> ToolResult:
+        from sentinel.core import system_optimizer
+
+        dry_run = params.get("dry_run", False)
+        if dry_run:
+            result = system_optimizer.optimize_dry_run()
+        else:
+            create_snap = params.get("snapshot", True)
+            result = system_optimizer.optimize(snapshot=create_snap)
+
+        if not result.success:
+            return ToolResult.fail(
+                error=f"Optimization failed (mode={result.mode}): {'; '.join(result.errors)}",
+                tool_id="system.optimize",
+            )
+
+        return ToolResult.ok(data={
+            "mode": result.mode,
+            "context": result.context,
+            "actions": result.actions,
+            "snapshot_id": result.snapshot_id,
+            "dry_run": dry_run,
+        }, tool_id="system.optimize")

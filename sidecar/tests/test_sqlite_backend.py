@@ -6,6 +6,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from unittest.mock import MagicMock, PropertyMock, call, ANY
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from dataclasses import dataclass
 
@@ -62,6 +63,14 @@ def make_db():
             updated_at TEXT DEFAULT (datetime('now')),
             PRIMARY KEY (session_id, key)
         );
+        CREATE TABLE IF NOT EXISTS session_preferences (
+            user_id TEXT NOT NULL,
+            session_id TEXT NOT NULL,
+            key TEXT NOT NULL,
+            value TEXT NOT NULL,
+            updated_at TEXT DEFAULT (datetime('now')),
+            PRIMARY KEY (user_id, session_id, key)
+        );
         CREATE TABLE IF NOT EXISTS episodic_memory (
             memory_id TEXT PRIMARY KEY,
             user_id TEXT NOT NULL,
@@ -105,6 +114,27 @@ def make_db():
             value INTEGER NOT NULL DEFAULT 0
         );
         INSERT OR IGNORE INTO emergency_stop (id, value) VALUES (1, 0);
+        CREATE TABLE IF NOT EXISTS environment_changes (
+            change_id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            change_type TEXT NOT NULL,
+            subject_id TEXT,
+            summary TEXT,
+            previous TEXT DEFAULT '{}',
+            current TEXT DEFAULT '{}',
+            source TEXT DEFAULT '',
+            confidence REAL DEFAULT 1.0,
+            detected_at TEXT NOT NULL,
+            expires_at TEXT
+        );
+        CREATE TABLE IF NOT EXISTS environment_snapshots (
+            user_id TEXT PRIMARY KEY,
+            fingerprint TEXT NOT NULL,
+            data TEXT NOT NULL DEFAULT '{}',
+            source TEXT DEFAULT '',
+            confidence REAL DEFAULT 1.0,
+            observed_at TEXT NOT NULL
+        );
     """)
     conn.commit()
 
@@ -121,14 +151,19 @@ def make_db():
     def _fetchall(sql, params=()):
         return [dict(r) for r in conn.execute(sql, params).fetchall()]
 
+    @contextmanager
+    def _transaction(*, immediate=False):
+        yield conn
+
     db.execute.side_effect = _execute
     db.fetchone.side_effect = _fetchone
     db.fetchall.side_effect = _fetchall
     db.commit = MagicMock(side_effect=lambda: conn.commit())
+    db.transaction.side_effect = _transaction
     return db
 
 
-def make_record(exec_id="e1", session="sess1", error=None):
+def make_record(exec_id="e1", session="sess1", error=None, user_id=None):
     return ExecutionRecord(
         execution_id=exec_id,
         timestamp=datetime.now(timezone.utc).isoformat(),
@@ -136,7 +171,7 @@ def make_record(exec_id="e1", session="sess1", error=None):
         intent={"action": "query", "target": "info"},
         plan={"steps": [], "description": "test"},
         decision={"decision": "approve"},
-        context_summary={"session_id": session},
+        context_summary={"session_id": session, **({"user_id": user_id} if user_id else {})},
         step_results=[{"step_id": "s0"}],
         tool_result={"success": True, "tool_id": "info"},
         error=error,
@@ -209,6 +244,16 @@ class TestSQLiteExecutionRecords:
         bk = SQLiteBackend(db=db)
         history = bk.get_session_history("unknown")
         assert history == []
+
+    def test_get_session_history_is_scoped_by_owner(self):
+        db = make_db()
+        bk = SQLiteBackend(db=db)
+        bk.store_execution(make_record("alice", session="shared", user_id="alice"))
+        bk.store_execution(make_record("bob", session="shared", user_id="bob"))
+
+        history = bk.get_session_history("shared", user_id="alice")
+
+        assert [record.execution_id for record in history] == ["alice"]
 
     def test_update_execution(self):
         db = make_db()
@@ -290,6 +335,15 @@ class TestSQLitePendingActions:
 
 
 class TestSQLiteUserPreferences:
+    def test_owner_scoped_preferences_do_not_collide(self):
+        db = make_db()
+        bk = SQLiteBackend(db=db)
+        bk.store_user_preference("shared", "tone", "brief", user_id="alice")
+        bk.store_user_preference("shared", "tone", "detailed", user_id="bob")
+
+        assert bk.get_user_preferences("shared", user_id="alice") == {"tone": "brief"}
+        assert bk.get_user_preferences("shared", user_id="bob") == {"tone": "detailed"}
+
     def test_store_and_get(self):
         db = make_db()
         bk = SQLiteBackend(db=db)
@@ -334,6 +388,8 @@ class TestSQLiteEpisodicMemory:
         assert episode.user_id == "user1"
         assert episode.execution_id == "e1"
         assert episode.outcome == "succeeded"
+        assert episode.source == "orchestrator.execution"
+        assert episode.confidence == 0.95
 
     def test_get_episodes(self):
         db = make_db()

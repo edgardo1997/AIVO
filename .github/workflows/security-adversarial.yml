@@ -26,5 +26,7 @@ jobs:
         run: python -m bandit -r sentinel sidecar -x sidecar/tests,sidecar/plugins -ll
       - name: Run adversarial security suite
         env:
-          AIVO_TESTING: "1"
-        run: python -m pytest sidecar/tests/test_adversarial_security.py sidecar/tests/test_production_security.py sidecar/tests/test_pentest_gate.py -q --maxfail=1
+          SENTINEL_ENABLE_ACL: "0"
+          SENTINEL_ENABLE_FLEET_STARTUP: "0"
+          SENTINEL_JWT_SECRET: "ci-jwt-secret-not-for-production"
+        run: python -m pytest sidecar/tests/test_adversarial_security.py sidecar/tests/test_production_security.py sidecar/tests/test_pentest_gate.py sidecar/tests/test_windows_acl.py sidecar/tests/test_env_gates.py -q --maxfail=1

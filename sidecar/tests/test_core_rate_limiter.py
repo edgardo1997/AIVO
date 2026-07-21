@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch, AsyncMock
 from sentinel.core.rate_limiter import RateLimiter, RateLimitDecision, DEFAULT_LIMITS
 
 
+@pytest.mark.unit
 class TestRateLimiter:
     def test_allow_within_limit(self):
         rl = RateLimiter(window_seconds=60)
@@ -142,6 +143,7 @@ class TestRateLimiter:
         assert not errors
 
 
+@pytest.mark.unit
 class TestRateLimiterIntegration:
     @pytest.mark.asyncio
     async def test_orchestrator_rate_limits_global(self):
@@ -237,6 +239,7 @@ class TestRateLimiterIntegration:
         assert not result.rate_limited
 
 
+@pytest.mark.unit
 class TestRateLimiterAPI:
     def setup_method(self):
         from modules.sentinel_bridge import reset_bridge

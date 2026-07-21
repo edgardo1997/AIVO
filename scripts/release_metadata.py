@@ -20,6 +20,7 @@ SBOM_NAMES = {
     "sbom-python.cdx.json",
     "sbom-rust.cdx.json",
 }
+UPDATER_ARCHIVE_SUFFIXES = (".zip", ".tar.gz")
 
 
 def sha256(path: Path) -> str:
@@ -70,7 +71,12 @@ def release_files(artifact_root: Path, sboms: Iterable[Path]) -> list[Path]:
     artifacts = [
         path
         for path in artifact_root.rglob("*")
-        if path.is_file() and (path.suffix.lower() in {".exe", ".msi", ".sig"} or path.name == "update.json")
+        if path.is_file()
+        and (
+            path.suffix.lower() in {".exe", ".msi", ".sig"}
+            or path.name == "update.json"
+            or path.name.lower().endswith(UPDATER_ARCHIVE_SUFFIXES)
+        )
     ]
     if not any(path.suffix.lower() in {".exe", ".msi"} for path in artifacts):
         raise ValueError("No Windows installer artifacts were found")
@@ -141,6 +147,38 @@ def verify(root: Path, manifest_path: Path) -> None:
         raise ValueError("SHA256SUMS does not match the signed release manifest")
 
 
+def verify_downloaded(manifest_path: Path, asset_dir: Path) -> None:
+    """Verify flattened release assets downloaded from a GitHub release."""
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("$schema") != SCHEMA or manifest.get("product") != "Sentinel":
+        raise ValueError("Unsupported or invalid Sentinel release manifest")
+    records = manifest.get("artifacts")
+    if not isinstance(records, list) or not records:
+        raise ValueError("Release manifest contains no artifacts")
+    names = [record.get("path", "") for record in records]
+    if any(not name or Path(name).is_absolute() or ".." in Path(name).parts for name in names):
+        raise ValueError("Release manifest contains an unsafe artifact path")
+    if not SBOM_NAMES.issubset({Path(name).name for name in names}):
+        raise ValueError("Release manifest does not contain every required SBOM")
+    if not any(Path(name).suffix.lower() in {".exe", ".msi"} for name in names):
+        raise ValueError("Release manifest contains no Windows installer")
+    if not any(Path(name).suffix.lower() == ".sig" for name in names):
+        raise ValueError("Release manifest contains no updater signature")
+    basenames = [Path(name).name for name in names]
+    if any(not name for name in basenames) or len(basenames) != len(set(basenames)):
+        raise ValueError("Release manifest contains ambiguous artifact names")
+    for record, name in zip(records, basenames, strict=True):
+        artifact = asset_dir / name
+        if not artifact.is_file():
+            raise ValueError(f"Missing downloaded release asset: {name}")
+        if artifact.stat().st_size != record.get("size") or sha256(artifact) != record.get("sha256"):
+            raise ValueError(f"Downloaded release asset failed integrity verification: {name}")
+    checksums_path = asset_dir / "SHA256SUMS"
+    expected = "".join(f"{record['sha256']}  {record['path']}\n" for record in records)
+    if not checksums_path.is_file() or checksums_path.read_text(encoding="utf-8") != expected:
+        raise ValueError("Downloaded SHA256SUMS does not match the release manifest")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -151,13 +189,19 @@ def main() -> int:
     verify_parser = subparsers.add_parser("verify")
     verify_parser.add_argument("--root", type=Path, default=Path.cwd())
     verify_parser.add_argument("--manifest", type=Path, required=True)
+    downloaded_parser = subparsers.add_parser("verify-downloaded")
+    downloaded_parser.add_argument("--manifest", type=Path, required=True)
+    downloaded_parser.add_argument("--asset-dir", type=Path, required=True)
     args = parser.parse_args()
     try:
         if args.command == "generate":
             print(generate(args.root.resolve(), args.artifact_root.resolve(), args.metadata_dir.resolve()))
-        else:
+        elif args.command == "verify":
             verify(args.root.resolve(), args.manifest.resolve())
             print("Sentinel release hashes and manifest verified")
+        else:
+            verify_downloaded(args.manifest.resolve(), args.asset_dir.resolve())
+            print("Downloaded Sentinel release assets verified")
     except (OSError, ValueError, KeyError, json.JSONDecodeError, subprocess.CalledProcessError) as error:
         print(f"release metadata error: {error}", file=sys.stderr)
         return 1

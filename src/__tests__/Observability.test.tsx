@@ -16,6 +16,20 @@ vi.mock("../api", () => ({
       overview: () => Promise.resolve({ enabled: true, traces: { total_executions: 1000, active_spans: 5, success_rate: 0.98, latency_ms: { average: 200, p50: 150, p95: 500, maximum: 2000 }, quality: { blocked: 3, redacted: 1 }, errors_by_category: {} }, costs: { total_cost_usd: 0.05, total_tokens: 30000, total_calls: 100 }, alerts: { total: 0, unacknowledged: 0, by_source: {} } }),
       network: () => Promise.resolve({ online: true, last_check: "2024-01-15T10:00:00Z" }),
     },
+    pipelineMetrics: {
+      overview: () => Promise.resolve({
+        summary: { total_events: 500, total_failures: 12 },
+        component_durations: [{ component: "planner", label: "Planner", avg_duration_ms: 340, max_duration_ms: 1200, sample_count: 100 }],
+        tool_usage: [{ tool: "system.health", calls: 80, share_pct: 16.0, failures: 2, failure_rate: 2.5 }],
+        throughput: { requests_per_minute: 4.2, window_seconds: 300 },
+        bottlenecks: [{ component: "planner", label: "Planner", avg_duration_ms: 340, max_duration_ms: 1200, sample_count: 100, bottleneck_score: 340, failure_rate: 2.5 }],
+      }),
+      componentDurations: () => Promise.resolve({ components: [] }),
+      toolUsage: () => Promise.resolve({ tools: [] }),
+      throughput: () => Promise.resolve({ requests_per_minute: 0, window_seconds: 300 }),
+      bottlenecks: () => Promise.resolve({ bottlenecks: [] }),
+      timeline: () => Promise.resolve({ request_id: "test", children: [] }),
+    },
   },
 }));
 

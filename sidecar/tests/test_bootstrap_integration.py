@@ -7,7 +7,7 @@ import asyncio
 import threading
 import pytest
 from fastapi.testclient import TestClient
-from main import app
+from main import app, initialize_runtime
 from conftest import TEST_IDENTITY
 
 from modules import get_gateway, init_sentinel_orchestrator
@@ -21,6 +21,15 @@ client = TestClient(app)
 
 
 class TestBootstrapIntegration:
+    def test_runtime_initialization_is_idempotent(self):
+        initialize_runtime()
+        gateway = get_gateway()
+        before = [spec.id for spec in gateway.list_specs()]
+
+        initialize_runtime()
+
+        assert [spec.id for spec in gateway.list_specs()] == before
+
     def test_gateway_has_registered_tools(self):
         gw = get_gateway()
         specs = gw.list_specs()
@@ -71,6 +80,21 @@ class TestBootstrapIntegration:
         assert reg.count() >= 4
         mem = get_memory()
         assert mem is not None
+
+    def test_bridge_reset_reuses_gateway_bound_resources(self):
+        first = get_orchestrator()
+        gateway = get_gateway()
+        pipeline = gateway._file_pipeline
+        integrations = gateway._desktop_integrations
+        observability = gateway._observability
+
+        reset_bridge()
+        second = get_orchestrator()
+
+        assert second is not first
+        assert gateway._file_pipeline is pipeline
+        assert gateway._desktop_integrations is integrations
+        assert gateway._observability is observability
 
     def test_bridge_singleton_thread_safe(self):
         reset_bridge()

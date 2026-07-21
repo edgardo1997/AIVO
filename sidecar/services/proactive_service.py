@@ -1,5 +1,4 @@
 import logging
-import os
 import threading
 import time
 import uuid
@@ -25,7 +24,6 @@ SUGGESTION_TEMPLATES = [
         "priority": "warning",
         "title": "High CPU Usage ({value}%)",
         "message": "CPU is at {value}%. Consider closing resource-heavy applications.",
-        "actions": [{"label": "Kill Top CPU Process", "action": "kill_top_cpu"}],
     },
     {
         "id": "high_memory",
@@ -33,7 +31,6 @@ SUGGESTION_TEMPLATES = [
         "priority": "warning",
         "title": "High Memory Usage ({value}%)",
         "message": "RAM usage is at {value}%. Consider freeing up memory.",
-        "actions": [{"label": "Kill Top Memory Process", "action": "kill_top_mem"}],
     },
     {
         "id": "critical_memory",
@@ -41,7 +38,6 @@ SUGGESTION_TEMPLATES = [
         "priority": "critical",
         "title": "Critical Memory ({value}%)",
         "message": "CRITICAL: RAM at {value}%. System may become unstable.",
-        "actions": [{"label": "Kill Top Memory Process", "action": "kill_top_mem"}],
     },
     {
         "id": "high_disk",
@@ -49,7 +45,6 @@ SUGGESTION_TEMPLATES = [
         "priority": "warning",
         "title": "Disk Almost Full ({value}%)",
         "message": "Disk is at {value}% capacity. Consider cleaning up.",
-        "actions": [],
     },
     {
         "id": "long_uptime",
@@ -57,15 +52,6 @@ SUGGESTION_TEMPLATES = [
         "priority": "info",
         "title": "Long Uptime ({value}d)",
         "message": "System has been running for {value} days. A reboot may help performance.",
-        "actions": [],
-    },
-    {
-        "id": "high_temp",
-        "icon": "\U0001f321\ufe0f",
-        "priority": "warning",
-        "title": "High Temperature ({value}\u00b0C)",
-        "message": "Component temperature is high at {value}\u00b0C.",
-        "actions": [],
     },
     {
         "id": "many_processes",
@@ -73,7 +59,6 @@ SUGGESTION_TEMPLATES = [
         "priority": "info",
         "title": "Many Processes ({value})",
         "message": "{value} processes running. Consider closing unused apps.",
-        "actions": [],
     },
     {
         "id": "high_swap",
@@ -81,41 +66,18 @@ SUGGESTION_TEMPLATES = [
         "priority": "warning",
         "title": "High Swap Usage ({value}%)",
         "message": "Swap is at {value}%. Consider adding more RAM.",
-        "actions": [],
-    },
-    {
-        "id": "ai_insight",
-        "icon": "\U0001f9e0",
-        "priority": "info",
-        "title": "AI Insight Available",
-        "message": "New AI analysis of your system is ready.",
-        "actions": [{"label": "View Analysis", "action": "view_analysis"}],
     },
 ]
 
-
 class ProactiveService:
-    def __init__(
-        self,
-        suggestions: list = None,
-        metrics_history: list = None,
-        engine_active: list = None,
-        permissions_svc=None,
-        audit_svc=None,
-        plugins_svc=None,
-        ai_svc=None,
-    ):
+    def __init__(self, suggestions: list = None, metrics_history: list = None, engine_active: list = None):
         self._suggestions = suggestions if suggestions is not None else []
         self._metrics_history = metrics_history if metrics_history is not None else []
         self._engine_active = engine_active if engine_active is not None else [False]
-        self._perm = permissions_svc
-        self._audit = audit_svc
-        self._plugins = plugins_svc
-        self._ai = ai_svc
         self._last_scan: float = 0
-        self._last_ai_scan: float = 0
         self._engine_thread: threading.Thread | None = None
         self._stop_engine = threading.Event()
+        self._disk_path = "C:\\"
 
     @property
     def suggestions(self) -> list:
@@ -133,28 +95,8 @@ class ProactiveService:
     def engine_active(self, value: bool):
         self._engine_active[0] = value
 
-    def set_permissions_service(self, svc):
-        self._perm = svc
-
-    def set_audit_service(self, svc):
-        self._audit = svc
-
-    def set_plugins_service(self, svc):
-        self._plugins = svc
-
-    def set_ai_service(self, svc):
-        self._ai = svc
-
-    def format_bytes(self, b: int) -> str:
-        for unit in ("B", "KB", "MB", "GB", "TB"):
-            if abs(b) < 1024:
-                return f"{b:.1f}{unit}"
-            b //= 1024
-        return f"{b:.1f}PB"
-
     def get_top_process(self, metric: str):
         import psutil
-
         key = "cpu_percent" if metric == "cpu" else "memory_percent"
         processes = []
         for proc in psutil.process_iter(["pid", "name", key]):
@@ -169,11 +111,10 @@ class ProactiveService:
 
     def check_thresholds(self):
         import psutil
-
         now = time.time()
         cpu_percent = psutil.cpu_percent(interval=0.5)
         mem = psutil.virtual_memory()
-        disk = psutil.disk_usage("C:\\")
+        disk = psutil.disk_usage(self._disk_path)
         boot_time = psutil.boot_time()
         uptime_days = (now - boot_time) / 86400
         swap = psutil.swap_memory()
@@ -184,7 +125,6 @@ class ProactiveService:
             ("memory", mem.percent),
             ("swap", swap.percent),
         ]
-
         for check_id, value in checks:
             if check_id not in THRESHOLDS:
                 continue
@@ -209,11 +149,6 @@ class ProactiveService:
         elif proc_count >= THRESHOLDS["processes"]["warning"]:
             self._add_or_update_suggestion("many_processes", proc_count, "warning")
 
-        now_ts = time.time()
-        if now_ts - self._last_ai_scan > AI_SCAN_INTERVAL:
-            self._add_or_update_suggestion("ai_insight", 0, "info")
-            self._last_ai_scan = now_ts
-
         stale_cutoff = now - 3600
         self._suggestions[:] = [s for s in self._suggestions if s.get("timestamp", 0) > stale_cutoff]
 
@@ -233,28 +168,24 @@ class ProactiveService:
             return
         title = template["title"].replace("{value}", str(value))
         message = template["message"].replace("{value}", str(value))
-        self._suggestions.append(
-            {
-                "id": check_id,
-                "uid": str(uuid.uuid4())[:8],
-                "title": title,
-                "message": message,
-                "priority": priority,
-                "icon": template["icon"],
-                "actions": template["actions"],
-                "value": value,
-                "timestamp": time.time(),
-            }
-        )
+        self._suggestions.append({
+            "id": check_id,
+            "uid": str(uuid.uuid4())[:8],
+            "title": title,
+            "message": message,
+            "priority": priority,
+            "icon": template["icon"],
+            "value": value,
+            "timestamp": time.time(),
+        })
 
     def store_metrics_snapshot(self):
         import psutil
-
         snapshot = {
             "timestamp": time.time(),
             "cpu": psutil.cpu_percent(interval=0.2),
             "memory": psutil.virtual_memory().percent,
-            "disk": psutil.disk_usage("C:\\").percent,
+            "disk": psutil.disk_usage(self._disk_path).percent,
             "processes": len(psutil.pids()),
         }
         self._metrics_history.append(snapshot)
@@ -284,47 +215,13 @@ class ProactiveService:
         self._last_scan = time.time()
         while not self._stop_engine.is_set():
             try:
-                if self._perm:
-                    perms = self._perm.repo.load()
-                    if perms.get("level") == "view":
-                        time.sleep(SCAN_INTERVAL)
-                        continue
                 self.check_thresholds()
                 self.store_metrics_snapshot()
-                if self._plugins:
-                    self._plugins.run_hook("on_metrics", cpu={"percent": 0}, memory={"percent": 0})
                 self._last_scan = time.time()
-                self._try_ai_analysis()
             except Exception as e:
                 log.warning("Proactive engine error: %s", e)
             self._stop_engine.wait(SCAN_INTERVAL)
         self._engine_active[0] = False
-
-    def _try_ai_analysis(self):
-        if not self._ai:
-            return
-        now = time.time()
-        if now - self._last_ai_scan < AI_SCAN_INTERVAL:
-            return
-        self._last_ai_scan = now
-        try:
-            import psutil
-
-            metrics = {
-                "cpu": psutil.cpu_percent(interval=0.5),
-                "memory": psutil.virtual_memory()._asdict(),
-                "disk": psutil.disk_usage("C:\\")._asdict(),
-                "load_avg": psutil.getloadavg() if hasattr(psutil, "getloadavg") else None,
-            }
-            cfg = self._ai.repo.load()
-            from services.ai_service import FREE_PROVIDERS
-
-            provider_info = FREE_PROVIDERS.get(cfg.get("provider", ""), {})
-            if cfg.get("api_key") or provider_info.get("url", "").startswith("http://localhost"):
-                thread = threading.Thread(target=self._ai.analyze_metrics, args=(metrics,), daemon=True)
-                thread.start()
-        except Exception as e:
-            log.debug("AI analysis skipped: %s", e)
 
     def start(self):
         if self._engine_thread and self._engine_thread.is_alive():
@@ -332,10 +229,18 @@ class ProactiveService:
         self._stop_engine.clear()
         self._engine_thread = threading.Thread(target=self.run_engine, daemon=True)
         self._engine_thread.start()
+        log.info("Proactive engine started")
 
     def stop(self):
         self._stop_engine.set()
+        thread = self._engine_thread
+        if thread and thread.is_alive() and thread is not threading.current_thread():
+            thread.join(timeout=2)
+            if thread.is_alive():
+                log.warning("Proactive engine did not stop within timeout")
+        self._engine_thread = None
         self._engine_active[0] = False
+        log.info("Proactive engine stopped")
 
     def get_suggestions(self) -> dict:
         trend = self.get_trend()
@@ -347,39 +252,6 @@ class ProactiveService:
                 self._suggestions.remove(s)
                 return {"status": "dismissed"}
         return {"status": "not_found"}
-
-    def set_gateway(self, gw):
-        self._gateway = gw
-
-    async def execute_suggestion(self, suggestion_id: str) -> dict:
-        from fastapi import HTTPException
-
-        if not self._gateway:
-            return {"status": "error", "message": "Gateway not available"}
-        for s in self._suggestions:
-            if s.get("uid") != suggestion_id and s.get("id") != suggestion_id:
-                continue
-            for action in s.get("actions", []):
-                act = action.get("action", "")
-                if act in ("kill_top_cpu", "kill_top_mem"):
-                    from modules.auth import IdentityContext
-
-                    metric = "cpu" if act == "kill_top_cpu" else "memory"
-                    _, name, pid = self.get_top_process(metric)
-                    identity = IdentityContext.service_identity(
-                        "proactive",
-                        frozenset({"executor.kill"}),
-                    )
-                    result = await self._gateway.execute(
-                        "executor.kill",
-                        {"pid": pid},
-                        {"identity": identity.to_dict()},
-                    )
-                    if result.success:
-                        return {"status": "executed", "action": f"Killed {name} (PID {pid})"}
-                    return {"status": "error", "message": result.error or "Kill failed"}
-                raise HTTPException(400, f"Unknown action: {act}")
-        raise HTTPException(404, "Suggestion not found")
 
     def restart_engine(self) -> dict:
         self.stop()

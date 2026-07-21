@@ -5,5 +5,8 @@
   "author": "AIVO",
   "description": "Control media playback (play/pause/next/prev/volume) via commands",
   "hooks": ["on_command"],
-  "enabled": true
+  "enabled": true,
+  "permissions": ["subprocess"],
+  "homepage": "",
+  "license": "MIT"
 }

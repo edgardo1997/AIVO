@@ -187,7 +187,10 @@ class PluginSandbox:
         process.start()
         child.close()
         self._process, self._connection = process, parent
-        message = self._receive_with_limits(self.timeout)
+        # Process creation under Windows uses spawn and can legitimately take
+        # longer than a deliberately tiny hook timeout. Startup gets its own
+        # bounded allowance; hook calls still use the configured timeout.
+        message = self._receive_with_limits(max(2.0, self.timeout))
         if message.get("type") != "ready" or not isinstance(message.get("hooks"), list):
             self.stop()
             raise PluginSandboxError(message.get("error", "Plugin failed its startup handshake"))

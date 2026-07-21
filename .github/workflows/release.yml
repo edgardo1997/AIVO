@@ -3,7 +3,6 @@ name: Release Sentinel for Windows
 on:
   push:
     tags: ["v*"]
-  workflow_dispatch:
 
 permissions:
   contents: write
@@ -11,17 +10,39 @@ permissions:
   attestations: write
   artifact-metadata: write
 
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
   release-windows:
     runs-on: windows-latest
+    environment: release-signing
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Require release tag commit from main
+        shell: pwsh
+        run: |
+          if ("${{ github.ref_type }}" -ne "tag") {
+            throw 'Release builds must run from a version tag'
+          }
+          git fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
+          if ($LASTEXITCODE -ne 0) { throw 'Could not fetch the protected main branch' }
+          git merge-base --is-ancestor "${{ github.sha }}" origin/main
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Release tag commit is not contained in origin/main'
+          }
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: sidecar/requirements.txt
+          cache-dependency-path: |
+            sidecar/requirements.txt
+            sidecar/requirements-dev.txt
 
       - uses: actions/setup-node@v4
         with:
@@ -43,7 +64,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip pyinstaller pip-audit cyclonedx-bom==7.3.0
-          pip install -r sidecar/requirements.txt
+          pip install -r sidecar/requirements-dev.txt
           npm ci
           npm install --global @cyclonedx/cyclonedx-npm@4.2.1
 
@@ -65,9 +86,19 @@ jobs:
           cargo cyclonedx --manifest-path src-tauri/Cargo.toml --format json --override-filename sbom-rust.cdx
           Move-Item src-tauri/sbom-rust.cdx.json release-metadata/sbom-rust.cdx.json
 
-      - name: Test application
+      - name: Release preflight quality gates
         run: |
-          python -m pytest sidecar/tests -q
+          python -m ruff check sentinel sidecar
+          npm run lint
+          cargo test --locked --manifest-path src-tauri/Cargo.toml
+
+      - name: Test application
+        env:
+          SENTINEL_ENABLE_ACL: "0"
+          SENTINEL_ENABLE_FLEET_STARTUP: "0"
+          SENTINEL_JWT_SECRET: "ci-jwt-secret-not-for-production"
+        run: |
+          python -m pytest -q
           npm test -- --run
           npm run build
 

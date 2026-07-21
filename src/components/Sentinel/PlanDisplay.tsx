@@ -1,3 +1,4 @@
+import { useMode } from "../../contexts/AppContext";
 import type { SentinelResponse, StepResultItem } from "../../types";
 import { Loading } from "../ui/Loading";
 
@@ -52,8 +53,28 @@ function StepResultCard({ sr }: { sr: StepResultItem }) {
   );
 }
 
+function JsonExplorer({ label, data }: { label: string; data: unknown }) {
+  return (
+    <details style={{ marginTop: 12 }}>
+      <summary style={{ cursor: "pointer", color: "var(--accent)", fontSize: 12, fontWeight: 600 }}>
+        {label} (JSON)
+      </summary>
+      <pre style={{
+        marginTop: 8, padding: 12, fontSize: 11, background: "var(--bg-secondary)",
+        borderRadius: 6, overflow: "auto", maxHeight: 400, whiteSpace: "pre-wrap",
+        border: "1px solid var(--border)",
+      }}>
+        {JSON.stringify(data, null, 2)}
+      </pre>
+    </details>
+  );
+}
+
 export function PlanDisplay({ result, loading, error }: PlanDisplayProps) {
-  if (loading) return <Loading text="Processing your request..." />;
+  const { mode } = useMode();
+  const developerView = mode === "developer";
+
+  if (loading) return <Loading text="Sentinel está preparando una respuesta verificable..." />;
 
   if (error) {
     return (
@@ -65,18 +86,150 @@ export function PlanDisplay({ result, loading, error }: PlanDisplayProps) {
 
   if (!result) return null;
 
-  const { intent, plan, decision, decision_reason, tool_result, approved, simulated, goal, context_factors, base_risk_score, context_modifier, final_risk_score, step_results, rollback_actions } = result;
+  const { intent, plan, decision, decision_reason, tool_result, approved, simulated, goal, context_factors, base_risk_score, context_modifier, final_risk_score, step_results, rollback_actions, grounding_results, grounding_satisfied, advisory } = result;
+  const presentation = result.presentation;
+  const statusColor = presentation?.status === "completed"
+    ? "var(--success)"
+    : presentation?.status === "needs_approval" || presentation?.status === "preview"
+      ? "var(--warning)"
+      : "var(--danger)";
 
+  // USER MODE: Show only presentation card + basic status
+  if (!developerView) {
+    return (
+      <div className="sentinel-result">
+        {presentation && (
+          <section className="card" aria-live="polite" style={{ marginBottom: 12, borderColor: statusColor, padding: "1rem" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
+              <div>
+                <div className="card-title" style={{ color: statusColor, marginBottom: 6 }}>{presentation.title}</div>
+                <p style={{ margin: 0, color: "var(--text-secondary)", lineHeight: 1.55 }}>{presentation.summary}</p>
+              </div>
+              <span style={{ fontSize: 11, whiteSpace: "nowrap", color: "var(--text-muted)" }}>
+                Riesgo {presentation.risk.level}
+              </span>
+            </div>
+            {presentation.evidence.required > 0 && (
+              <div style={{ marginTop: 10, fontSize: 12, color: presentation.evidence.satisfied ? "var(--success)" : "var(--danger)" }}>
+                {presentation.evidence.satisfied ? "✓" : "✗"} Evidencia verificada: {presentation.evidence.verified}/{presentation.evidence.required}
+              </div>
+            )}
+            {presentation.next_action && (
+              <div style={{ marginTop: 10, fontSize: 12, color: "var(--text-muted)" }}>{presentation.next_action}</div>
+            )}
+          </section>
+        )}
+        {simulated && (
+          <div className="card" style={{
+            marginBottom: 12, borderColor: "var(--warning)",
+            background: "rgba(255, 193, 7, 0.08)",
+          }}>
+            <div className="card-title" style={{ color: "var(--warning)" }}>SIMULADO</div>
+            <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>
+              No se ejecutaron herramientas. Esta es una vista previa (dry-run).
+            </div>
+          </div>
+        )}
+        {decision && (
+          <div className="card" style={{
+            marginBottom: 12,
+            borderColor: decision === "approve" ? "var(--success)" : decision === "require_confirm" ? "var(--warning)" : "var(--danger)",
+          }}>
+            <div className="card-title">Decisión</div>
+            <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>
+              <span style={{
+                fontWeight: 600,
+                color: decision === "approve" ? "var(--success)" : decision === "require_confirm" ? "var(--warning)" : "var(--danger)",
+              }}>
+                {decision}
+              </span>
+              {decision_reason && <p style={{ margin: "4px 0 0", fontSize: 12 }}>{decision_reason}</p>}
+            </div>
+          </div>
+        )}
+        {(grounding_results && grounding_results.length > 0) && (
+          <div className="card" style={{
+            marginBottom: 12,
+            borderColor: grounding_satisfied ? "var(--success)" : "var(--danger)",
+          }}>
+            <div className="card-title">
+              Verificación de fuentes
+              <span style={{ marginLeft: 8, fontSize: 11, color: grounding_satisfied ? "var(--success)" : "var(--danger)" }}>
+                {grounding_satisfied ? "✓ Completado" : "✗ Pendiente"}
+              </span>
+            </div>
+            <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+              {grounding_results.map((g, i) => (
+                <div key={i} style={{ marginTop: 4, display: "flex", justifyContent: "space-between" }}>
+                  <span>{g.category}{g.tool_id ? ` → ${g.tool_id}` : ""}</span>
+                  <span style={{ color: g.grounded ? "var(--success)" : "var(--danger)" }}>
+                    {g.grounded ? "Verificado" : "Falló"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        {tool_result && !simulated && (
+          <div className="card" style={{
+            borderColor: approved && tool_result.success ? "var(--success)" : "var(--border)",
+          }}>
+            <div className="card-title">Resultado</div>
+            <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>
+              {tool_result.success ? (
+                <pre style={{ fontFamily: "inherit", whiteSpace: "pre-wrap", margin: 0, maxHeight: 300, overflow: "auto" }}>
+                  {(JSON.stringify(tool_result.data, null, 2) ?? "").slice(0, 800)}
+                </pre>
+              ) : tool_result.requires_confirmation ? (
+                <span style={{ color: "var(--warning)" }}>Requiere confirmación: {tool_result.error}</span>
+              ) : (
+                <span style={{ color: "var(--danger)" }}>{tool_result.error}</span>
+              )}
+            </div>
+          </div>
+        )}
+        <JsonExplorer label="Respuesta completa" data={result} />
+      </div>
+    );
+  }
+
+  // DEVELOPER MODE: Full details
   return (
     <div className="sentinel-result">
+      {presentation && (
+        <section className="card" aria-live="polite" style={{ marginBottom: 12, borderColor: statusColor, padding: "1rem" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
+            <div>
+              <div className="card-title" style={{ color: statusColor, marginBottom: 6 }}>{presentation.title}</div>
+              <p style={{ margin: 0, color: "var(--text-secondary)", lineHeight: 1.55 }}>{presentation.summary}</p>
+            </div>
+            <span style={{ fontSize: 11, whiteSpace: "nowrap", color: "var(--text-muted)" }}>
+              Riesgo {presentation.risk.level}
+            </span>
+          </div>
+          {presentation.evidence.required > 0 && (
+            <div style={{ marginTop: 10, fontSize: 12, color: presentation.evidence.satisfied ? "var(--success)" : "var(--danger)" }}>
+              {presentation.evidence.satisfied ? "✓" : "✗"} Evidencia verificada: {presentation.evidence.verified}/{presentation.evidence.required}
+            </div>
+          )}
+          {presentation.next_action && (
+            <div style={{ marginTop: 10, fontSize: 12, color: "var(--text-muted)" }}>{presentation.next_action}</div>
+          )}
+        </section>
+      )}
+
+      <details open>
+        <summary style={{ cursor: "pointer", color: "var(--text-muted)", fontSize: 12, marginBottom: 10 }}>
+          Ver intención, plan y diagnóstico técnico
+        </summary>
       {simulated && (
         <div className="card" style={{
           marginBottom: 12, borderColor: "var(--warning)",
           background: "rgba(255, 193, 7, 0.08)",
         }}>
-          <div className="card-title" style={{ color: "var(--warning)" }}>SIMULATED</div>
+          <div className="card-title" style={{ color: "var(--warning)" }}>SIMULADO</div>
           <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>
-            No tools were executed. This is a dry-run preview.
+            No se ejecutaron herramientas. Esta es una vista previa (dry-run).
           </div>
         </div>
       )}
@@ -168,6 +321,61 @@ export function PlanDisplay({ result, loading, error }: PlanDisplayProps) {
         </div>
       )}
 
+      {grounding_results && grounding_results.length > 0 && (
+        <div className="card" style={{
+          marginBottom: 12,
+          borderColor: grounding_satisfied ? "var(--success)" : "var(--danger)",
+        }}>
+          <div className="card-title">
+            Grounding Evidence
+            <span style={{ marginLeft: 8, fontSize: 11, color: grounding_satisfied ? "var(--success)" : "var(--danger)" }}>
+              {grounding_satisfied ? "✓ Satisfecho" : "✗ Insatisfecho"}
+            </span>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 6 }}>
+            {grounding_results.map((g, i) => (
+              <div key={i} style={{
+                fontSize: 12, padding: "4px 8px", borderRadius: 4,
+                background: g.grounded ? "rgba(40, 167, 69, 0.08)" : "rgba(220, 53, 69, 0.08)",
+                border: `1px solid ${g.grounded ? "var(--success)" : "var(--danger)"}`,
+              }}>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span><strong>{g.category}</strong>{g.tool_id ? ` → ${g.tool_id}` : ""}</span>
+                  <span style={{ color: g.grounded ? "var(--success)" : "var(--danger)" }}>
+                    {g.grounded ? "Verificado" : "Falló"}
+                  </span>
+                </div>
+                {g.source && <div style={{ color: "var(--text-muted)", fontSize: 10, marginTop: 2 }}>Fuente: {g.source}</div>}
+                {g.error && <div style={{ color: "var(--danger)", fontSize: 10, marginTop: 2 }}>{g.error}</div>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {advisory && (
+        <div className="card" style={{ marginBottom: 12, borderColor: "var(--accent)" }}>
+          <div className="card-title">Advisory</div>
+          <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+            <div><strong>Confianza:</strong> {advisory.confidence_label} ({(advisory.confidence_score * 100).toFixed(0)}%)</div>
+            <div style={{ marginTop: 2 }}>{advisory.explanation}</div>
+            {advisory.insights && advisory.insights.length > 0 && (
+              <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 3 }}>
+                {advisory.insights.map((ins, i) => (
+                  <div key={i} style={{
+                    fontSize: 11, padding: "3px 6px", borderRadius: 4,
+                    color: ins.level >= 2 ? "var(--warning)" : "var(--text-muted)",
+                    background: ins.level >= 2 ? "rgba(255, 193, 7, 0.08)" : "transparent",
+                  }}>
+                    <strong>{ins.title}:</strong> {ins.detail}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {(base_risk_score != null || final_risk_score != null) && (
         <div className="card" style={{ marginBottom: 12 }}>
           <div className="card-title">Risk Score Breakdown</div>
@@ -231,6 +439,8 @@ export function PlanDisplay({ result, loading, error }: PlanDisplayProps) {
           </div>)}
         </div>
       )}
+      <JsonExplorer label="Respuesta completa" data={result} />
+      </details>
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react";
+import { useMode } from "../../contexts/AppContext";
 import { api } from "../../api";
 import { IntentInput } from "./IntentInput";
 import { PlanDisplay } from "./PlanDisplay";
@@ -7,6 +8,8 @@ import { AdvisoryNotice } from "../Advisory/AdvisoryNotice";
 import type { SentinelResponse } from "../../types";
 
 export function Sentinel() {
+  const { mode, toggleMode } = useMode();
+  const developerView = mode === "developer";
   const [result, setResult] = useState<SentinelResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -27,7 +30,9 @@ export function Sentinel() {
     setLoading(true);
     setError(null);
     try {
-      const opts: { dry_run?: boolean; session_id?: string } = {};
+      const opts: { dry_run?: boolean; session_id?: string; presentation_mode?: "user" | "developer" } = {
+        presentation_mode: mode,
+      };
       if (dryRun) opts.dry_run = true;
       if (sessionId.trim()) opts.session_id = sessionId.trim();
       const res = await api.sentinel.process(text, opts);
@@ -65,6 +70,7 @@ export function Sentinel() {
       const approveRes = await api.sentinel.approve(blockedAction.actionId);
       setResult({
         approved: approveRes.approved,
+        presentation: approveRes.presentation,
         blocked: false,
         action_id: null,
         simulation_summary: approveRes.simulation_summary,
@@ -82,6 +88,7 @@ export function Sentinel() {
       }
       setHistory((h) => [{ query: blockedAction.query, result: {
         approved: approveRes.approved,
+        presentation: approveRes.presentation,
         blocked: false,
         action_id: null,
         error: approveRes.error,
@@ -108,6 +115,7 @@ export function Sentinel() {
       const approveRes = await api.sentinel.approveModified(blockedAction.actionId, steps);
       setResult({
         approved: approveRes.approved ?? true,
+        presentation: approveRes.presentation,
         blocked: false,
         action_id: null,
         simulation_summary: approveRes.simulation_summary,
@@ -124,6 +132,7 @@ export function Sentinel() {
       }
       setHistory((h) => [{ query: blockedAction.query, result: {
         approved: true,
+        presentation: approveRes.presentation,
         blocked: false,
         action_id: null,
         error: approveRes.error,
@@ -154,35 +163,52 @@ export function Sentinel() {
   }, [blockedAction]);
 
   const examples = [
-    "show me cpu usage",
-    "how much RAM is free",
-    "list top processes",
-    "analyze system health",
-    "cuanto espacio libre en disco",
+    "Muéstrame el uso del procesador",
+    "¿Cuánta memoria RAM queda libre?",
+    "Lista los procesos principales",
+    "Analiza el estado del equipo",
+    "¿Cuánto espacio queda en el disco?",
   ];
 
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-        <h2 style={{ fontWeight: 600 }}>Sentinel</h2>
+        <div>
+          <h2 style={{ fontWeight: 600, marginBottom: 2 }}>Centro de acciones</h2>
+          <div style={{ color: "var(--text-muted)", fontSize: 12 }}>Describe el objetivo; Sentinel preparará y verificará la ejecución.</div>
+        </div>
         <div style={{ display: "flex", gap: 12, alignItems: "center", fontSize: 12 }}>
-          <label style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
-            <input type="checkbox" checked={dryRun} onChange={(e) => setDryRun(e.target.checked)} />
-            Dry-run
-          </label>
-          <input
-            type="text"
-            placeholder="Session ID (optional)"
-            value={sessionId}
-            onChange={(e) => setSessionId(e.target.value)}
-            style={{ width: 160, padding: "4px 8px", fontSize: 12, border: "1px solid var(--border)", borderRadius: 4, background: "transparent", color: "inherit" }}
-          />
+          <button
+            type="button"
+            className="btn btn-ghost"
+            aria-pressed={developerView}
+            onClick={toggleMode}
+            style={{ fontSize: 12 }}
+          >
+            {developerView ? "Vista simple" : "Detalles técnicos"}
+          </button>
+          {developerView && (
+            <>
+              <label style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
+                <input type="checkbox" checked={dryRun} onChange={(e) => setDryRun(e.target.checked)} />
+                Solo simular
+              </label>
+              <input
+                type="text"
+                aria-label="ID de sesión"
+                placeholder="ID de sesión opcional"
+                value={sessionId}
+                onChange={(e) => setSessionId(e.target.value)}
+                style={{ width: 160, padding: "4px 8px", fontSize: 12, border: "1px solid var(--border)", borderRadius: 4, background: "transparent", color: "inherit" }}
+              />
+            </>
+          )}
         </div>
       </div>
 
       {!result && !loading && history.length === 0 && (
         <div style={{ marginBottom: 16 }}>
-          <div className="card-title" style={{ marginBottom: 8 }}>Try saying:</div>
+          <div className="card-title" style={{ marginBottom: 8 }}>Puedes comenzar con:</div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
             {examples.map((ex) => (
               <button key={ex} className="btn btn-ghost" style={{ fontSize: 12 }}

@@ -178,7 +178,7 @@ class TestFallbackChainingUnit:
 
         call_order = []
 
-        def tracking_call(decision, provider, messages, model_override=None):
+        def tracking_call(decision, provider, messages, model_override=None, **kwargs):
             call_order.append(decision.provider_id)
             if decision.provider_id == "groq":
                 return {"response": "ok", "provider": "groq", "model": "m", "usage": None}
@@ -189,12 +189,12 @@ class TestFallbackChainingUnit:
             [{"role": "user", "content": "hi"}], task_type=TaskType.QUICK, fallback_chain_override=["ollama", "groq"]
         )
         assert result["provider"] == "groq"
-        assert call_order == ["ollama", "groq"]
+        assert call_order == ["sentinel_local", "ollama", "groq"]
 
     def test_chat_fallback_records_stats(self):
         mr = ModelRouter()
 
-        def mock_call(decision, provider, messages, model_override=None):
+        def mock_call(decision, provider, messages, model_override=None, **kwargs):
             if decision.provider_id == "groq":
                 return {"response": "ok", "provider": "groq", "model": "m", "usage": None}
             raise ConnectionError("fail")
@@ -206,6 +206,57 @@ class TestFallbackChainingUnit:
         stats = mr.fallback_stats()
         assert stats["total_fallbacks"] == 1
         assert "groq" in stats["fallback_counts"]
+
+    def test_streaming_falls_back_before_any_content_is_emitted(self):
+        mr = ModelRouter()
+        primary = RouterDecision(
+            provider_id="sentinel_local", model="local", task_type=TaskType.QUICK,
+            strategy="priority", reason="test",
+        )
+        fallback = RouterDecision(
+            provider_id="ollama", model="fallback", task_type=TaskType.QUICK,
+            strategy="fallback", reason="test",
+        )
+        mr.select = lambda *_args, **_kwargs: primary
+        mr._build_fallback_chain = lambda *_args, **_kwargs: [primary, fallback]
+
+        def stream_call(decision, _provider, _messages, _model_override=None, **kwargs):
+            if decision.provider_id == "sentinel_local":
+                raise ConnectionError("primary unavailable")
+            yield {"type": "meta", "provider": "ollama", "model": "fallback"}
+            yield {"type": "delta", "text": "respuesta"}
+            yield {"type": "done"}
+
+        mr._call_provider_stream = stream_call
+        events = list(mr.chat_stream([{"role": "user", "content": "hola"}]))
+        assert [event["type"] for event in events] == ["meta", "delta", "done"]
+        assert events[1]["text"] == "respuesta"
+        assert mr.fallback_stats()["fallback_counts"]["ollama"] == 1
+
+    def test_streaming_never_mixes_providers_after_content(self):
+        mr = ModelRouter()
+        primary = RouterDecision(
+            provider_id="sentinel_local", model="local", task_type=TaskType.QUICK,
+            strategy="priority", reason="test",
+        )
+        fallback = RouterDecision(
+            provider_id="ollama", model="fallback", task_type=TaskType.QUICK,
+            strategy="fallback", reason="test",
+        )
+        mr.select = lambda *_args, **_kwargs: primary
+        mr._build_fallback_chain = lambda *_args, **_kwargs: [primary, fallback]
+
+        def interrupted_stream(decision, _provider, _messages, _model_override=None, **kwargs):
+            assert decision.provider_id == "sentinel_local"
+            yield {"type": "meta", "provider": "sentinel_local", "model": "local"}
+            yield {"type": "delta", "text": "respuesta parcial"}
+            raise ConnectionError("connection interrupted")
+
+        mr._call_provider_stream = interrupted_stream
+        events = list(mr.chat_stream([{"role": "user", "content": "hola"}]))
+        # After content is emitted, stream reports error and stops (no fallback)
+        assert events[-1]["type"] == "error"
+        assert events[-1]["category"] == "stream_interrupted"
 
     def test_fallback_strategies_list(self):
         assert "chain" in FALLBACK_STRATEGIES
@@ -222,7 +273,7 @@ class TestFallbackIntegration:
 
         call_log = []
 
-        def mock_call(decision, provider, messages, model_override=None):
+        def mock_call(decision, provider, messages, model_override=None, **kwargs):
             call_log.append(decision.provider_id)
             if decision.provider_id == "groq":
                 return {"response": "ok", "provider": "groq", "model": "m", "usage": None}
@@ -240,12 +291,12 @@ class TestFallbackIntegration:
 
     def test_all_fallbacks_open_raises_error(self):
         mr = ModelRouter()
-        for pid in ["ollama", "groq"]:
+        for pid in ["sentinel_local", "ollama", "groq"]:
             mr._circuit_breaker.record_failure(pid)
             mr._circuit_breaker.record_failure(pid)
             mr._circuit_breaker.record_failure(pid)
 
-        def mock_call(decision, provider, messages, model_override=None):
+        def mock_call(decision, provider, messages, model_override=None, **kwargs):
             raise ConnectionError("fail")
 
         mr._call_provider = mock_call
@@ -260,7 +311,7 @@ class TestFallbackIntegration:
     def test_primary_succeeds_no_fallback_recorded(self):
         mr = ModelRouter()
 
-        def mock_call(decision, provider, messages, model_override=None):
+        def mock_call(decision, provider, messages, model_override=None, **kwargs):
             return {"response": "ok", "provider": decision.provider_id, "model": "m", "usage": None}
 
         mr._call_provider = mock_call

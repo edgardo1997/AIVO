@@ -1,0 +1,4 @@
+.workbench-layout{display:block}
+.main-content.workbench-main{height:100vh;padding:0;overflow:hidden}
+.workbench-main .wb{height:100vh}
+@media(max-width:720px){.workbench-main .wb{height:100vh}}

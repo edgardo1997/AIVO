@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -141,55 +142,60 @@ class TriggerEngine:
         self._rules: Dict[str, TriggerRule] = {}
         self._history: List[TriggerFireRecord] = []
         self._execute_fn = execute_fn
+        self._lock = threading.RLock()
 
-    def add_rule(self, rule: TriggerRule) -> None:
-        now = datetime.now(timezone.utc).isoformat()
-        if not rule.created_at:
-            rule.created_at = now
-        rule.updated_at = now
-        self._rules[rule.id] = rule
+    def add_rule(self, rule: TriggerRule, *, overwrite: bool = True) -> bool:
+        with self._lock:
+            if not overwrite and rule.id in self._rules:
+                return False
+            now = datetime.now(timezone.utc).isoformat()
+            if not rule.created_at:
+                rule.created_at = now
+            rule.updated_at = now
+            self._rules[rule.id] = rule
+            return True
 
     def remove_rule(self, rule_id: str) -> None:
-        if rule_id not in self._rules:
-            raise KeyError(f"Trigger '{rule_id}' not found")
-        del self._rules[rule_id]
+        with self._lock:
+            if rule_id not in self._rules:
+                raise KeyError(f"Trigger '{rule_id}' not found")
+            del self._rules[rule_id]
 
     def get_rule(self, rule_id: str) -> Optional[TriggerRule]:
-        return self._rules.get(rule_id)
+        with self._lock:
+            return self._rules.get(rule_id)
 
     def list_rules(self) -> List[TriggerRule]:
-        return list(self._rules.values())
+        with self._lock:
+            return list(self._rules.values())
 
     def update_rule(self, rule_id: str, **updates: Any) -> TriggerRule:
-        rule = self.get_rule(rule_id)
-        if rule is None:
-            raise KeyError(f"Trigger '{rule_id}' not found")
-        for key, value in updates.items():
-            if key == "conditions" and isinstance(value, list):
-                rule.conditions = [TriggerCondition.from_dict(c) if isinstance(c, dict) else c for c in value]
-            elif key == "action" and isinstance(value, dict):
-                rule.action = TriggerAction.from_dict(value)
-            elif hasattr(rule, key):
-                setattr(rule, key, value)
-        rule.updated_at = datetime.now(timezone.utc).isoformat()
-        return rule
+        with self._lock:
+            rule = self._rules.get(rule_id)
+            if rule is None:
+                raise KeyError(f"Trigger '{rule_id}' not found")
+            for key, value in updates.items():
+                if key == "conditions" and isinstance(value, list):
+                    rule.conditions = [TriggerCondition.from_dict(c) if isinstance(c, dict) else c for c in value]
+                elif key == "action" and isinstance(value, dict):
+                    rule.action = TriggerAction.from_dict(value)
+                elif hasattr(rule, key):
+                    setattr(rule, key, value)
+            rule.updated_at = datetime.now(timezone.utc).isoformat()
+            return rule
 
     def evaluate(self, metrics: Dict[str, float]) -> List[TriggerFireRecord]:
         now = time.time()
-        fires: List[TriggerFireRecord] = []
-        for rule in self._rules.values():
-            if not rule.can_fire(now):
-                continue
-            all_met = True
-            for cond in rule.conditions:
-                current = metrics.get(cond.metric)
-                if current is None:
-                    all_met = False
-                    break
-                if not cond.evaluate(current):
-                    all_met = False
-                    break
-            if all_met:
+        pending: List[tuple[TriggerFireRecord, Optional[TriggerAction]]] = []
+        with self._lock:
+            for rule in self._rules.values():
+                if not rule.can_fire(now):
+                    continue
+                all_met = all(
+                    cond.metric in metrics and cond.evaluate(metrics[cond.metric]) for cond in rule.conditions
+                )
+                if not all_met:
+                    continue
                 rule.last_fired = now
                 record = TriggerFireRecord(
                     trigger_id=rule.id,
@@ -197,10 +203,14 @@ class TriggerEngine:
                     action_executed=False,
                     timestamp=datetime.now(timezone.utc).isoformat(),
                 )
-                if rule.action and self._execute_fn:
+                pending.append((record, rule.action))
+
+        fires: List[TriggerFireRecord] = []
+        for record, action in pending:
+                if action and self._execute_fn:
                     try:
                         if asyncio.iscoroutinefunction(self._execute_fn):
-                            action_coro = self._execute_fn(rule.action.tool_id, rule.action.params)
+                            action_coro = self._execute_fn(action.tool_id, action.params)
                             try:
                                 loop = asyncio.get_running_loop()
                             except RuntimeError:
@@ -208,24 +218,29 @@ class TriggerEngine:
                             else:
                                 loop.create_task(action_coro)
                         else:
-                            self._execute_fn(rule.action.tool_id, rule.action.params)
+                            self._execute_fn(action.tool_id, action.params)
                         record.action_executed = True
                         record.result = "executed"
                     except Exception as e:
                         record.result = f"error: {e}"
-                        logger.error("Trigger %s action failed: %s", rule.id, e)
+                        logger.error("Trigger %s action failed: %s", record.trigger_id, e)
                 else:
-                    record.action_executed = rule.action is not None
-                    record.result = "fired_no_action" if not rule.action else "fired"
+                    record.action_executed = action is not None
+                    record.result = "fired_no_action" if not action else "fired"
                 fires.append(record)
+        with self._lock:
+            for record in fires:
                 self._history.append(record)
         return fires
 
     def get_history(self, limit: int = 20) -> List[TriggerFireRecord]:
-        return self._history[-limit:]
+        with self._lock:
+            return self._history[-limit:]
 
     def clear_history(self) -> None:
-        self._history.clear()
+        with self._lock:
+            self._history.clear()
 
     def count(self) -> int:
-        return len(self._rules)
+        with self._lock:
+            return len(self._rules)

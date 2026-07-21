@@ -13,13 +13,13 @@ concurrency:
 env:
   PYTHON_VERSION: "3.12"
   NODE_VERSION: "22"
+  SENTINEL_ENABLE_ACL: "0"
+  SENTINEL_ENABLE_FLEET_STARTUP: "0"
+  SENTINEL_JWT_SECRET: "ci-jwt-secret-not-for-production"
 
 jobs:
   backend-lint:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: sidecar
 
     steps:
       - uses: actions/checkout@v4
@@ -34,11 +34,11 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r sidecar/requirements.txt
           pip install ruff
 
       - name: Lint with ruff
-        run: ruff check --output-format=github .
+        run: ruff check --output-format=github sentinel sidecar
 
   backend-test:
     runs-on: ubuntu-latest
@@ -46,7 +46,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [unit, integration, security, e2e]
+        suite: [unit, integration, security, adversarial, e2e, performance]
 
     steps:
       - uses: actions/checkout@v4
@@ -68,14 +68,20 @@ jobs:
 
       - name: Run ${{ matrix.suite }} suite with coverage
         run: |
+          PERFORMANCE_ARGS=""
+          if [ "${{ matrix.suite }}" = "performance" ]; then
+            PERFORMANCE_ARGS="--benchmark-json=benchmark-performance.json"
+          fi
           python -m pytest -m "${{ matrix.suite }}" \
+            --timeout=30 \
             --junitxml="pytest-${{ matrix.suite }}.xml" \
             --cov=sentinel.core.orchestrator \
             --cov=sentinel.core.tool_gateway \
             --cov=sentinel.core.model_router \
             --cov=sentinel.core.operational_memory \
             --cov-report=term-missing \
-            --cov-report="xml:coverage-${{ matrix.suite }}.xml"
+            --cov-report="xml:coverage-${{ matrix.suite }}.xml" \
+            $PERFORMANCE_ARGS
 
       - name: Upload deterministic test evidence
         if: always()
@@ -85,6 +91,7 @@ jobs:
           path: |
             pytest-${{ matrix.suite }}.xml
             coverage-${{ matrix.suite }}.xml
+            benchmark-performance.json
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
@@ -92,6 +99,42 @@ jobs:
           files: coverage-${{ matrix.suite }}.xml
           flags: ${{ matrix.suite }}
           fail_ci_if_error: false
+
+  dependency-audit:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+          cache-dependency-path: sidecar/requirements.txt
+
+      - name: Set up Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: Install Python dependencies
+        run: pip install -r sidecar/requirements.txt pip-audit
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: pip-audit (Python)
+        run: python -m pip-audit -r sidecar/requirements.txt --desc
+
+      - name: npm audit (Node)
+        run: npm audit --audit-level=high
+
+      - name: cargo audit (Rust)
+        uses: actions-rust-lang/audit@v4
+        with:
+          working-directory: src-tauri
 
   frontend-lint:
     runs-on: ubuntu-latest
@@ -109,7 +152,7 @@ jobs:
         run: npm ci
 
       - name: Lint with oxlint
-        run: npx oxlint@latest
+        run: npm run lint
 
   frontend-typecheck:
     runs-on: ubuntu-latest
@@ -127,7 +170,10 @@ jobs:
         run: npm ci
 
       - name: TypeScript type check
-        run: npx tsc --noEmit
+        run: npx tsc -b --pretty false
+
+      - name: Build production frontend
+        run: npm run build
 
   frontend-test:
     runs-on: ubuntu-latest
@@ -145,4 +191,24 @@ jobs:
         run: npm ci
 
       - name: Run vitest
-        run: npx vitest run --reporter=verbose
+        run: npm test -- --reporter=verbose
+
+  rust-check:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Check Tauri runtime
+        run: cargo check --locked --manifest-path src-tauri/Cargo.toml
+
+      - name: Run Rust tests
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml

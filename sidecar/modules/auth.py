@@ -122,6 +122,18 @@ def request_identity(request: Request) -> IdentityContext:
     return identity
 
 
+def require_admin_identity(request: Request) -> IdentityContext:
+    """Return the authenticated administrator or reject the request."""
+    identity = request_identity(request)
+    if identity.level != "admin":
+        raise HTTPException(status_code=403, detail="Administrator identity required")
+    return identity
+
+
+# Paths that bypass authentication (health checks, monitoring probes, etc.)
+UNAUTHENTICATED_PATHS = frozenset({"/api/health", "/api/info"})
+
+
 async def auth_middleware(request: Request, call_next):
     client_host = request.client.host if request.client else ""
     if client_host not in {"127.0.0.1", "::1", "::ffff:127.0.0.1", "testclient", "localhost"}:
@@ -133,6 +145,12 @@ async def auth_middleware(request: Request, call_next):
         return await call_next(request)
 
     app = request.app
+
+    async def continue_authenticated_request():
+        initializer = getattr(app.state, "runtime_initializer", None)
+        if initializer and request.url.path not in UNAUTHENTICATED_PATHS:
+            initializer()
+        return await call_next(request)
 
     test_token = request.headers.get("x-test-token", "")
     if test_token:
@@ -148,7 +166,7 @@ async def auth_middleware(request: Request, call_next):
                 headers={"WWW-Authenticate": "Bearer"},
             )
         request.state.identity = IdentityContext.test_identity()
-        return await call_next(request)
+        return await continue_authenticated_request()
 
     authorization = request.headers.get("authorization", "")
     scheme, _, presented_token = authorization.partition(" ")
@@ -160,7 +178,7 @@ async def auth_middleware(request: Request, call_next):
             identity = token_to_identity(presented_token)
             if identity is not None:
                 request.state.identity = identity
-                return await call_next(request)
+                return await continue_authenticated_request()
         except Exception:
             pass
 
@@ -178,10 +196,13 @@ async def auth_middleware(request: Request, call_next):
             request.state.identity = IdentityContext.remote_identity(remote_actor, session_id)
         else:
             request.state.identity = IdentityContext.session_identity(session_id)
-        return await call_next(request)
+        return await continue_authenticated_request()
 
     if getattr(app.state, "_test_mode", False):
         request.state.identity = IdentityContext.local_identity()
+        return await continue_authenticated_request()
+
+    if request.url.path in UNAUTHENTICATED_PATHS:
         return await call_next(request)
 
     return JSONResponse(

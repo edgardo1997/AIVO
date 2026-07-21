@@ -1,10 +1,14 @@
+import asyncio
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, Iterator, List, Optional
 import logging
+import os
 import time
 
 from .circuit_breaker import CircuitBreaker
+from .hardware_intelligence import HardwareProfile, ModelCapabilityManager, get_model_capabilities
 
 logger = logging.getLogger(__name__)
 
@@ -33,20 +37,36 @@ class ProviderSpec:
 
 BUILTIN_PROVIDERS = [
     ProviderSpec(
+        id="deepseek",
+        name="DeepSeek v4 Flash (Free)",
+        task_types=[TaskType.REASONING, TaskType.CODE, TaskType.QUICK, TaskType.ANALYSIS, TaskType.CREATIVE],
+        requires_key=True,
+        default_model="deepseek/deepseek-v4-flash:free",
+        priority=10,
+        config={
+            "base_url": "https://api.deepseek.com/v1"
+        },
+        fallback_chain=["nvidia", "sentinel_local"]
+    ),
+    ProviderSpec(
+        id="nvidia-nemotron",
+        name="NVIDIA Nemotron (Free)",
+        task_types=[TaskType.REASONING, TaskType.CODE, TaskType.QUICK, TaskType.ANALYSIS],
+        requires_key=True,
+        default_model="nvidia/nemotron-3-super-120b-a12b",
+        priority=20,
+        config={
+            "base_url": "https://integrate.api.nvidia.com/v1"
+        },
+        fallback_chain=["sentinel_local"]
+    ),
+    ProviderSpec(
         id="openrouter",
         name="OpenRouter",
         task_types=[TaskType.REASONING, TaskType.ANALYSIS, TaskType.QUICK, TaskType.CODE, TaskType.CREATIVE],
         requires_key=True,
         default_model="deepseek/deepseek-v4-flash:free",
-        priority=20,
-    ),
-    ProviderSpec(
-        id="deepseek",
-        name="DeepSeek",
-        task_types=[TaskType.REASONING, TaskType.CODE],
-        requires_key=True,
-        default_model="deepseek-v4-flash",
-        priority=15,
+        priority=30,
     ),
     ProviderSpec(
         id="groq",
@@ -66,11 +86,15 @@ BUILTIN_PROVIDERS = [
     ),
     ProviderSpec(
         id="github_models",
-        name="GitHub Models",
-        task_types=[TaskType.QUICK, TaskType.CODE],
+        name="GitHub Models (Free)",
+        task_types=[TaskType.QUICK, TaskType.CODE, TaskType.REASONING, TaskType.ANALYSIS],
         requires_key=True,
         default_model="gpt-4o",
         priority=12,
+        config={
+            "base_url": "https://models.inference.ai.azure.com"
+        },
+        fallback_chain=["sentinel_local"]
     ),
     ProviderSpec(
         id="openai",
@@ -89,6 +113,16 @@ BUILTIN_PROVIDERS = [
         priority=22,
     ),
     ProviderSpec(
+        id="sentinel_local",
+        name="Sentinel Local",
+        task_types=[TaskType.LOCAL, TaskType.QUICK, TaskType.REASONING, TaskType.ANALYSIS, TaskType.CODE, TaskType.CREATIVE],
+        requires_key=False,
+        is_local=True,
+        default_model="Qwen3-1.7B-Q8_0.gguf",
+        priority=50, # Prioridad más baja - último fallback
+        config={"hardware": {"working_set_gb": 3.0, "minimum_cpu_cores": 2}},
+    ),
+    ProviderSpec(
         id="ollama",
         name="Ollama",
         task_types=[TaskType.LOCAL, TaskType.QUICK],
@@ -96,6 +130,7 @@ BUILTIN_PROVIDERS = [
         is_local=True,
         default_model="llama3",
         priority=30,
+        config={"hardware": {"working_set_gb": 6.0, "minimum_cpu_cores": 4}},
     ),
     ProviderSpec(
         id="cerebras",
@@ -113,6 +148,14 @@ BUILTIN_PROVIDERS = [
         default_model="mistral-large-latest",
         priority=16,
     ),
+    ProviderSpec(
+        id="nvidia",
+        name="NVIDIA NIM",
+        task_types=[TaskType.REASONING, TaskType.ANALYSIS, TaskType.QUICK, TaskType.CODE, TaskType.CREATIVE],
+        requires_key=True,
+        default_model="nvidia/nemotron-3-super-120b-a12b",
+        priority=28,
+    ),
 ]
 
 ROUTING_STRATEGIES = ["priority", "cost", "local_first", "smart", "manual"]
@@ -127,6 +170,9 @@ PROVIDER_URLS: Dict[str, str] = {
     "mistral": "https://api.mistral.ai/v1",
     "openai": "https://api.openai.com/v1",
     "anthropic": "https://api.anthropic.com/v1",
+    "nvidia": "https://integrate.api.nvidia.com/v1",
+    "nvidia-nemotron": "https://integrate.api.nvidia.com/v1",
+    "sentinel_local": "http://127.0.0.1:11435/v1",
     "ollama": "http://localhost:11434/v1",
 }
 
@@ -177,6 +223,61 @@ class ProviderAvailability:
 
 FALLBACK_STRATEGIES = ["chain", "round_robin", "broadcast"]
 
+# ── Timeout constants (seconds) ──────────────────────────────────────────
+# Total wall-clock budget across all fallback attempts.
+TOTAL_TIMEOUT_BUDGET = 120.0
+# Per-candidate timeouts for streaming.
+CONNECT_TIMEOUT = 10.0
+FIRST_TOKEN_TIMEOUT_NONLOCAL = 30.0
+FIRST_TOKEN_TIMEOUT_LOCAL = 60.0
+STREAM_IDLE_TIMEOUT = 20.0
+# Non-streaming per-provider call timeout.
+CALL_TIMEOUT = 60.0
+LOCAL_CALL_TIMEOUT = 90.0
+
+
+def classify_provider_error(exception: Exception, provider_id: str) -> Dict[str, Any]:
+    """Classify an error from a provider call into a structured category."""
+    msg = str(exception)
+    cls = type(exception).__name__
+
+    # OpenAI / httpx specific errors
+    if hasattr(exception, "status_code"):
+        code = exception.status_code
+    elif hasattr(exception, "response") and hasattr(exception.response, "status_code"):
+        code = exception.response.status_code
+    else:
+        code = None
+
+    if code == 401 or "401" in msg or "unauthorized" in msg.lower() or "invalid_api_key" in msg.lower():
+        return {"category": "invalid_auth", "status_code": 401, "message": "Invalid or missing API key"}
+    if code == 403 or "403" in msg or "forbidden" in msg.lower():
+        return {"category": "invalid_auth", "status_code": 403, "message": "API key lacks access to the requested model"}
+    if code == 429 or "429" in msg or "rate limit" in msg.lower() or "too many requests" in msg.lower():
+        return {"category": "rate_limited", "status_code": 429, "message": "Rate limited by provider"}
+    if code == 404 or "404" in msg or "model not found" in msg.lower():
+        return {"category": "model_not_found", "status_code": 404, "message": f"Model not available: {msg}"}
+    if isinstance(exception, TimeoutError) or "timeout" in cls.lower() or "timed out" in msg.lower():
+        return {"category": "timeout", "status_code": None, "message": "Provider did not respond in time"}
+    if "name or service not known" in msg.lower() or "no address associated" in msg.lower() or "dns" in msg.lower():
+        return {"category": "dns_failure", "status_code": None, "message": "Cannot resolve provider hostname"}
+    if "connection refused" in msg.lower() or "connection error" in msg.lower() or "connection reset" in msg.lower():
+        return {"category": "connection_failure", "status_code": None, "message": "Connection refused or reset"}
+    if "model_not_found" in cls.lower() or "model not found" in msg.lower():
+        return {"category": "model_not_found", "status_code": 404, "message": f"Model not available: {msg}"}
+    if code and 500 <= code < 600:
+        return {"category": "server_error", "status_code": code, "message": f"Provider server error ({code})"}
+    if "insufficient_quota" in msg.lower() or "quota" in msg.lower() or "exceeded" in msg.lower():
+        return {"category": "no_quota", "status_code": 403, "message": "API quota exhausted"}
+
+    return {"category": "unknown", "status_code": code, "message": msg}
+
+
+def format_elapsed(seconds: float) -> str:
+    if seconds < 1:
+        return f"{seconds * 1000:.0f}ms"
+    return f"{seconds:.1f}s"
+
 
 class ModelRouter:
     def __init__(
@@ -187,10 +288,12 @@ class ModelRouter:
         max_fallbacks: int = 5,
         availability_checker: Optional[Callable[[ProviderSpec], ProviderAvailability]] = None,
         availability_ttl_seconds: float = 15.0,
+        capability_manager: Optional[ModelCapabilityManager] = None,
     ):
         self._providers: Dict[str, ProviderSpec] = {}
         self._key_map: Dict[str, str] = {}
         self._strategy: str = "priority"
+        self._preferred_provider: Optional[str] = None
         self._db = None
         self._feedback_store = None
         self._cost_tracker = None
@@ -204,8 +307,10 @@ class ModelRouter:
         self._availability_ttl_seconds = max(0.0, availability_ttl_seconds)
         self._availability_cache: Dict[str, ProviderAvailability] = {}
         self._routing_history: List[Dict[str, Any]] = []
+        self._task_type_map: Dict[TaskType, str] = {}
+        self._capability_manager = capability_manager or get_model_capabilities()
 
-        for p in providers or BUILTIN_PROVIDERS:
+        for p in BUILTIN_PROVIDERS if providers is None else providers:
             self._providers[p.id] = p
 
     def set_feedback_store(self, store: Any) -> None:
@@ -218,26 +323,29 @@ class ModelRouter:
         self._db = db
 
     def load_keys_from_db(self) -> None:
-        if not self._db:
-            return
-        raw = self._db.config_get_json("ai_provider_keys", {})
-        self._key_map.update(raw)
+        pass
 
     def save_keys_to_db(self) -> None:
-        if not self._db:
-            return
-        self._db.config_set_json("ai_provider_keys", dict(self._key_map))
+        pass
 
     def set_api_key(self, provider_id: str, key: str) -> None:
         if provider_id not in self._providers:
             raise KeyError(f"Provider '{provider_id}' not found")
         self._key_map[provider_id] = key
         self._availability_cache.pop(provider_id, None)
-        self.save_keys_to_db()
+
+    def delete_api_key(self, provider_id: str) -> bool:
+        if provider_id not in self._providers:
+            return False
+        removed = self._key_map.pop(provider_id, None)
+        self._availability_cache.pop(provider_id, None)
+        return removed is not None
 
     def has_api_key(self, provider_id: str) -> bool:
         spec = self._providers.get(provider_id)
-        if not spec or not spec.requires_key:
+        if spec is None:
+            return False
+        if not spec.requires_key:
             return True
         return provider_id in self._key_map and bool(self._key_map[provider_id])
 
@@ -246,6 +354,8 @@ class ModelRouter:
         now = time.time()
         if provider is None:
             return ProviderAvailability(provider_id, False, "unknown_provider", now)
+        if provider_id == "sentinel_local" and os.environ.get("SENTINEL_DISABLE_LOCAL_AI") == "1":
+            return ProviderAvailability(provider_id, False, "disabled_by_environment", now)
         cached = self._availability_cache.get(provider_id)
         if not refresh and cached and now - cached.checked_at < self._availability_ttl_seconds:
             return cached
@@ -289,6 +399,11 @@ class ModelRouter:
             raise ValueError(f"Strategy must be one of {ROUTING_STRATEGIES}")
         self._strategy = strategy
 
+    def set_preferred_provider(self, provider_id: Optional[str]) -> None:
+        if provider_id and provider_id not in self._providers:
+            raise KeyError(f"Provider '{provider_id}' not found")
+        self._preferred_provider = provider_id or None
+
     def set_default_fallback_chain(self, chain: List[str]) -> None:
         self._default_fallback_chain = chain
 
@@ -299,6 +414,9 @@ class ModelRouter:
 
     def set_max_fallbacks(self, n: int) -> None:
         self._max_fallbacks = max(1, n)
+
+    def set_task_type_map(self, mapping: Dict[TaskType, str]) -> None:
+        self._task_type_map = dict(mapping)
 
     def fallback_stats(self) -> Dict[str, Any]:
         return {
@@ -370,14 +488,25 @@ class ModelRouter:
         if self._strategy == "smart":
             return self._smart_select(task_type, context or {})
 
-        candidates = self._filter_candidates(task_type)
+        candidates = self._filter_candidates(task_type, context)
         if not candidates:
-            snapshot = self.availability_snapshot()
+            snapshot = {
+                provider.id: self._candidate_exclusion_reason(provider, context)
+                for provider in self._providers.values()
+                if task_type in provider.task_types
+            }
             raise RuntimeError(
-                f"No available provider supports task type '{task_type.value}'. Availability: {snapshot}"
+                f"No available provider supports task type '{task_type.value}'. Exclusions: {snapshot}"
             )
 
-        if self._strategy == "local_first":
+        if self._preferred_provider:
+            candidates.sort(
+                key=lambda provider: (
+                    provider.id != self._preferred_provider,
+                    -provider.priority,
+                )
+            )
+        elif self._strategy == "local_first":
             candidates.sort(key=lambda p: (not p.is_local, -p.priority))
         elif self._strategy == "cost":
             candidates.sort(key=lambda p: (p.requires_key, -p.priority))
@@ -386,10 +515,11 @@ class ModelRouter:
 
         best = candidates[0]
         excluded = {
-            p.id: self.provider_availability(p.id).reason
+            p.id: self._candidate_exclusion_reason(p, context)
             for p in self._providers.values()
             if task_type in p.task_types and p.id not in {c.id for c in candidates}
         }
+        hardware = self._hardware_trace(candidates, context)
         reason = f"Selected {best.id} for {task_type.value} (strategy={self._strategy}, priority={best.priority}, availability=verified)"
         logger.info(reason)
 
@@ -400,21 +530,76 @@ class ModelRouter:
                 task_type=task_type,
                 strategy=self._strategy,
                 reason=reason,
-                selection_trace={"eligible": [p.id for p in candidates], "excluded": excluded},
+                selection_trace={"eligible": [p.id for p in candidates], "excluded": excluded, "hardware": hardware},
             )
         )
 
-    def _filter_candidates(self, task_type: TaskType) -> List[ProviderSpec]:
+    def _filter_candidates(
+        self, task_type: TaskType, context: Optional[Dict[str, Any]] = None
+    ) -> List[ProviderSpec]:
         return [
             p
             for p in self._providers.values()
-            if task_type in p.task_types and self.provider_availability(p.id).available
+            if task_type in p.task_types
+            and self.provider_availability(p.id).available
+            and self._hardware_allows(p, context)
         ]
 
+    @staticmethod
+    def _hardware_profile(context: Optional[Dict[str, Any]]) -> Optional[HardwareProfile]:
+        if not context:
+            return None
+        hardware = context.get("hardware")
+        if not isinstance(hardware, dict):
+            deep = context.get("deep_context")
+            hardware = deep.get("hardware") if isinstance(deep, dict) else None
+        return HardwareProfile.from_context(hardware) if isinstance(hardware, dict) else None
+
+    def _hardware_assessment(
+        self, provider: ProviderSpec, context: Optional[Dict[str, Any]]
+    ) -> Optional[Dict[str, Any]]:
+        if not provider.is_local:
+            return None
+        profile = self._hardware_profile(context)
+        if profile is None:
+            return None
+        return self._capability_manager.assess(provider.default_model, profile, provider.config).to_dict()
+
+    def _hardware_allows(self, provider: ProviderSpec, context: Optional[Dict[str, Any]]) -> bool:
+        assessment = self._hardware_assessment(provider, context)
+        return not assessment or assessment.get("compatible") is not False
+
+    def _candidate_exclusion_reason(
+        self, provider: ProviderSpec, context: Optional[Dict[str, Any]]
+    ) -> str:
+        availability = self.provider_availability(provider.id)
+        if not availability.available:
+            return availability.reason
+        assessment = self._hardware_assessment(provider, context)
+        if assessment and assessment.get("compatible") is False:
+            return f"hardware_incompatible: {assessment.get('reason')}"
+        return "not_eligible"
+
+    def _hardware_trace(
+        self, candidates: List[ProviderSpec], context: Optional[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        return {
+            provider.id: assessment
+            for provider in candidates
+            if (assessment := self._hardware_assessment(provider, context)) is not None
+        }
+
     def _smart_select(self, task_type: TaskType, context: Dict[str, Any]) -> RouterDecision:
-        candidates = self._filter_candidates(task_type)
+        candidates = self._filter_candidates(task_type, context)
         if not candidates:
-            raise RuntimeError(f"No available provider supports task type '{task_type.value}'")
+            exclusions = {
+                provider.id: self._candidate_exclusion_reason(provider, context)
+                for provider in self._providers.values()
+                if task_type in provider.task_types
+            }
+            raise RuntimeError(
+                f"No available provider supports task type '{task_type.value}'. Exclusions: {exclusions}"
+            )
 
         sys_sum = context.get("system_summary", {}) or {}
         cpu = sys_sum.get("cpu_percent", 50)
@@ -497,12 +682,16 @@ class ModelRouter:
                 task_type=task_type,
                 strategy="smart",
                 reason=reason,
-                selection_trace={"eligible": [p.id for p in candidates], "score": dynamic_score(best)},
+                selection_trace={
+                    "eligible": [p.id for p in candidates],
+                    "score": dynamic_score(best),
+                    "hardware": self._hardware_trace(candidates, context),
+                },
             )
         )
 
     def select_all(self, task_type: TaskType, context: Optional[Dict[str, Any]] = None) -> List[RouterDecision]:
-        candidates = self._filter_candidates(task_type)
+        candidates = self._filter_candidates(task_type, context)
 
         if self._strategy == "smart":
             ctx = context or {}
@@ -586,6 +775,8 @@ class ModelRouter:
 
         candidates = self._filter_open_providers(chain)
         last_error: Optional[str] = None
+        start_time = time.monotonic()
+        budget_remaining = TOTAL_TIMEOUT_BUDGET
 
         if not candidates:
             states = self._circuit_breaker.get_all_states()
@@ -599,9 +790,26 @@ class ModelRouter:
             provider = self._providers.get(candidate.provider_id)
             if not provider:
                 continue
+            elapsed = time.monotonic() - start_time
+            remaining = max(5.0, budget_remaining - elapsed)
+            per_call_timeout = min(remaining, LOCAL_CALL_TIMEOUT if provider.is_local else CALL_TIMEOUT)
             try:
-                result = self._call_provider(candidate, provider, messages, model_override)
+                result = self._call_provider(
+                    candidate, provider, messages, model_override,
+                    timeout=per_call_timeout,
+                )
+                elapsed_total = time.monotonic() - start_time
                 self._circuit_breaker.record_success(candidate.provider_id)
+                result["selection"] = {
+                    "primary": primary_id,
+                    "used": candidate.provider_id,
+                    "model": candidate.model,
+                    "strategy": self._strategy,
+                    "reason": candidate.reason,
+                    "attempt": idx + 1,
+                    "total_fallbacks_tried": idx,
+                    "elapsed": format_elapsed(elapsed_total),
+                }
                 if candidate.provider_id != primary_id:
                     self._record_fallback(candidate.provider_id)
                     self._fallback_history.append(
@@ -610,22 +818,222 @@ class ModelRouter:
                             "used": candidate.provider_id,
                             "model": candidate.model,
                             "attempt": idx + 1,
+                            "elapsed": elapsed_total,
                         }
                     )
+                logger.info(
+                    "Chat success: provider=%s model=%s attempt=%d/%d elapsed=%s",
+                    candidate.provider_id, candidate.model, idx + 1, len(candidates),
+                    format_elapsed(elapsed_total),
+                )
                 return result
             except Exception as e:
-                last_error = str(e)
+                classification = classify_provider_error(e, candidate.provider_id)
+                last_error = f"[{classification['category']}] {classification['message']}"
                 self._circuit_breaker.record_failure(candidate.provider_id)
                 logger.warning(
-                    "Provider %s failed (attempt %d/%d): %s",
-                    candidate.provider_id,
-                    idx + 1,
-                    len(candidates),
-                    e,
+                    "Provider %s failed (attempt %d/%d, budget_remaining=%.0fs): [%s] %s",
+                    candidate.provider_id, idx + 1, len(candidates), remaining,
+                    classification["category"], classification["message"],
                 )
+                if remaining < 5.0 and idx < len(candidates) - 1:
+                    logger.warning("Timeout budget exhausted, stopping fallback chain")
+                    break
                 continue
 
-        raise RuntimeError(f"All providers failed for {task_type.value}. Last error: {last_error}")
+        raise RuntimeError(
+            f"All providers failed for {task_type.value}. "
+            f"Last: {last_error}. Elapsed: {format_elapsed(time.monotonic() - start_time)}"
+        )
+
+    def chat_stream(
+        self,
+        messages: List[Dict[str, str]],
+        task_type: TaskType = TaskType.QUICK,
+        model_override: Optional[str] = None,
+        context: Optional[Dict[str, Any]] = None,
+    ) -> Iterator[Dict[str, Any]]:
+        """Yield provider metadata and model deltas without bypassing routing policy.
+
+        Fallback is allowed until a provider emits content. Once content reaches
+        the caller, switching providers would create a misleading mixed answer,
+        so a mid-stream failure is reported explicitly instead.
+
+        Timeouts: total budget across all fallbacks; separate connect, first-token
+        and stream-idle timeouts within each provider.
+        """
+        context = context or {}
+        decision = self.select(task_type, context=context)
+        candidates = self._filter_open_providers(
+            self._build_fallback_chain(decision, task_type, context=context)
+        )
+        if not candidates:
+            raise RuntimeError(f"All providers unavailable for {task_type.value}")
+
+        primary_id = candidates[0].provider_id
+        last_error: Optional[str] = None
+        last_classification: Optional[Dict[str, Any]] = None
+        start_time = time.monotonic()
+        budget_remaining = TOTAL_TIMEOUT_BUDGET
+
+        for index, candidate in enumerate(candidates):
+            provider = self._providers.get(candidate.provider_id)
+            if provider is None:
+                continue
+            elapsed = time.monotonic() - start_time
+            remaining = max(10.0, budget_remaining - elapsed)
+            emitted_content = False
+            try:
+                for event in self._call_provider_stream(
+                    candidate, provider, messages, model_override,
+                    timeout_budget=remaining,
+                ):
+                    if event["type"] == "delta" and event.get("text"):
+                        emitted_content = True
+                    yield event
+                self._circuit_breaker.record_success(candidate.provider_id)
+                if candidate.provider_id != primary_id:
+                    self._record_fallback(candidate.provider_id)
+                    self._fallback_history.append(
+                        {
+                            "primary": primary_id,
+                            "used": candidate.provider_id,
+                            "model": candidate.model,
+                            "attempt": index + 1,
+                            "streaming": True,
+                            "elapsed": time.monotonic() - start_time,
+                        }
+                    )
+                elapsed_total = time.monotonic() - start_time
+                logger.info(
+                    "Stream success: provider=%s model=%s attempt=%d/%d elapsed=%s",
+                    candidate.provider_id, candidate.model, index + 1, len(candidates),
+                    format_elapsed(elapsed_total),
+                )
+                return
+            except Exception as error:
+                classification = classify_provider_error(error, candidate.provider_id) if not emitted_content else {"category": "stream_interrupted", "message": str(error)}
+                last_classification = classification
+                last_error = f"[{classification['category']}] {classification['message']}"
+                self._circuit_breaker.record_failure(candidate.provider_id)
+                logger.warning(
+                    "Stream provider %s failed (attempt %d/%d, budget=%.0fs): [%s] %s",
+                    candidate.provider_id, index + 1, len(candidates), remaining,
+                    classification["category"], classification["message"],
+                )
+                if emitted_content:
+                    yield {"type": "error", "category": "stream_interrupted", "message": f"Provider {candidate.provider_id} interrupted the response"}
+                    return
+
+        yield {
+            "type": "error",
+            "category": last_classification.get("category", "all_failed") if last_classification else "all_failed",
+            "message": f"All providers failed. Last: {last_error}",
+            "detail": last_classification,
+        }
+
+    def _call_provider_stream(
+        self,
+        decision: RouterDecision,
+        provider: ProviderSpec,
+        messages: List[Dict[str, str]],
+        model_override: Optional[str] = None,
+        timeout_budget: Optional[float] = None,
+    ) -> Iterator[Dict[str, Any]]:
+        from openai import OpenAI
+
+        model = model_override or decision.model
+        base_url = provider.config.get("base_url") or PROVIDER_URLS.get(provider.id, "")
+        api_key = self._key_map.get(provider.id, "")
+        if provider.id in ("ollama", "sentinel_local"):
+            api_key = provider.id
+
+        provider_messages = messages
+        if provider.id == "sentinel_local":
+            provider_messages = [dict(message) for message in messages]
+            for message in provider_messages:
+                if message.get("role") == "system":
+                    message["content"] = (
+                        str(message.get("content", ""))
+                        + "\nUse only the supplied Sentinel context for device facts. "
+                        "Do not expose chain-of-thought. /no_think"
+                    )
+                    break
+
+        connect_to = CONNECT_TIMEOUT
+        first_token_to = FIRST_TOKEN_TIMEOUT_LOCAL if provider.is_local else FIRST_TOKEN_TIMEOUT_NONLOCAL
+        stream_idle_to = STREAM_IDLE_TIMEOUT
+        if timeout_budget is not None:
+            budget = max(connect_to + first_token_to + 5.0, timeout_budget)
+            connect_to = min(connect_to, budget * 0.2)
+            first_token_to = min(first_token_to, budget * 0.5)
+            stream_idle_to = min(stream_idle_to, budget * 0.3)
+
+        client = OpenAI(
+            base_url=base_url, api_key=api_key, timeout=first_token_to, max_retries=0,
+        )
+
+        request_options: Dict[str, Any] = {}
+        if provider.id == "nvidia":
+            deep_reasoning = decision.task_type in (TaskType.REASONING, TaskType.CODE)
+            request_options = {
+                "temperature": 1.0,
+                "top_p": 0.95,
+                "max_tokens": 4096 if deep_reasoning else 1024,
+                "extra_body": {
+                    "chat_template_kwargs": {"enable_thinking": deep_reasoning},
+                    **({"reasoning_budget": 2048} if deep_reasoning else {}),
+                },
+            }
+
+        stream_start = time.monotonic()
+        stream = client.chat.completions.create(
+            model=model,
+            messages=provider_messages,
+            max_tokens=768 if provider.id == "sentinel_local" else request_options.pop("max_tokens", None),
+            stream=True,
+            **request_options,
+        )
+
+        first_token_ttft = None
+        total_tokens = 0
+        last_chunk_time = time.monotonic()
+        yield {"type": "meta", "provider": decision.provider_id, "model": model}
+        for chunk in stream:
+            if not chunk.choices:
+                continue
+            now = time.monotonic()
+            if first_token_ttft is None:
+                first_token_ttft = now - stream_start
+                yield {"type": "ttft", "seconds": first_token_ttft, "provider": decision.provider_id}
+            text = chunk.choices[0].delta.content
+            if text:
+                total_tokens += 1
+                last_chunk_time = now
+                yield {"type": "delta", "text": text}
+            if hasattr(chunk.usage, "completion_tokens") and chunk.usage.completion_tokens:
+                total_tokens = chunk.usage.completion_tokens
+            # Check stream idle timeout
+            if now - last_chunk_time > stream_idle_to:
+                yield {
+                    "type": "error", "category": "stream_idle_timeout",
+                    "message": f"No data for {stream_idle_to:.0f}s",
+                    "provider": decision.provider_id,
+                }
+                for _ in stream:
+                    pass  # drain
+                return
+
+        elapsed_total = time.monotonic() - stream_start
+        yield {
+            "type": "metrics",
+            "provider": decision.provider_id,
+            "model": model,
+            "ttft_seconds": first_token_ttft,
+            "total_seconds": elapsed_total,
+            "estimated_tokens": total_tokens,
+        }
+        yield {"type": "done"}
 
     def _call_provider(
         self,
@@ -633,17 +1041,50 @@ class ModelRouter:
         provider: ProviderSpec,
         messages: List[Dict[str, str]],
         model_override: Optional[str] = None,
+        timeout: Optional[float] = None,
     ) -> Dict[str, Any]:
         from openai import OpenAI
 
         model = model_override or decision.model
         base_url = provider.config.get("base_url") or PROVIDER_URLS.get(provider.id, "")
         api_key = self._key_map.get(provider.id, "")
-        if provider.id == "ollama":
-            api_key = "ollama"
+        if provider.id in ("ollama", "sentinel_local"):
+            api_key = provider.id
 
-        client = OpenAI(base_url=base_url, api_key=api_key, timeout=60)
-        resp = client.chat.completions.create(model=model, messages=messages)
+        provider_messages = messages
+        if provider.id == "sentinel_local":
+            provider_messages = [dict(message) for message in messages]
+            for message in provider_messages:
+                if message.get("role") == "system":
+                    message["content"] = (
+                        str(message.get("content", ""))
+                        + "\nUse only the supplied Sentinel context for device facts. "
+                        "Do not expose chain-of-thought. /no_think"
+                    )
+                    break
+
+        effective_timeout = timeout or (LOCAL_CALL_TIMEOUT if provider.is_local else CALL_TIMEOUT)
+        client = OpenAI(base_url=base_url, api_key=api_key, timeout=effective_timeout, max_retries=0)
+        request_options: Dict[str, Any] = {}
+        if provider.id == "nvidia":
+            deep_reasoning = decision.task_type in (TaskType.REASONING, TaskType.CODE)
+            request_options = {
+                "temperature": 1.0,
+                "top_p": 0.95,
+                "max_tokens": 4096 if deep_reasoning else 1024,
+                "extra_body": {
+                    "chat_template_kwargs": {"enable_thinking": deep_reasoning},
+                    **({"reasoning_budget": 2048} if deep_reasoning else {}),
+                },
+            }
+        call_start = time.monotonic()
+        resp = client.chat.completions.create(
+            model=model,
+            messages=provider_messages,
+            max_tokens=768 if provider.id == "sentinel_local" else request_options.pop("max_tokens", None),
+            **request_options,
+        )
+        elapsed = time.monotonic() - call_start
 
         usage_data = None
         if resp.usage:
@@ -658,6 +1099,7 @@ class ModelRouter:
             "provider": decision.provider_id,
             "model": model,
             "usage": usage_data,
+            "elapsed_seconds": elapsed,
         }
 
     def chat_with_provider(
@@ -717,6 +1159,17 @@ class ModelRouter:
                 "has_key": self.has_api_key(p.id),
                 "default_model": p.default_model,
                 "availability": self.provider_availability(p.id).to_dict(),
+                "circuit_state": self._circuit_breaker.get_state(p.id) if self._circuit_breaker else "unknown",
+                "fallback_chain": list(p.fallback_chain),
             }
             for p in self._providers.values()
         ]
+
+    def get_routing_config(self) -> Dict[str, Any]:
+        return {
+            "preferred_provider": self._preferred_provider,
+            "strategy": self._strategy,
+            "task_type_map": {k.value: v for k, v in self._task_type_map.items()},
+            "max_fallbacks": self._max_fallbacks,
+            "fallback_strategy": self._fallback_strategy,
+        }

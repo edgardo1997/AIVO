@@ -47,6 +47,9 @@ src-tauri/updater.key
 Thumbs.db
 
 # Config with secrets
+.env
+.env.*
+!.env.example
 .aivo_config.json
 .aivo_fleet.json
 .aivo_audit.jsonl
@@ -73,3 +76,17 @@ sidecar/logs/
 tmp/
 .benchmarks/
 .anchored_summary.md
+
+# Agent tool artifacts (not part of Sentinel)
+.agents/
+.devin/
+
+# PyInstaller sidecar build
+sidecar/dist/
+sidecar/build/
+
+# Installer build output
+installer/
+
+# Local model binaries (download at runtime)
+sentinel/local_model/

@@ -8,3 +8,14 @@ ignore = ["E402", "E501", "F401"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["E712"]
+
+[tool.pytest.ini_options]
+asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "unit: Tests that validate a single function or class in isolation",
+    "integration: Tests that verify interactions between multiple components",
+    "security: Tests that validate security controls (auth, ACL, audit, injection prevention)",
+    "adversarial: Tests that simulate active attacks (prompt injection, SSRF, path traversal)",
+    "e2e: End-to-end tests that exercise full workflows",
+    "performance: Benchmarks that intentionally repeat comparatively expensive operations",
+]

@@ -79,9 +79,11 @@ async def update_profile(body: Dict[str, Any], request: Request):
                     "updated_at": profile.updated_at,
                 },
             }
-        except Exception as e:
-            log.error("Profile update failed: %s", e)
-            return JSONResponse({"error": str(e)}, status_code=400)
+        except ValueError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+        except Exception:
+            log.exception("Profile update failed")
+            return JSONResponse({"error": "Profile update failed"}, status_code=500)
 
 
 @router.get("/profile/preferences")

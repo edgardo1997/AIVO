@@ -13,6 +13,22 @@ client = TestClient(app)
 
 
 class TestSystemHealth:
+    def test_recognize_exact_desktop_diagnostic_request(self):
+        engine = IntentEngine()
+        intent = engine.parse("Analiza el estado completo de mi equipo y explícame cualquier riesgo")
+
+        assert intent.action == "analyze"
+        assert intent.target == "system.health"
+        assert intent.confidence >= 0.6
+
+    def test_discover_installed_apps_routes_to_real_tool(self):
+        engine = IntentEngine()
+        intent = engine.parse("Muéstrame las aplicaciones disponibles que Sentinel puede abrir")
+
+        assert intent.target == "app.discovery"
+        assert intent.parameters["action"] == "list"
+        assert intent.confidence >= 0.6
+
     def test_recognize_english(self):
         resp = client.post("/api/sentinel/process", json={"utterance": "analyze system health"})
         assert resp.status_code == 200

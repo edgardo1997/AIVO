@@ -96,6 +96,41 @@ class TestNormalIntentsUnchanged:
 
 
 class TestPlanStepParams:
+    def test_launch_parameters_are_preserved_and_catalog_evidence_is_explained(self):
+        planner = Planner()
+        intent = Intent(
+            action="execute",
+            target="executor.launch",
+            parameters={"app_name": "Chrome", "elevated": False},
+            raw_input="abre Chrome",
+        )
+        context = {
+            "deep_context": {
+                "installed_apps": [
+                    {"name": "Chrome", "source": "app_paths", "confidence": 0.98}
+                ]
+            }
+        }
+
+        plan = planner.plan(intent, context)
+
+        assert plan.steps[-1].params["app_name"] == "Chrome"
+        assert plan.steps[-1].params["elevated"] is False
+        assert "detected via app_paths" in plan.steps[-1].description
+        assert "still requires policy authorization" in plan.steps[-1].description
+
+    def test_unknown_application_is_not_claimed_as_installed(self):
+        planner = Planner()
+        intent = Intent(
+            action="execute",
+            target="executor.launch",
+            parameters={"app_name": "Unknown App"},
+        )
+
+        plan = planner.plan(intent, {"deep_context": {"installed_apps": []}})
+
+        assert "not confirmed" in plan.steps[-1].description
+
     def test_system_health_passes_limit_to_processes(self):
         planner = Planner()
         intent = Intent(action="query", target="system.health", parameters={"limit": 3}, raw_input="health check")

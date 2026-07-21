@@ -60,7 +60,7 @@ async def test_confirmation_is_identity_bound_and_single_use():
     assert pending.requires_confirmation and tool.calls == 0
 
     wrong = await gateway.confirm(action_id, True, {**IDENTITY, "user_id": "bob"})
-    assert wrong.success is False and "different user" in wrong.error
+    assert wrong.success is False and "Identity hash mismatch" in wrong.error
     approved = await gateway.confirm(action_id, True, IDENTITY)
     assert approved.success is True and tool.calls == 1
     replay = await gateway.confirm(action_id, True, IDENTITY)

@@ -13,7 +13,7 @@ class TriggerListTool(Tool):
             id="trigger.list",
             name="List Triggers",
             description="List all configured trigger rules",
-            version="0.1.0",
+            version="1.0.0",
             category="trigger",
             parameters={},
             required_permissions=["system.read"],
@@ -38,7 +38,7 @@ class TriggerCreateTool(Tool):
             id="trigger.create",
             name="Create Trigger",
             description="Create a new trigger rule that fires when conditions are met",
-            version="0.1.0",
+            version="1.0.0",
             category="trigger",
             parameters={
                 "type": "object",
@@ -82,8 +82,6 @@ class TriggerCreateTool(Tool):
         rule_id = params.get("id")
         if not rule_id:
             return ToolResult.err("Trigger id is required", tool_id="trigger.create")
-        if engine.get_rule(rule_id):
-            return ToolResult.err(f"Trigger '{rule_id}' already exists", tool_id="trigger.create")
         conditions = [TriggerCondition.from_dict(c) for c in params.get("conditions", [])]
         if not conditions:
             return ToolResult.err("At least one condition is required", tool_id="trigger.create")
@@ -98,7 +96,8 @@ class TriggerCreateTool(Tool):
             cooldown_seconds=params.get("cooldown_seconds", 300),
             enabled=params.get("enabled", True),
         )
-        engine.add_rule(rule)
+        if not engine.add_rule(rule, overwrite=False):
+            return ToolResult.err(f"Trigger '{rule_id}' already exists", tool_id="trigger.create")
         logger.info("Trigger '%s' created with %d condition(s)", rule_id, len(conditions))
         return ToolResult.ok(data={"trigger": rule.to_dict(), "status": "created"}, tool_id="trigger.create")
 
@@ -109,7 +108,7 @@ class TriggerDeleteTool(Tool):
             id="trigger.delete",
             name="Delete Trigger",
             description="Remove a trigger rule by id",
-            version="0.1.0",
+            version="1.0.0",
             category="trigger",
             parameters={
                 "type": "object",
@@ -141,7 +140,7 @@ class TriggerHistoryTool(Tool):
             id="trigger.history",
             name="Trigger History",
             description="View history of trigger firings",
-            version="0.1.0",
+            version="1.0.0",
             category="trigger",
             parameters={
                 "type": "object",
@@ -173,7 +172,7 @@ class TriggerEvaluateTool(Tool):
             id="trigger.evaluate",
             name="Evaluate Triggers",
             description="Evaluate all triggers against current metrics and fire any matching",
-            version="0.1.0",
+            version="1.0.0",
             category="trigger",
             parameters={
                 "type": "object",

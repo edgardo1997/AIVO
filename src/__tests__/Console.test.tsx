@@ -24,23 +24,23 @@ vi.mock("../api", () => ({
 describe("Console", () => {
   it("renders console header", async () => {
     render(<AppProvider><Console /></AppProvider>);
-    expect(await screen.findByText("Console")).toBeInTheDocument();
-    expect(screen.getByText(/Permission level: auto/)).toBeInTheDocument();
+    expect(await screen.findByText("Consola")).toBeInTheDocument();
+    expect(screen.getByText(/Nivel de permiso: auto/)).toBeInTheDocument();
   });
 
   it("quick command buttons render", async () => {
     render(<AppProvider><Console /></AppProvider>);
-    expect(await screen.findByText("System Info")).toBeInTheDocument();
-    expect(screen.getByText("Network")).toBeInTheDocument();
-    expect(screen.getByText("Process List")).toBeInTheDocument();
-    expect(screen.getByText("Disk Usage")).toBeInTheDocument();
+    expect(await screen.findByText("Info Sistema")).toBeInTheDocument();
+    expect(screen.getByText("Red")).toBeInTheDocument();
+    expect(screen.getByText("Procesos")).toBeInTheDocument();
+    expect(screen.getByText("Disco")).toBeInTheDocument();
   });
 
   it("execute command", async () => {
     render(<AppProvider><Console /></AppProvider>);
-    const input = await screen.findByPlaceholderText("> type a command...");
+    const input = await screen.findByPlaceholderText("> escribe un comando...");
     fireEvent.change(input, { target: { value: "echo hello" } });
-    fireEvent.click(screen.getByText("Run"));
+    fireEvent.click(screen.getByText("Ejecutar"));
     await waitFor(() => {
       expect(screen.getByText("> echo hello")).toBeInTheDocument();
     });

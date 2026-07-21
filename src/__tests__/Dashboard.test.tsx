@@ -25,8 +25,8 @@ describe("Dashboard", () => {
 
   it("muestra AI Analysis section", async () => {
     render(<Dashboard />);
-    expect(await screen.findByText("AI Analysis")).toBeInTheDocument();
-    fireEvent.click(screen.getByText("Analyze"));
+    expect(await screen.findByText("Análisis Inteligente")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Analizar"));
     expect(await screen.findByText("System is healthy")).toBeInTheDocument();
   });
 });

@@ -1,7 +1,7 @@
 import asyncio
 import functools
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 import logging
@@ -60,16 +60,30 @@ class SystemContext:
 
 
 class ContextEngine:
-    def __init__(self, collect_processes: bool = True, process_limit: int = 30):
+    def __init__(
+        self,
+        collect_processes: bool = True,
+        process_limit: int = 30,
+        collect_connections: bool = False,
+    ):
         self._gather_processes = collect_processes
+        self._gather_connections = collect_connections
         self._process_limit = process_limit
         self._last_context: Optional[SystemContext] = None
+        self._last_included_processes = False
         self._cache_deadline: float = 0
 
     async def collect(self, include_processes: Optional[bool] = None) -> SystemContext:
+        if include_processes is None:
+            include_processes = self._gather_processes
         now = time.monotonic()
         if self._last_context is not None and now < self._cache_deadline:
-            return self._last_context
+            if include_processes == self._last_included_processes:
+                return self._last_context
+            if not include_processes and self._last_included_processes:
+                # Never leak a process-rich cached result into a caller that
+                # explicitly requested the privacy-safe context variant.
+                return replace(self._last_context, processes=[])
 
         ctx = SystemContext(timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"))
         errors = []
@@ -91,8 +105,6 @@ class ContextEngine:
             else:
                 setattr(ctx, name, result)
 
-        if include_processes is None:
-            include_processes = self._gather_processes
         if include_processes:
             try:
                 ctx.processes = await self._get_processes_async()
@@ -102,6 +114,7 @@ class ContextEngine:
 
         ctx.errors = errors
         self._last_context = ctx
+        self._last_included_processes = include_processes
         self._cache_deadline = now + _CACHE_TTL
         return ctx
 
@@ -200,31 +213,32 @@ class ContextEngine:
     def _collect_network(self) -> Dict[str, Any]:
         io = psutil.net_io_counters()
         connections = []
-        try:
-            for conn in psutil.net_connections():
-                laddr = f"{conn.laddr.ip}:{conn.laddr.port}" if conn.laddr else ""
-                raddr = f"{conn.raddr.ip}:{conn.raddr.port}" if conn.raddr else ""
-                connections.append(
-                    {
-                        "fd": conn.fd,
-                        "family": str(conn.family),
-                        "type": str(conn.type),
-                        "laddr": laddr,
-                        "raddr": raddr,
-                        "status": conn.status,
-                        "pid": conn.pid,
-                    }
-                )
-        except (psutil.AccessDenied, PermissionError):
-            connections = []
+        if self._gather_connections:
+            try:
+                for conn in psutil.net_connections():
+                    laddr = f"{conn.laddr.ip}:{conn.laddr.port}" if conn.laddr else ""
+                    raddr = f"{conn.raddr.ip}:{conn.raddr.port}" if conn.raddr else ""
+                    connections.append(
+                        {
+                            "fd": conn.fd,
+                            "family": str(conn.family),
+                            "type": str(conn.type),
+                            "laddr": laddr,
+                            "raddr": raddr,
+                            "status": conn.status,
+                            "pid": conn.pid,
+                        }
+                    )
+            except (psutil.AccessDenied, PermissionError):
+                connections = []
 
         return {
             "bytes_sent": io.bytes_sent,
             "bytes_recv": io.bytes_recv,
             "packets_sent": io.packets_sent,
             "packets_recv": io.packets_recv,
-            "connections": connections[:50],
-            "connection_count": len(connections),
+            "connections": connections[:50] if self._gather_connections else [],
+            "connection_count": len(connections) if self._gather_connections else None,
         }
 
     def _get_processes(self) -> List[Dict[str, Any]]:

@@ -1,5 +1,7 @@
 """Tests for the DeepContextEngine."""
 
+import threading
+
 import pytest
 
 from sentinel.core.deep_context import DeepContextEngine
@@ -20,6 +22,7 @@ async def test_collect_with_all_sources():
     test_goals = [{"id": "goal-1", "name": "Test Goal"}]
     test_caps = [{"id": "system.info"}, {"id": "filesystem.read"}]
     test_tools = ["system.info", "filesystem.read"]
+    test_hardware = {"ram_total_gb": 16.0, "gpu_available": False, "confidence": 0.9}
 
     ctx = DeepContextEngine(
         app_discovery_fn=lambda: test_apps,
@@ -28,6 +31,7 @@ async def test_collect_with_all_sources():
         get_permission_level_fn=lambda: "admin",
         get_capabilities_fn=lambda: test_caps,
         get_connected_tools_fn=lambda: test_tools,
+        get_hardware_profile_fn=lambda: test_hardware,
     )
     result = await ctx.collect()
     assert result["installed_apps_count"] == 1
@@ -36,6 +40,29 @@ async def test_collect_with_all_sources():
     assert result["permission_level"] == "admin"
     assert result["capabilities_count"] == 2
     assert result["connected_tools_count"] == 2
+    assert result["hardware"] == test_hardware
+
+
+@pytest.mark.asyncio
+async def test_host_discovery_sources_run_off_event_loop():
+    event_loop_thread = threading.get_ident()
+    worker_threads = []
+
+    def applications():
+        worker_threads.append(threading.get_ident())
+        return []
+
+    def hardware():
+        worker_threads.append(threading.get_ident())
+        return {"confidence": 1.0}
+
+    await DeepContextEngine(
+        app_discovery_fn=applications,
+        get_hardware_profile_fn=hardware,
+    ).collect()
+
+    assert len(worker_threads) == 2
+    assert all(thread_id != event_loop_thread for thread_id in worker_threads)
 
 
 @pytest.mark.asyncio

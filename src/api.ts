@@ -3,16 +3,31 @@ import type {
   CircuitBreakerState, RateLimitStats, FeedbackStats, CostSummary, PerformanceAlert,
   FallbackStats, HealthStatus, NetworkStatus, AlertInfo, MultiAgentResponse,
   ModelFeedbackStat, ModelFeedbackRecord, ModelCostRow, CostTotal, CostBudget, ObservabilityOverview,
+  PipelineMetricsOverview, ComponentDuration, ToolUsageStat, ThroughputStats, BottleneckInfo, TimelineTree,
   VaultEntry, VaultAuditEntry, VaultStatus,
   KbStats, KbListResponse, KbSearchResponse, KbAddResponse, KbQueryResponse,
   AlertStats, AlertListResponse, CostAlertItem, PerfAlertItem,
-  PermissionRule, MemorySession, MemoryRecord, ReportPreview, UserProfile,
+  PermissionRule, MemorySession, MemoryRecord, ConversationThread, ConversationMessage, ReportPreview, UserProfile,
   Trigger, TriggerHistory, SentinelResponse, ProfileHistoryEntry, ProfilePreset, ProfileSearchResult,
+  MarketplacePlugin, FleetDevice, SyncLogEntry, HelpTopic, HelpCategory, OnboardingStep,
+  RecoveryStatus, HealthCheckResult, ProactiveStatus, ProactiveTrend,
 } from "./types";
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke as tauriInvoke } from "@tauri-apps/api/core";
+
+let _invoke: ((cmd: string, args?: Record<string, unknown>) => Promise<unknown>) | undefined =
+  typeof window !== "undefined" && "__TAURI_INTERNALS__" in window ? tauriInvoke : undefined;
 
 const BASE = "http://127.0.0.1:8765";
 let sessionTokenPromise: Promise<string> | null = null;
+
+export type SentinelStreamEvent =
+  | { type: "status"; stage: string }
+  | { type: "pipeline"; pipeline: SentinelResponse | null; stage: string; planning_ms?: number; route?: "governed" | "conversation" }
+  | { type: "meta"; provider?: string | null; model?: string | null }
+  | { type: "delta"; text: string }
+  | { type: "metrics"; time_to_first_token_ms: number; generation_ms: number; output_tokens: number; tokens_per_second: number }
+  | { type: "done" }
+  | { type: "error"; message: string; detail?: string; retryable?: boolean; provider?: string | null };
 
 // JWT token management
 // Tokens remain in process memory. Persisting bearer credentials in Web Storage
@@ -53,9 +68,16 @@ async function getSessionToken(): Promise<string> {
   if (_accessToken) return _accessToken;
   const configured = import.meta.env.VITE_SENTINEL_SESSION_TOKEN as string | undefined;
   if (configured) return configured;
+  if (_invoke) {
+    sessionTokenPromise ??= (_invoke("get_sidecar_session_token") as Promise<string>).catch((error) => {
+      // A transient sidecar startup failure must not poison every later retry.
+      sessionTokenPromise = null;
+      throw error;
+    });
+    return sessionTokenPromise;
+  }
   if (import.meta.env.MODE === "test") return "sentinel-test-session";
-  sessionTokenPromise ??= invoke<string>("get_sidecar_session_token");
-  return sessionTokenPromise;
+  return "";
 }
 
 export const auth = {
@@ -124,10 +146,14 @@ export const api = {
     chat: (input: string, ctx: { role: string; content: string }[] = [], systemPrompt?: string) =>
       v1("ai.chat", { message: input, context: ctx, system_prompt: systemPrompt }),
     config: () => v1("ai.config"),
-    setConfig: (cfg: { provider: string; api_key: string; base_url: string; model: string }) =>
+    setConfig: (cfg: { provider?: string; api_key?: string; base_url?: string; model?: string; strategy?: string; delete_key?: boolean }) =>
       v1("ai.config", cfg),
     analyze: (metrics: { cpu: unknown; memory: unknown; disk: unknown }) =>
       v1("ai.analyze", { metrics }),
+    validateModel: (provider: string, model: string) =>
+      postJSON<{ valid: boolean; provider: string; model: string; default_model: string }>(
+        `${BASE}/api/sentinel/ai/validate-model`, { provider, model }
+      ),
   },
 
   fleet: {
@@ -136,6 +162,16 @@ export const api = {
     qr: () => v1("fleet.qr"),
     revokePairing: () => v1("fleet.revoke_pairing"),
     toggleRemote: () => v1("fleet.toggle_remote"),
+    listDevices: () => fetchJSON<{ devices: FleetDevice[] }>(`${BASE}/api/fleet/devices`),
+    getDevice: (id: string) => fetchJSON<FleetDevice>(`${BASE}/api/fleet/devices/${encodeURIComponent(id)}`),
+    registerDevice: (d: Partial<FleetDevice> & { device_id: string; name: string }) => postJSON<FleetDevice>(`${BASE}/api/fleet/devices`, d),
+    updateDevice: (id: string, updates: Record<string, unknown>) => postJSON<FleetDevice>(`${BASE}/api/fleet/devices/${encodeURIComponent(id)}`, updates, "PUT"),
+    deleteDevice: (id: string) => postJSON<{ status: string; device_id: string }>(`${BASE}/api/fleet/devices/${encodeURIComponent(id)}`, undefined, "DELETE"),
+    syncPush: (peerUrl: string, token: string, configKeys?: string[]) =>
+      postJSON<{ status: string; pushed_keys?: string[]; error?: string }>(`${BASE}/api/fleet/sync/push`, { peer_url: peerUrl, token, config_keys: configKeys || [] }),
+    syncPull: (peerUrl: string, token: string, configKeys?: string[]) =>
+      postJSON<{ status: string; pulled_keys?: string[]; error?: string }>(`${BASE}/api/fleet/sync/pull`, { peer_url: peerUrl, token, config_keys: configKeys || [] }),
+    syncLog: (limit?: number) => fetchJSON<{ logs: SyncLogEntry[] }>(`${BASE}/api/fleet/sync/log${limit ? `?limit=${limit}` : ""}`),
   },
 
   plugins: {
@@ -146,6 +182,10 @@ export const api = {
     reload: (id: string) => v1("plugins.reload", { plugin_id: id }),
     toggle: (id: string) => v1("plugins.toggle", { plugin_id: id }),
     create: (opts: { name: string; template: string }) => v1("plugins.create", opts),
+    marketplace: () => fetchJSON<{ plugins: MarketplacePlugin[] }>(`${BASE}/api/admin/plugins/marketplace`),
+    installFromUrl: (url: string, plugin_id?: string) => postJSON<{ status: string; id: string; name: string }>(`${BASE}/api/admin/plugins/install/url`, { url, plugin_id }),
+    exportPlugin: (id: string) => `${BASE}/api/admin/plugins/${encodeURIComponent(id)}/export`,
+    verify: (id: string) => fetchJSON<{ valid: boolean; expected?: string; actual?: string; files?: number }>(`${BASE}/api/admin/plugins/${encodeURIComponent(id)}/verify`),
   },
 
   permissions: {
@@ -183,6 +223,16 @@ export const api = {
   },
 
   sentinel: {
+    conversationCapabilities: () => fetchJSON<{
+      models: { available: boolean; available_count: number; providers: string[] };
+      system: { registered_count: number; categories: string[] };
+    }>(`${BASE}/api/sentinel/conversation/capabilities`),
+    conversations: () => fetchJSON<{ conversations: ConversationThread[] }>(`${BASE}/api/sentinel/conversations`),
+    conversation: (sessionId: string) => fetchJSON<ConversationThread>(`${BASE}/api/sentinel/conversations/${encodeURIComponent(sessionId)}`),
+    saveConversation: (sessionId: string, data: { title: string; messages: ConversationMessage[] }) =>
+      postJSON<ConversationThread>(`${BASE}/api/sentinel/conversations/${encodeURIComponent(sessionId)}`, data, "PUT"),
+    deleteConversation: (sessionId: string) =>
+      postJSON<{ deleted: boolean; session_id: string }>(`${BASE}/api/sentinel/conversations/${encodeURIComponent(sessionId)}`, undefined, "DELETE"),
     memorySessions: () => fetchJSON<{ sessions: MemorySession[] }>(`${BASE}/api/sentinel/memory/sessions`),
     createMemorySession: (label = "") => postJSON<{ session_id: string; label: string }>(`${BASE}/api/sentinel/memory/sessions`, { label }),
     memorySession: (sessionId: string) => fetchJSON<{ session_id: string; records: MemoryRecord[] }>(`${BASE}/api/sentinel/memory/sessions/${encodeURIComponent(sessionId)}`),
@@ -200,12 +250,81 @@ export const api = {
       if (!response.ok) throw new Error(await response.text());
       return response.blob();
     },
-    process: (text: string, opts?: { dry_run?: boolean; session_id?: string }) =>
-      v1("sentinel.process", { utterance: text, ...(opts?.dry_run ? { dry_run: true } : {}), ...(opts?.session_id ? { session_id: opts.session_id } : {}) }),
+    process: (text: string, opts?: { dry_run?: boolean; session_id?: string; presentation_mode?: "user" | "developer" }) =>
+      v1("sentinel.process", { utterance: text, ...(opts?.dry_run ? { dry_run: true } : {}), ...(opts?.session_id ? { session_id: opts.session_id } : {}), ...(opts?.presentation_mode ? { presentation_mode: opts.presentation_mode } : {}) }),
     chat: (message: string, context: { role: string; content: string }[] = [], session_id?: string) =>
       postJSON<{ response: string; provider?: string; model?: string; pipeline?: SentinelResponse }>(
         `${BASE}/api/sentinel/chat`, { message, context, session_id }
       ),
+    streamChat: async (
+      message: string,
+      context: { role: string; content: string }[] = [],
+      session_id: string | undefined,
+      onEvent: (event: SentinelStreamEvent) => void,
+      signal?: AbortSignal,
+    ) => {
+      const decoder = new TextDecoder();
+      let buffer = "";
+      const consumeLines = (chunk = "", finished = false) => {
+        buffer += chunk;
+        if (finished) buffer += decoder.decode();
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          onEvent(JSON.parse(line) as SentinelStreamEvent);
+        }
+        if (finished && buffer.trim()) {
+          onEvent(JSON.parse(buffer) as SentinelStreamEvent);
+          buffer = "";
+        }
+      };
+
+      if (_invoke) {
+        const requestId = crypto.randomUUID();
+        const channel = new Channel<string>();
+        channel.onmessage = (chunk) => consumeLines(chunk);
+        const cancel = () => { void _invoke?.("cancel_sidecar_stream", { requestId }); };
+        if (signal?.aborted) throw new DOMException("Stream cancelled", "AbortError");
+        signal?.addEventListener("abort", cancel, { once: true });
+        try {
+          await _invoke("sidecar_stream", {
+            path: "/api/sentinel/chat/stream",
+            body: { message, context, session_id },
+            requestId,
+            onEvent: channel,
+          });
+        } finally {
+          signal?.removeEventListener("abort", cancel);
+        }
+        consumeLines("", true);
+        return;
+      }
+
+      const token = await getSessionToken();
+      const response = await fetch(`${BASE}/api/sentinel/chat/stream`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ message, context, session_id }),
+        signal,
+      });
+      if (!response.ok) throw new Error(await response.text());
+      if (!response.body) throw new Error("Sentinel streaming is unavailable in this runtime");
+
+      const reader = response.body.getReader();
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) {
+          consumeLines("", true);
+          return;
+        }
+        consumeLines(decoder.decode(value, { stream: true }));
+      }
+    },
     approve: (actionId: string) =>
       postJSON<ApproveResponse>(`${BASE}/api/sentinel/simulate/approve`, { action_id: actionId, approved: true }),
     approveModified: (actionId: string, steps: Record<string, unknown>[]) =>
@@ -214,6 +333,10 @@ export const api = {
       postJSON<ApproveResponse>(`${BASE}/api/sentinel/simulate/reject`, { action_id: actionId }),
     multiAgent: (utterance: string, session_id?: string) =>
       postJSON<MultiAgentResponse>(`${BASE}/api/sentinel/process/multi-agent`, { utterance, session_id }),
+    advisoryFeedback: (helpful: boolean, insightKind?: string, executionId?: string) =>
+      postJSON<{ status: string; stats?: { total: number; helpful_pct: number; total_helpful: number; total_unhelpful: number } }>(
+        `${BASE}/api/sentinel/advisory/feedback`, { helpful, insight_kind: insightKind, execution_id: executionId }
+      ),
   },
 
   profile: {
@@ -284,6 +407,15 @@ export const api = {
     network: () => fetchJSON<NetworkStatus>(`${BASE}/api/sentinel/network/status`),
   },
 
+  pipelineMetrics: {
+    overview: () => fetchJSON<PipelineMetricsOverview>(`${BASE}/api/sentinel/observability/pipeline-metrics`),
+    componentDurations: (limit = 50) => fetchJSON<{ components: ComponentDuration[] }>(`${BASE}/api/sentinel/observability/component-durations?limit=${limit}`),
+    toolUsage: (limit = 10) => fetchJSON<{ tools: ToolUsageStat[] }>(`${BASE}/api/sentinel/observability/tool-usage?limit=${limit}`),
+    throughput: () => fetchJSON<ThroughputStats>(`${BASE}/api/sentinel/observability/throughput`),
+    bottlenecks: (limit = 5) => fetchJSON<{ bottlenecks: BottleneckInfo[] }>(`${BASE}/api/sentinel/observability/bottlenecks?limit=${limit}`),
+    timeline: (requestId: string) => fetchJSON<TimelineTree>(`${BASE}/api/sentinel/observability/timeline/${encodeURIComponent(requestId)}`),
+  },
+
   feedbackCosts: {
     stats: () => fetchJSON<{ stats: ModelFeedbackStat[] }>(`${BASE}/api/sentinel/feedback/stats`),
     records: (limit = 50) => fetchJSON<{ records: ModelFeedbackRecord[] }>(`${BASE}/api/sentinel/feedback/records?limit=${limit}`),
@@ -339,6 +471,39 @@ export const api = {
     costAlerts: () => fetchJSON<{ alerts: CostAlertItem[] }>(`${BASE}/api/sentinel/cost/alerts`),
     perfAlerts: () => fetchJSON<{ alerts: PerfAlertItem[] }>(`${BASE}/api/sentinel/performance/alerts`),
   },
+
+  admin: {
+    listConfig: () => fetchJSON<{ config: Record<string, unknown> }>(`${BASE}/api/admin/config`),
+    getConfig: (key: string) => fetchJSON<{ key: string; value: unknown }>(`${BASE}/api/admin/config/${encodeURIComponent(key)}`),
+    setConfig: (key: string, value: unknown) => postJSON<{ status: string; key: string }>(`${BASE}/api/admin/config/${encodeURIComponent(key)}`, { value }, "PUT"),
+    deleteConfig: (key: string) => postJSON<{ status: string }>(`${BASE}/api/admin/config/${encodeURIComponent(key)}`, undefined, "DELETE"),
+    createBackup: () => postJSON<{ status: string; path: string; size_bytes: number }>(`${BASE}/api/admin/backup`),
+    listBackups: () => fetchJSON<{ backups: { name: string; size_bytes: number; modified: string }[] }>(`${BASE}/api/admin/backups`),
+    readLogs: (lines = 100, search = "") => fetchJSON<{ lines: string[]; total_lines: number; log_path: string | null }>(`${BASE}/api/admin/logs?lines=${lines}&search=${encodeURIComponent(search)}`),
+    health: () => fetchJSON<{ status: string; timestamp: string; uptime_seconds: number; cpu_percent: number; memory_percent: number; disk_percent: number; database: { path: string; exists: boolean; size_bytes: number }; storage: Record<string, string> }>(`${BASE}/api/admin/health`),
+  },
+
+  help: {
+    topics: (category?: string) => fetchJSON<{ topics: HelpTopic[]; categories: HelpCategory[] }>(`${BASE}/api/help/topics${category ? `?category=${encodeURIComponent(category)}` : ""}`),
+    topic: (id: string) => fetchJSON<HelpTopic>(`${BASE}/api/help/topics/${encodeURIComponent(id)}`),
+    categories: () => fetchJSON<{ categories: HelpCategory[] }>(`${BASE}/api/help/categories`),
+    onboardingSteps: () => fetchJSON<{ steps: OnboardingStep[] }>(`${BASE}/api/help/onboarding/steps`),
+  },
+
+  proactive: {
+    suggestions: () => fetchJSON<ProactiveStatus>(`${BASE}/api/proactive/suggestions`),
+    dismiss: (id: string) => postJSON<{ status: string }>(`${BASE}/api/proactive/suggestions/${encodeURIComponent(id)}/dismiss`),
+    metricsHistory: () => fetchJSON<{ history: { timestamp: number; cpu: number; memory: number; disk: number }[]; trend: ProactiveTrend }>(`${BASE}/api/proactive/metrics-history`),
+    restartEngine: () => postJSON<{ status: string }>(`${BASE}/api/proactive/engine/restart`),
+  },
+
+  recovery: {
+    status: () => fetchJSON<RecoveryStatus>(`${BASE}/api/recovery/status`),
+    retryOffline: () => postJSON<{ status: string }>(`${BASE}/api/recovery/retry-offline`),
+    clearOffline: () => postJSON<{ status: string }>(`${BASE}/api/recovery/clear-offline`),
+    resetCircuitBreaker: () => postJSON<{ status: string }>(`${BASE}/api/recovery/reset-circuit-breaker`),
+    healthCheck: () => fetchJSON<HealthCheckResult>(`${BASE}/api/recovery/health-check`),
+  },
 };
 
 async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T> {
@@ -354,15 +519,49 @@ async function postJSON<T>(url: string, body?: unknown, method = "POST"): Promis
 
 async function requestJSON<T>(url: string, options: RequestInit = {}, _retried = false): Promise<T> {
   const token = await getSessionToken();
+  if (_invoke) {
+    const target = new URL(url);
+    const rawBody = typeof options.body === "string" && options.body ? JSON.parse(options.body) : undefined;
+    const native = await _invoke("sidecar_request", {
+      method: options.method ?? "GET",
+      path: `${target.pathname}${target.search}`,
+      body: rawBody,
+    }) as unknown as { status: number; body: string };
+    if (native.status < 200 || native.status >= 300) {
+      throw new Error(native.body || `Sentinel request failed (${native.status})`);
+    }
+    return JSON.parse(native.body) as T;
+  }
   const headers = new Headers(options.headers);
   headers.set("Content-Type", "application/json");
   headers.set("Authorization", `Bearer ${token}`);
-  const res = await fetch(url, { ...options, headers });
-  if (res.status === 401 && !_retried && _refreshToken) {
-    const refreshed = await refreshAccessToken();
-    if (refreshed) return requestJSON<T>(url, options, true);
-    clearTokens();
+  const method = (options.method ?? "GET").toUpperCase();
+  const maxAttempts = method === "GET" || method === "HEAD" ? 3 : 1;
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    if (attempt > 0) {
+      await new Promise((r) => setTimeout(r, Math.min(1000 * Math.pow(2, attempt - 1), 4000)));
+    }
+    try {
+      const res = await fetch(url, { ...options, headers });
+      if (res.status === 401 && !_retried && _refreshToken) {
+        const refreshed = await refreshAccessToken();
+        if (refreshed) return requestJSON<T>(url, options, true);
+        clearTokens();
+      }
+      if (res.status >= 500 && attempt < maxAttempts - 1) {
+        lastError = new Error(await res.text());
+        continue;
+      }
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    } catch (e) {
+      lastError = e instanceof Error ? e : new Error(String(e));
+      if (lastError.message.includes("Failed to fetch") || lastError.message.includes("NetworkError") || lastError.message.includes("ECONNREFUSED")) {
+        if (attempt < maxAttempts - 1) continue;
+      }
+      throw lastError;
+    }
   }
-  if (!res.ok) throw new Error(await res.text());
-  return res.json();
+  throw lastError || new Error("Request failed after retries");
 }

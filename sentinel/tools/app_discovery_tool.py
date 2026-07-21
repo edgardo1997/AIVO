@@ -1,26 +1,19 @@
-import os
-import shutil
-from typing import Any, Dict, List
+from typing import Any, Dict
 
+from sentinel.core.application_knowledge import ApplicationKnowledgeService, get_application_knowledge
 from sentinel.core.tool import Tool, ToolResult, ToolSpec
-
-COMMON_INSTALL_DIRS = [
-    os.path.expandvars("%ProgramFiles%"),
-    os.path.expandvars("%ProgramFiles(x86)%"),
-    os.path.expandvars("%LOCALAPPDATA%"),
-    os.path.expandvars("%APPDATA%"),
-    os.path.expandvars("%USERPROFILE%"),
-    os.environ.get("SystemRoot", "C:\\Windows"),
-]
 
 
 class AppDiscoveryTool(Tool):
+    def __init__(self, knowledge: ApplicationKnowledgeService | None = None):
+        self._knowledge = knowledge or get_application_knowledge()
+
     def spec(self) -> ToolSpec:
         return ToolSpec(
             id="app.discovery",
             name="App Discovery",
             description="Discover installed applications, lookup executables, and list available Sentinel capabilities",
-            version="0.1.0",
+            version="1.0.0",
             parameters={
                 "type": "object",
                 "properties": {
@@ -82,51 +75,24 @@ class AppDiscoveryTool(Tool):
                 caps = []
             return ToolResult.ok(data={"capabilities": caps, "total": len(caps)}, tool_id="app.discovery")
 
-        apps = self._list_installed(limit)
-        return ToolResult.ok(data={"apps": apps, "total": len(apps)}, tool_id="app.discovery")
+        profiles = self._knowledge.discover(limit)
+        apps = [profile.name for profile in profiles]
+        return ToolResult.ok(
+            data={"apps": apps, "profiles": [profile.to_dict() for profile in profiles], "total": len(apps)},
+            tool_id="app.discovery",
+        )
 
     def _lookup(self, name: str) -> dict:
-        path = shutil.which(name)
-        return {"name": name, "path": path, "found": path is not None}
+        profile = self._knowledge.lookup(name)
+        launchable = bool(profile and profile.executable)
+        return {
+            "name": name,
+            "path": profile.executable if profile else None,
+            "found": launchable,
+            "installed": profile is not None,
+            "launchable": launchable,
+            "profile": profile.to_dict() if profile else None,
+        }
 
-    def _list_installed(self, limit: int) -> List[str]:
-        apps: set = set()
-        path_dirs = os.environ.get("PATH", "").split(os.pathsep)
-        for p in path_dirs:
-            if os.path.isdir(p):
-                try:
-                    for f in os.listdir(p):
-                        if f.endswith(".exe") and not f.startswith("uninstall"):
-                            apps.add(f.replace(".exe", ""))
-                except PermissionError:
-                    continue
-
-        for base in COMMON_INSTALL_DIRS:
-            if os.path.isdir(base):
-                try:
-                    for entry in os.listdir(base):
-                        full = os.path.join(base, entry)
-                        if os.path.isdir(full):
-                            apps.add(entry)
-                except PermissionError:
-                    continue
-
-        return sorted(apps)[:limit]
-
-    def _search(self, query: str, limit: int) -> List[dict]:
-        q = query.lower()
-        results: List[dict] = []
-
-        app = self._lookup(query)
-        if app["found"]:
-            results.append({"name": query, "path": app["path"], "source": "direct"})
-
-        all_apps = self._list_installed(200)
-        for name in all_apps:
-            if q in name.lower() and name.lower() != q.lower():
-                path = shutil.which(name)
-                results.append({"name": name, "path": path, "source": "path"})
-                if len(results) >= limit:
-                    break
-
-        return results[:limit]
+    def _search(self, query: str, limit: int) -> list[dict]:
+        return [profile.to_dict() for profile in self._knowledge.search(query, limit)]

@@ -172,7 +172,8 @@ class TestDelegation:
             resp = client.post(
                 "/v1/execute", json={"tool_id": "filesystem.write", "params": {"path": test_file, "content": "test"}}
             )
-            assert resp.json()["success"] == False, "View level should block write"
+            body = resp.json()
+            assert body["success"] is False or (body.get("data") or {}).get("blocked"), "View level should block write"
         finally:
             if os.path.exists(test_file):
                 os.remove(test_file)
@@ -202,7 +203,8 @@ class TestDelegation:
         resp = client.post(
             "/v1/execute", json={"tool_id": "executor.command", "params": {"command": "echo hello", "timeout": 10}}
         )
-        assert resp.json()["success"] == False, "Emergency stop should block"
+        body = resp.json()
+        assert body["success"] is False or (body.get("data") or {}).get("blocked"), "Emergency stop should block"
         perm_svc.emergency("resume")
 
     def test_executor_system_path_denied_by_guardian(self):

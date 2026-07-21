@@ -18,7 +18,7 @@ class HardeningStatusTool(Tool):
             id="hardening.status",
             name="Hardening Status",
             description="View hardening configuration, circuit breaker states, and retry/timeout stats.",
-            version="0.1.0",
+            version="1.0.0",
             category=_TOOL_CATEGORY,
             parameters={},
             required_permissions=["system.read"],
@@ -38,7 +38,7 @@ class HardeningResetTool(Tool):
             id="hardening.reset",
             name="Reset Hardening State",
             description="Reset circuit breakers and retry stats for a specific tool or all tools.",
-            version="0.1.0",
+            version="1.0.0",
             category=_TOOL_CATEGORY,
             parameters={
                 "type": "object",
@@ -69,7 +69,7 @@ class HardeningConfigTool(Tool):
             id="hardening.config",
             name="Hardening Configuration",
             description="View or update hardening configuration. To update, pass the params to change.",
-            version="0.1.0",
+            version="1.0.0",
             category=_TOOL_CATEGORY,
             parameters={
                 "type": "object",

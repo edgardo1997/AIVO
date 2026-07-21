@@ -17,10 +17,12 @@ class SkillEngine:
         registry: SkillRegistry,
         tool_gateway: Optional[ToolGateway] = None,
         model_router: Optional[ModelRouter] = None,
+        execute_step: Optional[callable] = None,
     ):
         self._registry = registry
         self._tool_gateway = tool_gateway
         self._model_router = model_router
+        self._execute_step = execute_step
 
     @property
     def registry(self) -> SkillRegistry:
@@ -92,7 +94,7 @@ class SkillEngine:
         last_data = None
 
         for step in plan.steps:
-            if not self._tool_gateway:
+            if not self._tool_gateway and not self._execute_step:
                 tool_results.append(
                     {
                         "step_id": step.id,
@@ -107,19 +109,24 @@ class SkillEngine:
             step_context["skill_id"] = skill_id
             step_context["skill_name"] = skill.name
 
-            result = await self._tool_gateway.execute(step.tool_id, step.params, step_context)
+            if self._execute_step:
+                sr = await self._execute_step(step.tool_id, step.params, step_context)
+            else:
+                tr = await self._tool_gateway.execute(step.tool_id, step.params, step_context)
+                sr = {"success": tr.success, "data": tr.data, "error": tr.error, "duration_ms": tr.duration_ms}
+
             step_entry = {
                 "step_id": step.id,
                 "tool_id": step.tool_id,
-                "success": result.success,
-                "error": result.error,
-                "data": result.data,
-                "duration_ms": result.duration_ms,
+                "success": sr["success"],
+                "error": sr.get("error"),
+                "data": sr.get("data"),
+                "duration_ms": sr.get("duration_ms"),
             }
             tool_results.append(step_entry)
 
-            if result.success:
-                last_data = result.data
+            if sr["success"]:
+                last_data = sr.get("data")
             else:
                 overall_success = False
                 break
@@ -165,6 +172,9 @@ class SkillEngine:
             intent=Intent(action="execute", target=skill.id, parameters=params),
             description=f"Skill: {skill.name} ({skill.id})",
         )
+
+    def set_execute_step(self, fn: callable) -> None:
+        self._execute_step = fn
 
     async def suggest(
         self,

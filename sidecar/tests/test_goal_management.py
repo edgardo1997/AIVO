@@ -426,31 +426,37 @@ class TestBackwardCompatNoRegression:
 
 
 class TestGoalAdminAuth:
-    def test_require_admin_raises_when_not_admin(self):
-        from modules.sentinel_bridge import _require_admin
-        import unittest.mock as mock
+    @staticmethod
+    def _request(identity):
+        from types import SimpleNamespace
 
-        with mock.patch("modules.permissions._svc") as mock_svc:
-            mock_svc.repo.load.return_value = {"level": "confirm"}
-            with pytest.raises(HTTPException, match="Admin level required"):
-                _require_admin()
+        return SimpleNamespace(state=SimpleNamespace(identity=identity))
+
+    def test_require_admin_raises_when_not_admin(self):
+        from modules.auth import IdentityContext
+        from modules.sentinel_bridge import _require_admin
+
+        identity = IdentityContext(
+            user_id="user", username="User", role="user", permissions=frozenset(),
+            authentication_method="test", is_authenticated=True, is_local=True,
+        )
+        with pytest.raises(HTTPException, match="Administrator identity required"):
+            _require_admin(self._request(identity))
 
     def test_require_admin_passes_when_admin(self):
+        from modules.auth import IdentityContext
         from modules.sentinel_bridge import _require_admin
-        import unittest.mock as mock
 
-        with mock.patch("modules.permissions._svc") as mock_svc:
-            mock_svc.repo.load.return_value = {"level": "admin"}
-            _require_admin()
+        identity = IdentityContext.local_identity()
+        assert _require_admin(self._request(identity)) is identity
 
     def test_require_admin_raises_on_view_level(self):
+        from modules.auth import IdentityContext
         from modules.sentinel_bridge import _require_admin
-        import unittest.mock as mock
 
-        with mock.patch("modules.permissions._svc") as mock_svc:
-            mock_svc.repo.load.return_value = {"level": "view"}
-            with pytest.raises(HTTPException, match="Admin level required"):
-                _require_admin()
+        identity = IdentityContext.remote_identity("viewer", "session")
+        with pytest.raises(HTTPException, match="Administrator identity required"):
+            _require_admin(self._request(identity))
 
 
 class TestGoalCapabilityValidation:

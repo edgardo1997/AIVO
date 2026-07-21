@@ -5,5 +5,8 @@
   "author": "AIVO",
   "description": "Example plugin to demonstrate the AIVO plugin system",
   "hooks": ["on_ready"],
-  "enabled": true
+  "enabled": true,
+  "permissions": [],
+  "homepage": "",
+  "license": "MIT"
 }

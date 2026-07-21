@@ -51,6 +51,7 @@ class TestAppDiscoveryTool:
         assert "apps" in data
         assert len(data["apps"]) > 0
         assert data["total"] <= 10
+        assert all(not app.startswith(".") for app in data["apps"])
 
     @pytest.mark.asyncio
     async def test_search_returns_matches(self):
@@ -176,7 +177,7 @@ class TestAppDiscoveryViaApi:
         )
         assert resp.status_code == 200
         data = resp.json()
-        assert data["success"] is False
+        assert data["success"] is False or data.get("data", {}).get("blocked")
 
     def test_v1_execute_dry_run_app_discovery(self):
         resp = client.post(

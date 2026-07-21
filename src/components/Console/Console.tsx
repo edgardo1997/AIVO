@@ -82,24 +82,24 @@ export function Console() {
   };
 
   const quickCommands = [
-    { label: "System Info", cmd: "systeminfo | findstr /B /C:\"OS Name\" /C:\"OS Version\"" },
-    { label: "Network", cmd: "ipconfig | findstr IPv4" },
-    { label: "Process List", cmd: "tasklist /FI \"STATUS eq running\"" },
-    { label: "Disk Usage", cmd: "wmic logicaldisk get size,freespace,caption" },
+    { label: "Info Sistema", cmd: "systeminfo | findstr /B /C:\"OS Name\" /C:\"OS Version\"" },
+    { label: "Red", cmd: "ipconfig | findstr IPv4" },
+    { label: "Procesos", cmd: "tasklist /FI \"STATUS eq running\"" },
+    { label: "Disco", cmd: "wmic logicaldisk get size,freespace,caption" },
   ];
 
   return (
     <div>
       <ConfirmDialog
         open={confirmOpen}
-        title="\u26A0\uFE0F Confirm Command Execution"
-        message="This command requires your approval:"
+        title="\u26A0\uFE0F Confirmar Ejecución"
+        message="Este comando requiere tu aprobación:"
         details={pendingCmd}
         onConfirm={handleConfirm}
         onDeny={handleDeny}
         onCancel={handleDeny}
       />
-      <h2 style={{ marginBottom: 16, fontWeight: 600 }}>Console</h2>
+      <h2 style={{ marginBottom: 16, fontWeight: 600 }}>Consola</h2>
       <div style={{ marginBottom: 12, display: "flex", flexWrap: "wrap", gap: 6 }}>
         {quickCommands.map((qc) => (
           <button key={qc.label} className="btn btn-ghost" style={{ fontSize: 11 }} onClick={() => setInput(qc.cmd)}>
@@ -109,7 +109,7 @@ export function Console() {
       </div>
       <div className="console-output" ref={outRef as any}>
         <div style={{ color: "var(--text-muted)", marginBottom: 4 }}>
-          Sentinel Console v0.1.0 &mdash; Permission level: {permissionLevel}
+          Consola Sentinel v1.0.0 &mdash; Nivel de permiso: {permissionLevel}
         </div>
         <hr style={{ border: "none", borderTop: "1px solid var(--border)", marginBottom: 8 }} />
         {output.map((line, i) => (
@@ -124,11 +124,11 @@ export function Console() {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKey}
-          placeholder="> type a command..."
+          placeholder="> escribe un comando..."
           style={{ fontFamily: "monospace" }}
         />
-        <button className="btn btn-primary" onClick={execute}>Run</button>
-        <button className="btn btn-ghost" onClick={() => setOutput([""])}>Clear</button>
+        <button className="btn btn-primary" onClick={execute}>Ejecutar</button>
+        <button className="btn btn-ghost" onClick={() => setOutput([""])}>Limpiar</button>
       </div>
     </div>
   );

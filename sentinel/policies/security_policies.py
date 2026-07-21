@@ -232,6 +232,13 @@ class EmergencyStopPolicy(Policy):
         context: Dict[str, Any],
     ) -> PolicyResult:
         if self._is_emergency_stop():
+            if tool_id == "permissions.status":
+                return PolicyResult(
+                    effect=PolicyEffect.ALLOW,
+                    policy_id=self.policy_id(),
+                    reason="Emergency stop status remains observable",
+                    context={"emergency_stop": True},
+                )
             if tool_id == "permissions.emergency" and params.get("action") == "resume":
                 return PolicyResult(
                     effect=PolicyEffect.ALLOW,

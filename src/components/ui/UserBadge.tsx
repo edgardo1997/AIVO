@@ -21,7 +21,7 @@ export function UserBadge() {
     <div className="user-badge" style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
       <span style={{ opacity: 0.6 }}>{userId}</span>
       <button className="btn btn-ghost" style={{ fontSize: 11, padding: "2px 8px" }} onClick={() => { auth.logout(); window.location.reload(); }}>
-        Sign out
+        Cerrar sesión
       </button>
     </div>
   );

@@ -1,9 +1,11 @@
 import { useCallback, useState } from "react";
 import { api } from "../../api";
 import { usePolling } from "../../hooks/usePolling";
+import { DebugTimeline } from "./DebugTimeline";
 import type {
   CircuitBreakerState, RateLimitStats, FeedbackStats, CostSummary,
   PerformanceAlert, FallbackStats, HealthStatus, AlertInfo, ObservabilityOverview, NetworkStatus,
+  PipelineMetricsOverview,
 } from "../../types";
 
 const severityColor: Record<string, string> = {
@@ -26,10 +28,11 @@ export function Observability() {
   const [alerts, setAlerts] = useState<AlertInfo[]>([]);
   const [overview, setOverview] = useState<ObservabilityOverview | null>(null);
   const [network, setNetwork] = useState<NetworkStatus | null>(null);
+  const [pm, setPm] = useState<PipelineMetricsOverview | null>(null);
 
   const fetchAll = useCallback(async () => {
     try {
-      const [cb, rl, fb, co, pa, fl, he, al, ov, nw] = await Promise.all([
+      const [cb, rl, fb, co, pa, fl, he, al, ov, nw, pmData] = await Promise.all([
         api.observability.circuitBreakers(),
         api.observability.rateLimiter(),
         api.observability.feedback(),
@@ -40,6 +43,7 @@ export function Observability() {
         api.observability.alerts(),
         api.observability.overview(),
         api.observability.network(),
+        api.pipelineMetrics.overview(),
       ]);
       setCircuits(cb.circuits ?? []);
       setRateLimit(rl);
@@ -51,6 +55,7 @@ export function Observability() {
       setAlerts(al.alerts ?? []);
       setOverview(ov);
       setNetwork(nw);
+      setPm(pmData);
     } catch {}
   }, []);
 
@@ -73,7 +78,7 @@ export function Observability() {
         <div className="card">
           <div className="card-title">Trazas</div>
           <div className="metric-value">{overview?.traces.total_executions ?? 0}</div>
-          <div className="text-muted">Éxito {overview?.traces.success_rate.toFixed(1) ?? "100.0"}% · {overview?.traces.active_spans ?? 0} activas</div>
+          <div className="text-muted">Éxito {overview?.traces?.success_rate?.toFixed(1) ?? "100.0"}% · {overview?.traces?.active_spans ?? 0} activas</div>
         </div>
         <div className="card">
           <div className="card-title">Latencia</div>
@@ -94,7 +99,7 @@ export function Observability() {
           <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
             {health ? (
               <div className="metric-grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
-                {Object.entries(health.tools).slice(0, 12).map(([id, t]) => (
+                {Object.entries(health?.tools ?? {}).slice(0, 12).map(([id, t]) => (
                   <div key={id} style={{ display: "flex", alignItems: "center", gap: 6 }}>
                     <span className={`status-dot ${t.healthy ? "ok" : "bad"}`} />
                     <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{id}</span>
@@ -181,7 +186,7 @@ export function Observability() {
                 <tr><th>Provider</th><th>Calls</th><th>Avg Duration</th><th>Success</th></tr>
               </thead>
               <tbody>
-                {Object.entries(feedback.by_provider).map(([p, s]) => (
+                {Object.entries(feedback?.by_provider ?? {}).map(([p, s]) => (
                   <tr key={p}>
                     <td>{p}</td><td>{s.count}</td>
                     <td>{fmtMs(s.avg_duration_ms)}</td>
@@ -201,7 +206,7 @@ export function Observability() {
                 <tr><th>Provider</th><th>Cost</th><th>Tokens</th></tr>
               </thead>
               <tbody>
-                {Object.entries(costs.by_provider).map(([p, s]) => (
+                {Object.entries(costs?.by_provider ?? {}).map(([p, s]) => (
                   <tr key={p}>
                     <td>{p}</td>
                     <td>${s.cost.toFixed(4)}</td>
@@ -240,7 +245,7 @@ export function Observability() {
                 <tr><th>Tool</th><th>Attempts</th><th>Successes</th><th>Rate</th></tr>
               </thead>
               <tbody>
-                {Object.entries(fallbacks.by_tool).map(([t, s]) => (
+                {Object.entries(fallbacks.by_tool ?? {}).map(([t, s]) => (
                   <tr key={t}>
                     <td>{t}</td><td>{s.attempts}</td><td>{s.successes}</td>
                     <td>{s.attempts > 0 ? ((s.successes / s.attempts) * 100).toFixed(0) : "—"}%</td>
@@ -279,7 +284,7 @@ export function Observability() {
               <tr><th>Key</th><th>Allowed</th><th>Denied</th><th>Limit</th><th>Window</th></tr>
             </thead>
             <tbody>
-              {Object.entries(rateLimit.keys).slice(0, 20).map(([k, s]) => (
+              {Object.entries(rateLimit?.keys ?? {}).slice(0, 20).map(([k, s]) => (
                 <tr key={k}>
                   <td style={{ maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis" }}>{k}</td>
                   <td>{s.allowed}</td>
@@ -291,6 +296,126 @@ export function Observability() {
             </tbody>
           </table>
         ) : <span className="analysis-empty">No rate limit keys</span>}
+      </div>
+
+      {/* Pipeline Metrics Dashboard */}
+      <h3 style={{ fontWeight: 600, marginTop: 24, marginBottom: 12 }}>Pipeline Metrics</h3>
+      {pm ? (<>
+        <div className="grid-4" style={{ marginBottom: 16 }}>
+          <div className="card">
+            <div className="card-title">Requests/min</div>
+            <div className="metric-value">{pm.throughput.requests_per_minute.toFixed(1)}</div>
+            <div className="text-muted">ventana {pm.throughput.window_seconds}s</div>
+          </div>
+          <div className="card">
+            <div className="card-title">Errores</div>
+            <div className="metric-value" style={{ color: pm.summary.total_failures > 0 ? "var(--danger)" : undefined }}>
+              {pm.summary.total_failures}
+            </div>
+            <div className="text-muted">de {pm.summary.total_events} eventos</div>
+          </div>
+          <div className="card">
+            <div className="card-title">Duración Promedio</div>
+            <div className="metric-value">
+              {pm.component_durations.length > 0
+                ? fmtMs(pm.component_durations.reduce((s, c) => s + c.avg_duration_ms, 0) / pm.component_durations.length)
+                : "—"}
+            </div>
+            <div className="text-muted">entre todos los componentes</div>
+          </div>
+          <div className="card">
+            <div className="card-title">Tasa de Fallo</div>
+            <div className="metric-value" style={{ color: pm.summary.total_failures > 0 ? "var(--danger)" : undefined }}>
+              {pm.summary.total_events > 0
+                ? ((pm.summary.total_failures / pm.summary.total_events) * 100).toFixed(1)
+                : "0.0"}%
+            </div>
+            <div className="text-muted">{pm.summary.total_failures} fallos</div>
+          </div>
+        </div>
+
+        {/* Component durations */}
+        <div className="grid-2" style={{ marginBottom: 16 }}>
+          <div className="card">
+            <div className="card-title">Component Durations</div>
+            {pm.component_durations.length === 0 ? (
+              <span className="analysis-empty">No data</span>
+            ) : (
+              <table className="process-table">
+                <thead>
+                  <tr><th>Component</th><th>Avg</th><th>Max</th><th>Samples</th></tr>
+                </thead>
+                <tbody>
+                  {pm.component_durations.map((cd) => (
+                    <tr key={cd.component}>
+                      <td>{cd.label}</td>
+                      <td>{fmtMs(cd.avg_duration_ms)}</td>
+                      <td>{fmtMs(cd.max_duration_ms)}</td>
+                      <td>{cd.sample_count}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          <div className="card">
+            <div className="card-title">Tools Used</div>
+            {pm.tool_usage.length === 0 ? (
+              <span className="analysis-empty">No tool data</span>
+            ) : (
+              <table className="process-table">
+                <thead>
+                  <tr><th>Tool</th><th>Calls</th><th>Share</th><th>Failures</th><th>Fail Rate</th></tr>
+                </thead>
+                <tbody>
+                  {pm.tool_usage.map((t) => (
+                    <tr key={t.tool}>
+                      <td style={{ maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis" }}>{t.tool}</td>
+                      <td>{t.calls}</td>
+                      <td>{t.share_pct}%</td>
+                      <td>{t.failures}</td>
+                      <td>{t.failure_rate}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+
+        {/* Bottlenecks */}
+        {pm.bottlenecks.length > 0 && (
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div className="card-title">Bottlenecks</div>
+            <table className="process-table">
+              <thead>
+                <tr><th>Component</th><th>Avg Duration</th><th>Fail Rate</th><th>Score</th></tr>
+              </thead>
+              <tbody>
+                {pm.bottlenecks.map((b) => (
+                  <tr key={b.component}>
+                    <td>{b.label}</td>
+                    <td style={{ color: b.avg_duration_ms > 1000 ? "var(--danger)" : undefined }}>
+                      {fmtMs(b.avg_duration_ms)}
+                    </td>
+                    <td style={{ color: b.failure_rate > 5 ? "var(--danger)" : undefined }}>
+                      {b.failure_rate}%
+                    </td>
+                    <td>{b.bottleneck_score.toFixed(1)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </>) : (
+        <div className="card"><span className="analysis-empty">Loading pipeline metrics...</span></div>
+      )}
+
+      {/* Debug Timeline */}
+      <div style={{ marginTop: 24 }}>
+        <DebugTimeline />
       </div>
     </div>
   );

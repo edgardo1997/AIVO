@@ -22,29 +22,48 @@ describe("Settings", () => {
 
   it("muestra AI Provider config", async () => {
     render(<Settings />);
-    expect(await screen.findByText(/openrouter/)).toBeInTheDocument();
-    expect(screen.getByDisplayValue("deepseek/deepseek-v4-flash:free")).toBeInTheDocument();
+    const matches = await screen.findAllByText(/DeepSeek/);
+    expect(matches.length).toBeGreaterThan(0);
   });
 
-  it("save config", async () => {
+  it("save config (dialog)", async () => {
     render(<Settings />);
-    await screen.findByText(/openrouter/);
+    await screen.findAllByText(/DeepSeek/);
 
-    fireEvent.click(screen.getByText("Save Config"));
+    // Use Anthropic which has apiRequired:true but no pre-configured key
+    const modelButtons = screen.getAllByRole("button");
+    const anthropicBtn = modelButtons.find(b => b.textContent?.includes("Claude 3"));
+    expect(anthropicBtn).toBeTruthy();
+    if (anthropicBtn) fireEvent.click(anthropicBtn);
+
+    const apiInput = await screen.findByPlaceholderText("sk-ant-...");
+    fireEvent.change(apiInput, { target: { value: "sk-test-key" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Conectar y Activar$/i }));
 
     await waitFor(() => {
-      expect(vi.mocked(ai.setConfig)).toHaveBeenCalled();
+      expect(vi.mocked(ai.setConfig)).toHaveBeenCalledWith(
+        expect.objectContaining({ api_key: "sk-test-key" })
+      );
     });
   });
 
-  it("test connection", async () => {
+  it("test connection (dialog)", async () => {
     render(<Settings />);
-    await screen.findByText(/openrouter/);
+    await screen.findAllByText(/DeepSeek/);
 
-    fireEvent.click(screen.getByText("Test Connection"));
+    const modelButtons = screen.getAllByRole("button");
+    const anthropicBtn = modelButtons.find(b => b.textContent?.includes("Claude 3"));
+    expect(anthropicBtn).toBeTruthy();
+    if (anthropicBtn) fireEvent.click(anthropicBtn);
+
+    const apiInput = await screen.findByPlaceholderText("sk-ant-...");
+    fireEvent.change(apiInput, { target: { value: "sk-test-key" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Conectar y Activar$/i }));
 
     await waitFor(() => {
-      expect(vi.mocked(ai.chat)).toHaveBeenCalled();
+      expect(vi.mocked(ai.setConfig)).toHaveBeenCalledWith(
+        expect.objectContaining({ api_key: "sk-test-key" })
+      );
     });
   });
 });

@@ -11,7 +11,7 @@ class PermissionConfirmTool(Tool):
             id="permissions.confirm",
             name="Confirm Action",
             description="Approve or deny a pending action by action_id",
-            version="0.1.0",
+            version="1.0.0",
             parameters={
                 "type": "object",
                 "properties": {
@@ -42,7 +42,7 @@ class PermissionStatusTool(Tool):
             id="permissions.status",
             name="Permission Status",
             description="Get current permission level and emergency stop status",
-            version="0.1.0",
+            version="1.0.0",
             parameters={},
             required_permissions=["permissions.read"],
             timeout_seconds=10,
@@ -66,7 +66,7 @@ class PermissionSetLevelTool(Tool):
             id="permissions.set_level",
             name="Set Permission Level",
             description="Change the permission level (view, confirm, auto, admin)",
-            version="0.1.0",
+            version="1.0.0",
             parameters={
                 "type": "object",
                 "properties": {
@@ -100,7 +100,7 @@ class PermissionEmergencyTool(Tool):
             id="permissions.emergency",
             name="Emergency Stop",
             description="Activate or deactivate emergency stop",
-            version="0.1.0",
+            version="1.0.0",
             parameters={
                 "type": "object",
                 "properties": {

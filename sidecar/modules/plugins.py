@@ -10,7 +10,7 @@ router = APIRouter()
 ACTIVE_PLUGINS: dict = {}
 PLUGIN_METADATA: dict = {}
 PLUGIN_STATES: dict = {}
-_state_lock = threading.Lock()
+_state_lock = threading.RLock()
 
 # Service wired with module-level state
 _svc = PluginsService(
@@ -44,13 +44,13 @@ def create_plugin(data: dict):
 
 @router.post("/{plugin_id}/load")
 def load_plugin_endpoint(plugin_id: str):
-    _svc._metadata.update(_svc.discover())
-    if plugin_id not in _svc._metadata:
+    _svc.refresh_metadata()
+    if not _svc.has_plugin(plugin_id):
         raise HTTPException(404, f"Plugin '{plugin_id}' not found")
     result = _svc.load(plugin_id)
     if result:
         return {"status": "loaded", "hooks": result["hooks"]}
-    error = _svc._states.get(plugin_id, {}).get("error", "Unknown error")
+    error = _svc.get_state_error(plugin_id)
     return {"status": "error", "error": error}
 
 
@@ -65,7 +65,7 @@ def reload_plugin_endpoint(plugin_id: str):
     result = _svc.reload(plugin_id)
     if result:
         return {"status": "reloaded", "hooks": result["hooks"]}
-    error = _svc._states.get(plugin_id, {}).get("error")
+    error = _svc.get_state_error(plugin_id)
     return {"status": "error", "error": error}
 
 

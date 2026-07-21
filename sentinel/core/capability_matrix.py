@@ -43,6 +43,7 @@ CRITICAL_TOOLS: FrozenSet[str] = frozenset({
     "vault.*",
     "policies.reload",
     "admin.config_set", "admin.config_delete", "admin.backup",
+    "permissions.add_rule", "permissions.remove_rule",
 })
 
 

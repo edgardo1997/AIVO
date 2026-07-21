@@ -123,3 +123,69 @@ class PermissionEmergencyTool(Tool):
             return ToolResult.ok(data=result, tool_id="permissions.emergency")
         except Exception as e:
             return ToolResult.fail(error=str(e), tool_id="permissions.emergency")
+
+
+class PermissionAddRuleTool(Tool):
+    def __init__(self, service):
+        self._svc = service
+
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            id="permissions.add_rule",
+            name="Add Permission Rule",
+            description="Add a granular permission rule",
+            version="1.0.0",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "tool_pattern": {"type": "string", "description": "Tool ID glob pattern"},
+                    "effect": {"type": "string", "enum": ["allow", "deny"], "description": "Allow or deny"},
+                    "reason": {"type": "string", "description": "Optional reason"},
+                },
+                "required": ["tool_pattern", "effect"],
+            },
+            required_permissions=["permissions.admin"],
+            timeout_seconds=10,
+            category="permissions",
+        )
+
+    async def execute(self, params: Dict[str, Any], context: Dict[str, Any]) -> ToolResult:
+        try:
+            result = self._svc.add_rule(params)
+            return ToolResult.ok(data={"rule": result}, tool_id="permissions.add_rule")
+        except ValueError as e:
+            return ToolResult.fail(error=str(e), tool_id="permissions.add_rule")
+        except Exception as e:
+            return ToolResult.fail(error=str(e), tool_id="permissions.add_rule")
+
+
+class PermissionRemoveRuleTool(Tool):
+    def __init__(self, service):
+        self._svc = service
+
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            id="permissions.remove_rule",
+            name="Remove Permission Rule",
+            description="Remove a granular permission rule by ID",
+            version="1.0.0",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "rule_id": {"type": "string", "description": "Rule ID to remove"},
+                },
+                "required": ["rule_id"],
+            },
+            required_permissions=["permissions.admin"],
+            timeout_seconds=10,
+            category="permissions",
+        )
+
+    async def execute(self, params: Dict[str, Any], context: Dict[str, Any]) -> ToolResult:
+        try:
+            ok = self._svc.remove_rule(params["rule_id"])
+            if not ok:
+                return ToolResult.fail(error="Rule not found", tool_id="permissions.remove_rule")
+            return ToolResult.ok(data={"deleted": True, "rule_id": params["rule_id"]}, tool_id="permissions.remove_rule")
+        except Exception as e:
+            return ToolResult.fail(error=str(e), tool_id="permissions.remove_rule")

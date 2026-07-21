@@ -51,6 +51,19 @@ def _close_stream_iterator(iterator) -> None:
         log.debug("Provider stream could not be closed cleanly", exc_info=True)
 
 
+def _gateway_response(result, not_found=False):
+    """Convert a ToolResult to a JSONResponse, mapping policy denials to 403."""
+    if not result.success:
+        if result.policy_decision:
+            status = 403
+        elif not_found:
+            status = 404
+        else:
+            status = 400
+        return JSONResponse({"error": result.error}, status_code=status)
+    return None
+
+
 def _close_stream_after_pending_step(finished, iterator) -> None:
     """Consume an abandoned step result and close its iterator once resumable."""
     try:
@@ -438,23 +451,26 @@ async def list_granular_permission_rules(request: Request):
 
 @router.post("/permissions/rules")
 async def add_granular_permission_rule(body: dict, request: Request):
-    _require_admin(request)
-    from modules.permissions import _svc
+    from modules import get_gateway
 
-    try:
-        return {"rule": _svc.add_rule(body)}
-    except ValueError as exc:
-        return JSONResponse(status_code=400, content={"error": str(exc)})
+    identity = request_identity(request).to_dict()
+    result = await get_gateway().execute("permissions.add_rule", body, {"identity": identity})
+    resp = _gateway_response(result)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.delete("/permissions/rules/{rule_id}")
 async def delete_granular_permission_rule(rule_id: str, request: Request):
-    _require_admin(request)
-    from modules.permissions import _svc
+    from modules import get_gateway
 
-    if not _svc.remove_rule(rule_id):
-        return JSONResponse(status_code=404, content={"error": "Rule not found"})
-    return {"deleted": True, "rule_id": rule_id}
+    identity = request_identity(request).to_dict()
+    result = await get_gateway().execute("permissions.remove_rule", {"rule_id": rule_id}, {"identity": identity})
+    resp = _gateway_response(result, not_found=True)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.post("/process")
@@ -598,65 +614,75 @@ async def vault_get(vault_id: str, request: Request):
 
 @router.post("/vault/entries")
 async def vault_create(body: dict, request: Request):
-    _require_admin(request)
-    from sentinel.core.vault import VaultEntry
+    from modules import get_gateway
 
-    vault = get_vault_manager()
-    entry = VaultEntry.from_dict(body)
-    result = vault.create_entry(entry)
-    if not result:
-        return {"error": "create failed"}, 400
-    return {"status": "created", "id": result}
+    identity = request_identity(request).to_dict()
+    result = await get_gateway().execute("vault.create", body, {"identity": identity})
+    resp = _gateway_response(result)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.patch("/vault/entries/{vault_id}")
 async def vault_update(vault_id: str, body: dict, request: Request):
-    _require_admin(request)
-    vault = get_vault_manager()
-    ok = vault.update_entry(vault_id, **body)
-    if not ok:
-        return {"error": "not found"}, 404
-    return {"status": "updated"}
+    from modules import get_gateway
+
+    identity = request_identity(request).to_dict()
+    params = {"vault_id": vault_id, **body}
+    result = await get_gateway().execute("vault.update", params, {"identity": identity})
+    resp = _gateway_response(result)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.delete("/vault/entries/{vault_id}")
 async def vault_delete(vault_id: str, request: Request):
-    _require_admin(request)
-    vault = get_vault_manager()
-    ok = vault.delete_entry(vault_id)
-    if not ok:
-        return {"error": "not found"}, 404
-    return {"status": "deleted"}
+    from modules import get_gateway
+
+    identity = request_identity(request).to_dict()
+    result = await get_gateway().execute("vault.delete", {"vault_id": vault_id}, {"identity": identity})
+    resp = _gateway_response(result, not_found=True)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.post("/vault/entries/{vault_id}/reveal")
 async def vault_reveal(vault_id: str, request: Request):
-    _require_admin(request)
-    vault = get_vault_manager()
-    value = vault.reveal_value(vault_id)
-    if value is None:
-        return {"error": "not found"}, 404
-    return {"value": value}
+    from modules import get_gateway
+
+    identity = request_identity(request).to_dict()
+    result = await get_gateway().execute("vault.reveal", {"vault_id": vault_id}, {"identity": identity})
+    resp = _gateway_response(result, not_found=True)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.post("/vault/entries/{vault_id}/rotate")
 async def vault_rotate_secret(vault_id: str, request: Request):
-    _require_admin(request)
-    vault = get_vault_manager()
-    ok = vault.rotate_secret(vault_id)
-    if not ok:
-        return {"error": "not found or no value"}, 404
-    return {"status": "rotated"}
+    from modules import get_gateway
+
+    identity = request_identity(request).to_dict()
+    result = await get_gateway().execute("vault.rotate_secret", {"vault_id": vault_id}, {"identity": identity})
+    resp = _gateway_response(result, not_found=True)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.post("/vault/rotate-master-key")
 async def vault_rotate_master(request: Request):
-    _require_admin(request)
-    vault = get_vault_manager()
-    ok = vault.rotate_master_key()
-    if not ok:
-        return {"error": "cryptography not available"}, 400
-    return {"status": "master_key_rotated"}
+    from modules import get_gateway
+
+    identity = request_identity(request).to_dict()
+    result = await get_gateway().execute("vault.rotate_master_key", {}, {"identity": identity})
+    resp = _gateway_response(result)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.get("/vault/audit")

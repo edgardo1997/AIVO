@@ -511,13 +511,36 @@ def register_permissions_tools(gateway):
         PermissionSetLevelTool,
         PermissionEmergencyTool,
         PermissionConfirmTool,
+        PermissionAddRuleTool,
+        PermissionRemoveRuleTool,
     )
 
     gateway.register(PermissionStatusTool(perm_svc))
     gateway.register(PermissionSetLevelTool(perm_svc))
     gateway.register(PermissionEmergencyTool(perm_svc))
     gateway.register(PermissionConfirmTool(perm_svc))
+    gateway.register(PermissionAddRuleTool(perm_svc))
+    gateway.register(PermissionRemoveRuleTool(perm_svc))
     _log.info("Permissions tools registered in shared gateway")
+
+
+def register_vault_tools(gateway):
+    from sentinel.tools.vault_tools import (
+        VaultCreateTool,
+        VaultUpdateTool,
+        VaultDeleteTool,
+        VaultRevealTool,
+        VaultRotateSecretTool,
+        VaultRotateMasterKeyTool,
+    )
+
+    gateway.register(VaultCreateTool())
+    gateway.register(VaultUpdateTool())
+    gateway.register(VaultDeleteTool())
+    gateway.register(VaultRevealTool())
+    gateway.register(VaultRotateSecretTool())
+    gateway.register(VaultRotateMasterKeyTool())
+    _log.info("Vault tools registered in shared gateway")
 
 
 def register_audit_tools(gateway):

@@ -422,17 +422,19 @@ def register_ai_tools(gateway):
 
 
 def register_agent_tools(gateway):
-    from sentinel.tools.agent_tools import AgentListTool, AgentCreateTool, AgentDeleteTool, AgentDelegateTool
+    from sentinel.tools.agent_tools import AgentListTool, AgentCreateTool, AgentUpdateTool, AgentDeleteTool, AgentDelegateTool
 
     gateway.register(AgentListTool())
     gateway.register(AgentCreateTool())
+    gateway.register(AgentUpdateTool())
     gateway.register(AgentDeleteTool())
     gateway.register(AgentDelegateTool())
     _log.info("Agent tools registered in shared gateway")
 
 
 def register_fleet_tools(gateway):
-    from .fleet import _svc as fleet_svc
+    from .fleet import _get_svc
+    fleet_svc = _get_svc()
     from sentinel.tools.fleet_tools import (
         FleetStatusTool,
         FleetGeneratePairingTool,
@@ -441,9 +443,12 @@ def register_fleet_tools(gateway):
         FleetQrTool,
         FleetListDevicesTool,
         FleetRegisterDeviceTool,
+        FleetUpdateDeviceTool,
         FleetDeleteDeviceTool,
         FleetSyncPushTool,
         FleetSyncPullTool,
+        FleetReceiveSyncTool,
+        FleetExportSyncTool,
         FleetSyncLogTool,
     )
 
@@ -454,9 +459,12 @@ def register_fleet_tools(gateway):
     gateway.register(FleetQrTool(fleet_svc))
     gateway.register(FleetListDevicesTool(fleet_svc))
     gateway.register(FleetRegisterDeviceTool(fleet_svc))
+    gateway.register(FleetUpdateDeviceTool(fleet_svc))
     gateway.register(FleetDeleteDeviceTool(fleet_svc))
     gateway.register(FleetSyncPushTool(fleet_svc))
     gateway.register(FleetSyncPullTool(fleet_svc))
+    gateway.register(FleetReceiveSyncTool(fleet_svc))
+    gateway.register(FleetExportSyncTool(fleet_svc))
     gateway.register(FleetSyncLogTool(fleet_svc))
     _log.info("Fleet tools registered in shared gateway")
 
@@ -511,6 +519,7 @@ def register_trigger_tools(gateway):
     from sentinel.tools.trigger_tools import (
         TriggerListTool,
         TriggerCreateTool,
+        TriggerUpdateTool,
         TriggerDeleteTool,
         TriggerHistoryTool,
         TriggerEvaluateTool,
@@ -518,6 +527,7 @@ def register_trigger_tools(gateway):
 
     gateway.register(TriggerListTool())
     gateway.register(TriggerCreateTool())
+    gateway.register(TriggerUpdateTool())
     gateway.register(TriggerDeleteTool())
     gateway.register(TriggerHistoryTool())
     gateway.register(TriggerEvaluateTool())

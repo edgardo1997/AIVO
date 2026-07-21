@@ -78,13 +78,13 @@ class TriggerCreateTool(Tool):
     async def execute(self, params: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> ToolResult:
         engine: Optional[TriggerEngine] = (context or {}).get("_trigger_engine")
         if engine is None:
-            return ToolResult.err("Trigger engine not available", tool_id="trigger.create")
+            return ToolResult.fail("Trigger engine not available", tool_id="trigger.create")
         rule_id = params.get("id")
         if not rule_id:
-            return ToolResult.err("Trigger id is required", tool_id="trigger.create")
+            return ToolResult.fail("Trigger id is required", tool_id="trigger.create")
         conditions = [TriggerCondition.from_dict(c) for c in params.get("conditions", [])]
         if not conditions:
-            return ToolResult.err("At least one condition is required", tool_id="trigger.create")
+            return ToolResult.fail("At least one condition is required", tool_id="trigger.create")
         action_data = params.get("action")
         action = TriggerAction.from_dict(action_data) if action_data else None
         rule = TriggerRule(
@@ -97,7 +97,7 @@ class TriggerCreateTool(Tool):
             enabled=params.get("enabled", True),
         )
         if not engine.add_rule(rule, overwrite=False):
-            return ToolResult.err(f"Trigger '{rule_id}' already exists", tool_id="trigger.create")
+            return ToolResult.fail(f"Trigger '{rule_id}' already exists", tool_id="trigger.create")
         logger.info("Trigger '%s' created with %d condition(s)", rule_id, len(conditions))
         return ToolResult.ok(data={"trigger": rule.to_dict(), "status": "created"}, tool_id="trigger.create")
 
@@ -123,15 +123,15 @@ class TriggerDeleteTool(Tool):
     async def execute(self, params: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> ToolResult:
         engine: Optional[TriggerEngine] = (context or {}).get("_trigger_engine")
         if engine is None:
-            return ToolResult.err("Trigger engine not available", tool_id="trigger.delete")
+            return ToolResult.fail("Trigger engine not available", tool_id="trigger.delete")
         rule_id = params.get("id")
         if not rule_id:
-            return ToolResult.err("Trigger id is required", tool_id="trigger.delete")
+            return ToolResult.fail("Trigger id is required", tool_id="trigger.delete")
         try:
             engine.remove_rule(rule_id)
             return ToolResult.ok(data={"status": "deleted", "trigger_id": rule_id}, tool_id="trigger.delete")
         except KeyError as e:
-            return ToolResult.err(str(e), tool_id="trigger.delete")
+            return ToolResult.fail(str(e), tool_id="trigger.delete")
 
 
 class TriggerHistoryTool(Tool):
@@ -166,6 +166,65 @@ class TriggerHistoryTool(Tool):
         )
 
 
+class TriggerUpdateTool(Tool):
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            id="trigger.update",
+            name="Update Trigger",
+            description="Update an existing trigger rule's configuration",
+            version="1.0.0",
+            category="trigger",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "Trigger identifier to update"},
+                    "name": {"type": "string"},
+                    "description": {"type": "string"},
+                    "conditions": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "metric": {"type": "string"},
+                                "operator": {"type": "string", "enum": ["gt", "lt", "gte", "lte", "eq", "neq"]},
+                                "value": {"type": "number"},
+                            },
+                        },
+                    },
+                    "action": {
+                        "type": "object",
+                        "properties": {
+                            "tool_id": {"type": "string"},
+                            "params": {"type": "object"},
+                        },
+                    },
+                    "cooldown_seconds": {"type": "integer"},
+                    "enabled": {"type": "boolean"},
+                },
+                "required": ["id"],
+            },
+            required_permissions=["permissions.admin"],
+        )
+
+    async def execute(self, params: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> ToolResult:
+        engine: Optional[TriggerEngine] = (context or {}).get("_trigger_engine")
+        if engine is None:
+            return ToolResult.fail("Trigger engine not available", tool_id="trigger.update")
+        rule_id = params.get("id")
+        if not rule_id:
+            return ToolResult.fail("Trigger id is required", tool_id="trigger.update")
+        if engine.get_rule(rule_id) is None:
+            return ToolResult.fail(f"Trigger '{rule_id}' not found", tool_id="trigger.update")
+        updates = {k: v for k, v in params.items() if k != "id" and v is not None}
+        if not updates:
+            return ToolResult.fail("No fields to update", tool_id="trigger.update")
+        try:
+            rule = engine.update_rule(rule_id, **updates)
+            return ToolResult.ok(data={"trigger": rule.to_dict(), "status": "updated"}, tool_id="trigger.update")
+        except Exception as e:
+            return ToolResult.fail(str(e), tool_id="trigger.update")
+
+
 class TriggerEvaluateTool(Tool):
     def spec(self) -> ToolSpec:
         return ToolSpec(
@@ -191,10 +250,10 @@ class TriggerEvaluateTool(Tool):
     async def execute(self, params: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> ToolResult:
         engine: Optional[TriggerEngine] = (context or {}).get("_trigger_engine")
         if engine is None:
-            return ToolResult.err("Trigger engine not available", tool_id="trigger.evaluate")
+            return ToolResult.fail("Trigger engine not available", tool_id="trigger.evaluate")
         metrics = params.get("metrics", {})
         if not metrics:
-            return ToolResult.err("metrics object is required", tool_id="trigger.evaluate")
+            return ToolResult.fail("metrics object is required", tool_id="trigger.evaluate")
         fires = engine.evaluate(metrics)
         return ToolResult.ok(
             data={

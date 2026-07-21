@@ -1,5 +1,4 @@
 import logging
-from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Request
@@ -51,90 +50,96 @@ class UpdateAgentRequest(BaseModel):
     max_concurrency: Optional[int] = None
 
 
+def _agent_to_response(agent: dict) -> AgentInfoResponse:
+    return AgentInfoResponse(
+        agent_id=agent.get("id", ""),
+        name=agent.get("name", ""),
+        description=agent.get("description", ""),
+        provider=agent.get("provider", "ollama"),
+        model=agent.get("model", ""),
+        capabilities=agent.get("capabilities", []),
+        allowed_tools=agent.get("allowed_tools", []),
+        system_prompt=agent.get("system_prompt", ""),
+        config=agent.get("config", {}),
+        status=agent.get("status", "idle"),
+        max_concurrency=agent.get("max_concurrency", 1),
+        created_at=agent.get("created_at"),
+        updated_at=agent.get("updated_at"),
+    )
+
+
 @router.get("/agents", response_model=List[AgentInfoResponse])
 async def list_agents(request: Request):
-    from modules.sentinel_bridge import get_orchestrator
+    from modules import get_gateway
+    from modules.auth import request_identity
 
-    orch = get_orchestrator()
-    if hasattr(orch, "_tool_gateway") and hasattr(orch._tool_gateway, "_agent_registry"):
-        registry = orch._tool_gateway._agent_registry
-        if registry:
-            return [AgentInfoResponse(agent_id=a.id, **a.to_dict()) for a in registry.list_all()]
-    return []
+    identity = request_identity(request).to_dict()
+    result = await get_gateway().execute("agent.list", {}, {"identity": identity})
+    if not result.success:
+        raise HTTPException(status_code=500, detail=result.error)
+    agents = (result.data or {}).get("agents", [])
+    return [_agent_to_response(a) for a in agents]
 
 
 @router.get("/agents/{agent_id}", response_model=AgentInfoResponse)
 async def get_agent(agent_id: str, request: Request):
-    from modules.sentinel_bridge import get_orchestrator
+    from modules import get_gateway
+    from modules.auth import request_identity
 
-    orch = get_orchestrator()
-    if hasattr(orch, "_tool_gateway") and hasattr(orch._tool_gateway, "_agent_registry"):
-        registry = orch._tool_gateway._agent_registry
-        if registry:
-            agent = registry.get(agent_id)
-            if agent:
-                return AgentInfoResponse(agent_id=agent.id, **agent.to_dict())
+    identity = request_identity(request).to_dict()
+    result = await get_gateway().execute("agent.list", {}, {"identity": identity})
+    if not result.success:
+        raise HTTPException(status_code=500, detail=result.error)
+    agents = (result.data or {}).get("agents", [])
+    for a in agents:
+        if a.get("id") == agent_id:
+            return _agent_to_response(a)
     raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
 
 
 @router.post("/agents", status_code=201)
 async def create_agent(body: CreateAgentRequest, request: Request):
-    from modules.sentinel_bridge import get_orchestrator
-    from sentinel.core.agent import AgentSpec, AgentStatus
+    from modules import get_gateway
+    from modules.auth import request_identity
 
-    orch = get_orchestrator()
-    if not (hasattr(orch, "_tool_gateway") and hasattr(orch._tool_gateway, "_agent_registry")):
-        raise HTTPException(status_code=500, detail="Agent registry not available")
-    registry = orch._tool_gateway._agent_registry
-    if registry.get(body.agent_id):
-        raise HTTPException(status_code=409, detail=f"Agent '{body.agent_id}' already exists")
-    try:
-        status = AgentStatus(body.status) if body.status else AgentStatus.IDLE
-    except ValueError:
-        raise HTTPException(status_code=400, detail=f"Invalid status: {body.status}")
-    agent = AgentSpec(
-        id=body.agent_id,
-        name=body.name or body.agent_id,
-        description=body.description or "",
-        provider=body.provider or "ollama",
-        model=body.model or "",
-        capabilities=body.capabilities or [],
-        allowed_tools=body.allowed_tools or [],
-        system_prompt=body.system_prompt or "",
-        status=status,
-    )
-    registry.register(agent, persist=True)
-    log.info("Agent '%s' created via API", body.agent_id)
+    identity = request_identity(request).to_dict()
+    params = body.model_dump(exclude_none=True)
+    params["id"] = params.pop("agent_id")
+    result = await get_gateway().execute("agent.create", params, {"identity": identity})
+    if not result.success:
+        if "already exists" in (result.error or ""):
+            raise HTTPException(status_code=409, detail=result.error)
+        raise HTTPException(status_code=400, detail=result.error)
     return {"status": "created", "agent_id": body.agent_id}
 
 
 @router.patch("/agents/{agent_id}")
 async def update_agent(agent_id: str, body: UpdateAgentRequest, request: Request):
-    from modules.sentinel_bridge import get_orchestrator
+    from modules import get_gateway
+    from modules.auth import request_identity
 
-    orch = get_orchestrator()
-    if not (hasattr(orch, "_tool_gateway") and hasattr(orch._tool_gateway, "_agent_registry")):
-        raise HTTPException(status_code=500, detail="Agent registry not available")
-    registry = orch._tool_gateway._agent_registry
-    if registry.get(agent_id) is None:
-        raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
+    identity = request_identity(request).to_dict()
     updates = body.model_dump(exclude_none=True)
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
-    registry.update(agent_id, persist=True, **updates)
+    params = {"id": agent_id, **updates}
+    result = await get_gateway().execute("agent.update", params, {"identity": identity})
+    if not result.success:
+        if "not found" in (result.error or ""):
+            raise HTTPException(status_code=404, detail=result.error)
+        raise HTTPException(status_code=400, detail=result.error)
     return {"status": "updated", "agent_id": agent_id}
 
 
 @router.delete("/agents/{agent_id}")
 async def delete_agent(agent_id: str, request: Request):
-    from modules.sentinel_bridge import get_orchestrator
+    from modules import get_gateway
+    from modules.auth import request_identity
 
-    orch = get_orchestrator()
-    if not (hasattr(orch, "_tool_gateway") and hasattr(orch._tool_gateway, "_agent_registry")):
-        raise HTTPException(status_code=500, detail="Agent registry not available")
-    registry = orch._tool_gateway._agent_registry
-    try:
-        registry.unregister(agent_id, persist=True)
-        return {"status": "deleted", "agent_id": agent_id}
-    except KeyError:
-        raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
+    identity = request_identity(request).to_dict()
+    result = await get_gateway().execute("agent.delete", {"id": agent_id}, {"identity": identity})
+    if not result.success:
+        if "not found" in (result.error or ""):
+            raise HTTPException(status_code=404, detail=result.error)
+        raise HTTPException(status_code=400, detail=result.error)
+    return {"status": "deleted", "agent_id": agent_id}

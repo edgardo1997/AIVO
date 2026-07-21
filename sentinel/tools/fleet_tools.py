@@ -168,6 +168,8 @@ class FleetRegisterDeviceTool(Tool):
                     "version": {"type": "string", "description": "Software version"},
                     "ip": {"type": "string", "description": "IP address"},
                     "port": {"type": "integer", "description": "API port"},
+                    "capabilities": {"type": "object", "description": "Device capabilities"},
+                    "notes": {"type": "string", "description": "Optional notes"},
                 },
                 "required": ["device_id", "name"],
             },
@@ -182,6 +184,48 @@ class FleetRegisterDeviceTool(Tool):
             return ToolResult.ok(data=result, tool_id="fleet.register_device")
         except Exception as e:
             return ToolResult.fail(error=str(e), tool_id="fleet.register_device")
+
+
+class FleetUpdateDeviceTool(Tool):
+    def __init__(self, service):
+        self._svc = service
+
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            id="fleet.update_device",
+            name="Update Fleet Device",
+            description="Update an existing device's metadata",
+            version="1.0.0",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "device_id": {"type": "string", "description": "Device identifier to update"},
+                    "name": {"type": "string"},
+                    "device_type": {"type": "string"},
+                    "os": {"type": "string"},
+                    "version": {"type": "string"},
+                    "ip": {"type": "string"},
+                    "port": {"type": "integer"},
+                    "capabilities": {"type": "object"},
+                    "notes": {"type": "string"},
+                },
+                "required": ["device_id"],
+            },
+            required_permissions=["fleet.admin"],
+            timeout_seconds=10,
+            category="fleet",
+        )
+
+    async def execute(self, params: Dict[str, Any], context: Dict[str, Any]) -> ToolResult:
+        try:
+            device_id = params.pop("device_id", "")
+            updates = {k: v for k, v in params.items() if v is not None}
+            result = self._svc.update_device(device_id, updates)
+            if "error" in result:
+                return ToolResult.fail(error=result["error"], tool_id="fleet.update_device")
+            return ToolResult.ok(data=result, tool_id="fleet.update_device")
+        except Exception as e:
+            return ToolResult.fail(error=str(e), tool_id="fleet.update_device")
 
 
 class FleetDeleteDeviceTool(Tool):
@@ -284,6 +328,69 @@ class FleetSyncPullTool(Tool):
             return ToolResult.ok(data=result, tool_id="fleet.sync_pull")
         except Exception as e:
             return ToolResult.fail(error=str(e), tool_id="fleet.sync_pull")
+
+
+class FleetReceiveSyncTool(Tool):
+    def __init__(self, service):
+        self._svc = service
+
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            id="fleet.receive_sync",
+            name="Receive Sync Push",
+            description="Receive a sync push payload from a peer",
+            version="1.0.0",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "payload": {"type": "object", "description": "Sync payload from peer"},
+                },
+                "required": ["payload"],
+            },
+            required_permissions=["fleet.admin"],
+            timeout_seconds=30,
+            category="fleet",
+        )
+
+    async def execute(self, params: Dict[str, Any], context: Dict[str, Any]) -> ToolResult:
+        try:
+            result = self._svc.receive_sync_push(params.get("payload", {}))
+            return ToolResult.ok(data=result, tool_id="fleet.receive_sync")
+        except Exception as e:
+            return ToolResult.fail(error=str(e), tool_id="fleet.receive_sync")
+
+
+class FleetExportSyncTool(Tool):
+    def __init__(self, service):
+        self._svc = service
+
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            id="fleet.export_sync",
+            name="Export Sync Payload",
+            description="Export the current fleet state as a sync payload",
+            version="1.0.0",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "config_keys": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional list of config keys to export",
+                    },
+                },
+            },
+            required_permissions=["fleet.read"],
+            timeout_seconds=10,
+            category="fleet",
+        )
+
+    async def execute(self, params: Dict[str, Any], context: Dict[str, Any]) -> ToolResult:
+        try:
+            result = self._svc.export_sync_payload(params.get("config_keys"))
+            return ToolResult.ok(data=result, tool_id="fleet.export_sync")
+        except Exception as e:
+            return ToolResult.fail(error=str(e), tool_id="fleet.export_sync")
 
 
 class FleetSyncLogTool(Tool):

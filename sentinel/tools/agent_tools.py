@@ -80,12 +80,16 @@ class AgentCreateTool(Tool):
     async def execute(self, params: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> ToolResult:
         registry: Optional[AgentRegistry] = (context or {}).get("_agent_registry")
         if registry is None:
-            return ToolResult.err("Agent registry not available", tool_id="agent.create")
+            return ToolResult.fail("Agent registry not available", tool_id="agent.create")
         agent_id = params.get("id")
         if not agent_id:
-            return ToolResult.err("Agent id is required", tool_id="agent.create")
+            return ToolResult.fail("Agent id is required", tool_id="agent.create")
         if registry.get(agent_id):
-            return ToolResult.err(f"Agent '{agent_id}' already exists", tool_id="agent.create")
+            return ToolResult.fail(f"Agent '{agent_id}' already exists", tool_id="agent.create")
+        try:
+            status = AgentStatus(params["status"]) if "status" in params else AgentStatus.IDLE
+        except ValueError:
+            return ToolResult.fail(f"Invalid status: {params['status']}", tool_id="agent.create")
         agent = AgentSpec(
             id=agent_id,
             name=params.get("name", agent_id),
@@ -95,6 +99,7 @@ class AgentCreateTool(Tool):
             capabilities=params.get("capabilities", []),
             allowed_tools=params.get("allowed_tools", []),
             system_prompt=params.get("system_prompt", ""),
+            status=status,
         )
         registry.register(agent, persist=True)
         logger.info("Agent '%s' created (provider=%s, model=%s)", agent_id, agent.provider, agent.model)
@@ -122,15 +127,60 @@ class AgentDeleteTool(Tool):
     async def execute(self, params: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> ToolResult:
         registry: Optional[AgentRegistry] = (context or {}).get("_agent_registry")
         if registry is None:
-            return ToolResult.err("Agent registry not available", tool_id="agent.delete")
+            return ToolResult.fail("Agent registry not available", tool_id="agent.delete")
         agent_id = params.get("id")
         if not agent_id:
-            return ToolResult.err("Agent id is required", tool_id="agent.delete")
+            return ToolResult.fail("Agent id is required", tool_id="agent.delete")
         try:
             registry.unregister(agent_id, persist=True)
             return ToolResult.ok(data={"status": "deleted", "agent_id": agent_id}, tool_id="agent.delete")
         except KeyError as e:
-            return ToolResult.err(str(e), tool_id="agent.delete")
+            return ToolResult.fail(str(e), tool_id="agent.delete")
+
+
+class AgentUpdateTool(Tool):
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            id="agent.update",
+            name="Update Agent",
+            description="Update an existing agent's configuration fields",
+            version="1.0.0",
+            category="agent",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "Agent identifier to update"},
+                    "name": {"type": "string"},
+                    "description": {"type": "string"},
+                    "provider": {"type": "string"},
+                    "model": {"type": "string"},
+                    "capabilities": {"type": "array", "items": {"type": "string"}},
+                    "allowed_tools": {"type": "array", "items": {"type": "string"}},
+                    "system_prompt": {"type": "string"},
+                    "status": {"type": "string", "enum": ["idle", "active", "busy", "error", "disabled"]},
+                },
+                "required": ["id"],
+            },
+            required_permissions=["permissions.admin"],
+        )
+
+    async def execute(self, params: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> ToolResult:
+        registry: Optional[AgentRegistry] = (context or {}).get("_agent_registry")
+        if registry is None:
+            return ToolResult.fail("Agent registry not available", tool_id="agent.update")
+        agent_id = params.get("id")
+        if not agent_id:
+            return ToolResult.fail("Agent id is required", tool_id="agent.update")
+        if registry.get(agent_id) is None:
+            return ToolResult.fail(f"Agent '{agent_id}' not found", tool_id="agent.update")
+        updates = {k: v for k, v in params.items() if k != "id" and v is not None}
+        if not updates:
+            return ToolResult.fail("No fields to update", tool_id="agent.update")
+        try:
+            agent = registry.update(agent_id, persist=True, **updates)
+            return ToolResult.ok(data={"agent": agent.to_dict(), "status": "updated"}, tool_id="agent.update")
+        except Exception as e:
+            return ToolResult.fail(str(e), tool_id="agent.update")
 
 
 class AgentDelegateTool(Tool):
@@ -164,10 +214,10 @@ class AgentDelegateTool(Tool):
     async def execute(self, params: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> ToolResult:
         registry: Optional[AgentRegistry] = (context or {}).get("_agent_registry")
         if registry is None:
-            return ToolResult.err("Agent registry not available", tool_id="agent.delegate")
+            return ToolResult.fail("Agent registry not available", tool_id="agent.delegate")
         task = params.get("task", "")
         if not task:
-            return ToolResult.err("Task is required", tool_id="agent.delegate")
+            return ToolResult.fail("Task is required", tool_id="agent.delegate")
         agent_id = params.get("agent_id")
         strategy = params.get("strategy", "auto")
         task_context = params.get("context", {})
@@ -175,10 +225,10 @@ class AgentDelegateTool(Tool):
         try:
             agent = registry.resolve_agent(agent_id=agent_id, task=task, strategy=strategy)
         except KeyError as e:
-            return ToolResult.err(str(e), tool_id="agent.delegate")
+            return ToolResult.fail(str(e), tool_id="agent.delegate")
 
         if agent.status == AgentStatus.DISABLED:
-            return ToolResult.err(f"Agent '{agent.id}' is disabled", tool_id="agent.delegate")
+            return ToolResult.fail(f"Agent '{agent.id}' is disabled", tool_id="agent.delegate")
         logger.info(
             "Delegating task to agent '%s' (provider=%s, model=%s, strategy=%s): %s",
             agent.id,

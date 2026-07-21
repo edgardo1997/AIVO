@@ -70,7 +70,7 @@ class ProfileUpdateTool(Tool):
                 },
                 "required": [],
             },
-            required_permissions=["permissions.admin"],
+            required_permissions=["system.read"],
         )
 
     async def execute(self, params: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> ToolResult:
@@ -110,7 +110,7 @@ class ProfilePreferenceTool(Tool):
                 },
                 "required": ["action"],
             },
-            required_permissions=["permissions.admin"],
+            required_permissions=["system.read"],
         )
 
     async def execute(self, params: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> ToolResult:
@@ -140,6 +140,9 @@ class ProfilePreferenceTool(Tool):
             key = params.get("key", "")
             if not key:
                 return ToolResult.fail("key is required for delete", tool_id="profile.preference")
+            existing = self._mgr.get_preference(user_id, key)
+            if existing is None:
+                return ToolResult.fail(f"Preference '{key}' not found", tool_id="profile.preference")
             self._mgr.delete_preference(user_id, key)
             return ToolResult.ok(data={"key": key, "status": "deleted"}, tool_id="profile.preference")
         prefs = self._mgr.get_all_preferences(user_id)

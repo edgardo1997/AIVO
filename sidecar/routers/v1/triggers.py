@@ -2,7 +2,7 @@ import json
 import logging
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ConfigDict
 
 from sentinel.core.trigger import TriggerRule, TriggerCondition, TriggerAction, TriggerEngine, TriggerOperator
@@ -11,14 +11,11 @@ from repositories.database import DatabaseManager
 log = logging.getLogger("sentinel.v1.triggers")
 router = APIRouter()
 
-# These are injected from main.py after module init
-_engine: Optional[TriggerEngine] = None
 _db: Optional[DatabaseManager] = None
 
 
 def setup(engine: TriggerEngine, db: DatabaseManager) -> None:
-    global _engine, _db
-    _engine = engine
+    global _db
     _db = db
 
 
@@ -77,10 +74,15 @@ class TriggerHistoryResponse(BaseModel):
 
 
 @router.get("/triggers", response_model=dict)
-async def list_triggers():
-    if not _engine:
-        raise HTTPException(status_code=500, detail="Trigger engine not available")
-    return {"triggers": [r.to_dict() for r in _engine.list_rules()], "total": _engine.count()}
+async def list_triggers(request: Request):
+    from modules import get_gateway
+    from modules.auth import request_identity
+
+    identity = request_identity(request).to_dict()
+    result = await get_gateway().execute("trigger.list", {}, {"identity": identity})
+    if not result.success:
+        raise HTTPException(status_code=500, detail=result.error)
+    return result.data or {"triggers": [], "total": 0}
 
 
 @router.get("/triggers/history", response_model=dict)
@@ -95,69 +97,66 @@ async def get_all_history(limit: int = 50):
 
 
 @router.get("/triggers/{trigger_id}", response_model=dict)
-async def get_trigger(trigger_id: str):
-    if not _engine:
-        raise HTTPException(status_code=500, detail="Trigger engine not available")
-    rule = _engine.get_rule(trigger_id)
-    if not rule:
-        raise HTTPException(status_code=404, detail=f"Trigger '{trigger_id}' not found")
-    return {"trigger": rule.to_dict()}
+async def get_trigger(trigger_id: str, request: Request):
+    from modules import get_gateway
+    from modules.auth import request_identity
+
+    identity = request_identity(request).to_dict()
+    result = await get_gateway().execute("trigger.list", {}, {"identity": identity})
+    if not result.success:
+        raise HTTPException(status_code=500, detail=result.error)
+    triggers = (result.data or {}).get("triggers", [])
+    for t in triggers:
+        if t.get("id") == trigger_id:
+            return {"trigger": t}
+    raise HTTPException(status_code=404, detail=f"Trigger '{trigger_id}' not found")
 
 
 @router.post("/triggers", status_code=201)
-async def create_trigger(body: CreateTriggerRequest):
-    if not _engine:
-        raise HTTPException(status_code=500, detail="Trigger engine not available")
-    conditions = [
-        TriggerCondition(metric=c.metric, operator=TriggerOperator(c.operator), value=c.value) for c in body.conditions
-    ]
-    action = TriggerAction(tool_id=body.action.tool_id, params=body.action.params) if body.action else None
-    rule = TriggerRule(
-        id=body.id,
-        name=body.name or body.id,
-        description=body.description or "",
-        conditions=conditions,
-        action=action,
-        cooldown_seconds=body.cooldown_seconds,
-        enabled=body.enabled,
-    )
-    if not _engine.add_rule(rule, overwrite=False):
-        raise HTTPException(status_code=409, detail=f"Trigger '{body.id}' already exists")
-    log.info("Trigger '%s' created via v1 API", body.id)
+async def create_trigger(body: CreateTriggerRequest, request: Request):
+    from modules import get_gateway
+    from modules.auth import request_identity
+
+    identity = request_identity(request).to_dict()
+    params = body.model_dump()
+    result = await get_gateway().execute("trigger.create", params, {"identity": identity})
+    if not result.success:
+        if "already exists" in (result.error or ""):
+            raise HTTPException(status_code=409, detail=result.error)
+        raise HTTPException(status_code=400, detail=result.error)
     return {"status": "created", "trigger_id": body.id}
 
 
 @router.patch("/triggers/{trigger_id}")
-async def update_trigger(trigger_id: str, body: UpdateTriggerRequest):
-    if not _engine:
-        raise HTTPException(status_code=500, detail="Trigger engine not available")
-    rule = _engine.get_rule(trigger_id)
-    if not rule:
-        raise HTTPException(status_code=404, detail=f"Trigger '{trigger_id}' not found")
-    updates = {}
-    for field in ("name", "description", "cooldown_seconds", "enabled"):
-        val = getattr(body, field, None)
-        if val is not None:
-            updates[field] = val
-    if body.conditions is not None:
-        updates["conditions"] = [
-            {"metric": c.metric, "operator": c.operator, "value": c.value} for c in body.conditions
-        ]
-    if body.action is not None:
-        updates["action"] = {"tool_id": body.action.tool_id, "params": body.action.params}
-    _engine.update_rule(trigger_id, **updates)
+async def update_trigger(trigger_id: str, body: UpdateTriggerRequest, request: Request):
+    from modules import get_gateway
+    from modules.auth import request_identity
+
+    identity = request_identity(request).to_dict()
+    updates = body.model_dump(exclude_none=True)
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    params = {"id": trigger_id, **updates}
+    result = await get_gateway().execute("trigger.update", params, {"identity": identity})
+    if not result.success:
+        if "not found" in (result.error or ""):
+            raise HTTPException(status_code=404, detail=result.error)
+        raise HTTPException(status_code=400, detail=result.error)
     return {"status": "updated", "trigger_id": trigger_id}
 
 
 @router.delete("/triggers/{trigger_id}")
-async def delete_trigger(trigger_id: str):
-    if not _engine:
-        raise HTTPException(status_code=500, detail="Trigger engine not available")
-    try:
-        _engine.remove_rule(trigger_id)
-        return {"status": "deleted", "trigger_id": trigger_id}
-    except KeyError:
-        raise HTTPException(status_code=404, detail=f"Trigger '{trigger_id}' not found")
+async def delete_trigger(trigger_id: str, request: Request):
+    from modules import get_gateway
+    from modules.auth import request_identity
+
+    identity = request_identity(request).to_dict()
+    result = await get_gateway().execute("trigger.delete", {"id": trigger_id}, {"identity": identity})
+    if not result.success:
+        if "not found" in (result.error or ""):
+            raise HTTPException(status_code=404, detail=result.error)
+        raise HTTPException(status_code=400, detail=result.error)
+    return {"status": "deleted", "trigger_id": trigger_id}
 
 
 @router.get("/triggers/{trigger_id}/history", response_model=dict)

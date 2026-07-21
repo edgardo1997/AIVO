@@ -369,7 +369,7 @@ def _wire_repositories_and_migrate_configs() -> None:
     for service, key in (
         (audit_mod._svc, None),
         (ai_mod._svc, "ai_config"),
-        (fleet_mod._svc, "fleet_config"),
+        (fleet_mod._get_svc(), "fleet_config"),
         (permissions_mod._svc, "permissions"),
     ):
         repository = service.repo

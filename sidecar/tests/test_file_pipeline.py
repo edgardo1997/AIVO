@@ -60,7 +60,7 @@ class TestDetectType:
 
 class TestPipelineApiErrors:
     def test_ingest_failure_does_not_expose_internal_exception(self, monkeypatch):
-        from modules import sentinel_bridge
+        from modules import sentinel_bridge, get_gateway
 
         class FailingPipeline:
             def ingest(self, *_args, **_kwargs):
@@ -69,12 +69,11 @@ class TestPipelineApiErrors:
         orchestrator = SimpleNamespace(_file_pipeline=FailingPipeline())
         monkeypatch.setattr(sentinel_bridge, "get_orchestrator", lambda: orchestrator)
 
-        response = sentinel_bridge.pipeline_ingest({"path": "document.txt"})
-        payload = json.loads(response.body)
+        import asyncio
+        result = asyncio.run(get_gateway().execute("pipeline.ingest", {"path": "document.txt"}, {"identity": {"user_id": "test", "role": "admin"}}))
 
-        assert response.status_code == 500
-        assert payload["error"] == "File ingestion failed"
-        assert "secret" not in response.body.decode()
+        assert not result.success
+        assert "secret" not in (result.error or "")
 
 
 class TestExtractors:

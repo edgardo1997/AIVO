@@ -295,6 +295,11 @@ from modules import (
     register_workflow_tools,
     register_admin_tools,
     register_vault_tools,
+    register_goal_tools,
+    register_conversation_tools,
+    register_memory_tools,
+    register_cost_tools,
+    register_maintenance_tools,
     reset_sentinel,
 )
 from sentinel.core.capability_registry import CapabilityRegistry
@@ -361,6 +366,11 @@ def _register_gateway_components(runtime_gateway, runtime_capabilities, runtime_
         register_workflow_tools,
         register_admin_tools,
         register_vault_tools,
+        register_goal_tools,
+        register_conversation_tools,
+        register_memory_tools,
+        register_cost_tools,
+        register_maintenance_tools,
     ):
         register(runtime_gateway)
     runtime_gateway.set_trigger_engine(triggers_mod.get_engine())

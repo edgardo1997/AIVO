@@ -44,6 +44,15 @@ CRITICAL_TOOLS: FrozenSet[str] = frozenset({
     "policies.reload",
     "admin.config_set", "admin.config_delete", "admin.backup",
     "permissions.add_rule", "permissions.remove_rule",
+    "goals.register", "goals.unregister", "goals.update",
+    "budget.*", "cache.*", "rate_limiter.*", "fallback.*",
+    "circuit_breaker.*", "offline_queue.*",
+    "alert.*", "advisory.*",
+    "kb.add_file", "kb.clear", "kb.rebuild",
+    "pipeline.reset_stats",
+    "profile.import",
+    "simulate.*", "process.offline",
+    "skill.suggest", "skill.execute",
 })
 
 

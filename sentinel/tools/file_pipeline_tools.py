@@ -34,12 +34,18 @@ class PipelineIngestTool(Tool):
         path = params.get("path", "")
         if not path:
             return ToolResult.error("path is required", tool_id="pipeline.ingest")
-        result = self._pipeline.ingest(
-            path,
-            recursive=params.get("recursive", True),
-            repo=params.get("repo", False),
-        )
-        return ToolResult.ok(data=result.to_dict(), tool_id="pipeline.ingest")
+        try:
+            result = self._pipeline.ingest(
+                path,
+                recursive=params.get("recursive", True),
+                repo=params.get("repo", False),
+            )
+            return ToolResult.ok(data=result.to_dict(), tool_id="pipeline.ingest")
+        except (FileNotFoundError, ValueError):
+            return ToolResult.fail(error="The requested path could not be ingested", tool_id="pipeline.ingest")
+        except Exception:
+            logger.exception("File pipeline ingestion failed")
+            return ToolResult.fail(error="File ingestion failed", tool_id="pipeline.ingest")
 
 
 class PipelineStatusTool(Tool):
@@ -59,6 +65,26 @@ class PipelineStatusTool(Tool):
 
     async def execute(self, params: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> ToolResult:
         return ToolResult.ok(data=self._pipeline.stats(), tool_id="pipeline.status")
+
+
+class PipelineResetStatsTool(Tool):
+    def __init__(self, pipeline):
+        self._pipeline = pipeline
+
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            id="pipeline.reset_stats",
+            name="Reset Pipeline Stats",
+            description="Reset file ingestion pipeline statistics.",
+            version="1.0.0",
+            category="pipeline",
+            parameters={},
+            required_permissions=["permissions.admin"],
+        )
+
+    async def execute(self, params: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> ToolResult:
+        self._pipeline.reset_stats()
+        return ToolResult.ok(data={"status": "reset"}, tool_id="pipeline.reset_stats")
 
 
 class PipelineReportTool(Tool):

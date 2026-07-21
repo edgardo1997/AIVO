@@ -290,6 +290,11 @@ class _OrchestratorHolder:
         if profile_svc is not None:
             register_profile_tools(gw, profile_svc)
 
+        register_conversation_tools(gw)
+        register_memory_tools(gw)
+        register_cost_tools(gw)
+        register_maintenance_tools(gw)
+
         cls._instance = init_sentinel_orchestrator(
             gw,
             memory=cls._memory,
@@ -524,6 +529,15 @@ def register_permissions_tools(gateway):
     _log.info("Permissions tools registered in shared gateway")
 
 
+def register_goal_tools(gateway):
+    from sentinel.tools.goal_tools import GoalRegisterTool, GoalUnregisterTool, GoalUpdateTool
+
+    gateway.register(GoalRegisterTool())
+    gateway.register(GoalUnregisterTool())
+    gateway.register(GoalUpdateTool())
+    _log.info("Goal tools registered in shared gateway")
+
+
 def register_vault_tools(gateway):
     from sentinel.tools.vault_tools import (
         VaultCreateTool,
@@ -580,15 +594,21 @@ def register_knowledge_base_tools(gateway, kb):
     from sentinel.tools.knowledge_base_tools import (
         KnowledgeBaseSearchTool,
         KnowledgeBaseAddTool,
+        KnowledgeBaseAddFileTool,
         KnowledgeBaseListTool,
         KnowledgeBaseDeleteTool,
+        KnowledgeBaseClearTool,
+        KnowledgeBaseRebuildTool,
         KnowledgeBaseStatsTool,
     )
 
     gateway.register(KnowledgeBaseSearchTool(kb))
     gateway.register(KnowledgeBaseAddTool(kb))
+    gateway.register(KnowledgeBaseAddFileTool(kb))
     gateway.register(KnowledgeBaseListTool(kb))
     gateway.register(KnowledgeBaseDeleteTool(kb))
+    gateway.register(KnowledgeBaseClearTool(kb))
+    gateway.register(KnowledgeBaseRebuildTool(kb))
     gateway.register(KnowledgeBaseStatsTool(kb))
     _kb_tools_registered = True
     _log.info("Knowledge Base tools registered in shared gateway")
@@ -601,10 +621,11 @@ def register_file_pipeline_tools(gateway, fp):
     global _fp_tools_registered
     if _fp_tools_registered:
         return
-    from sentinel.tools.file_pipeline_tools import PipelineIngestTool, PipelineStatusTool, PipelineReportTool
+    from sentinel.tools.file_pipeline_tools import PipelineIngestTool, PipelineStatusTool, PipelineResetStatsTool, PipelineReportTool
 
     gateway.register(PipelineIngestTool(fp))
     gateway.register(PipelineStatusTool(fp))
+    gateway.register(PipelineResetStatsTool(fp))
     gateway.register(PipelineReportTool(fp))
     _fp_tools_registered = True
     _log.info("File Pipeline tools registered in shared gateway")
@@ -621,6 +642,7 @@ def register_profile_tools(gateway, profile_mgr):
         ProfileGetTool,
         ProfileUpdateTool,
         ProfilePreferenceTool,
+        ProfileImportTool,
         ProfileExportTool,
         ProfilePresetTool,
         ProfileHistoryTool,
@@ -629,6 +651,7 @@ def register_profile_tools(gateway, profile_mgr):
     gateway.register(ProfileGetTool(profile_mgr))
     gateway.register(ProfileUpdateTool(profile_mgr))
     gateway.register(ProfilePreferenceTool(profile_mgr))
+    gateway.register(ProfileImportTool(profile_mgr))
     gateway.register(ProfileExportTool(profile_mgr))
     gateway.register(ProfilePresetTool(profile_mgr))
     gateway.register(ProfileHistoryTool(profile_mgr))
@@ -1090,6 +1113,84 @@ def register_automation_tools(gateway):
     gateway.register(AutomationRemoveRuleTool(svc))
     gateway.register(AutomationTriggerRuleTool(svc))
     _log.info("Automation Engine tools registered in shared gateway")
+
+
+_conversation_tools_registered = False
+
+
+def register_conversation_tools(gateway):
+    global _conversation_tools_registered
+    if _conversation_tools_registered:
+        return
+    from sentinel.tools.conversation_tools import ConversationSaveTool, ConversationDeleteTool
+    gateway.register(ConversationSaveTool())
+    gateway.register(ConversationDeleteTool())
+    _conversation_tools_registered = True
+    _log.info("Conversation tools registered in shared gateway")
+
+
+_memory_tools_registered = False
+
+
+def register_memory_tools(gateway):
+    global _memory_tools_registered
+    if _memory_tools_registered:
+        return
+    from sentinel.tools.memory_tools import MemorySessionDeleteTool, EnvironmentMemoryDeleteTool
+    gateway.register(MemorySessionDeleteTool())
+    gateway.register(EnvironmentMemoryDeleteTool())
+    _memory_tools_registered = True
+    _log.info("Memory tools registered in shared gateway")
+
+
+_cost_tools_registered = False
+
+
+def register_cost_tools(gateway):
+    global _cost_tools_registered
+    if _cost_tools_registered:
+        return
+    from sentinel.tools.cost_tracker_tools import BudgetCreateTool, BudgetDeleteTool
+    gateway.register(BudgetCreateTool())
+    gateway.register(BudgetDeleteTool())
+    _cost_tools_registered = True
+    _log.info("Cost tools registered in shared gateway")
+
+
+_maintenance_tools_registered = False
+
+
+def register_maintenance_tools(gateway):
+    global _maintenance_tools_registered
+    if _maintenance_tools_registered:
+        return
+    from sentinel.tools.maintenance_tools import (
+        CacheClearTool, RateLimiterClearTool, FallbackResetStatsTool,
+        ModelCircuitBreakerResetTool, ToolCircuitBreakerResetTool,
+        OfflineQueueSyncTool, OfflineQueueClearTool,
+        AlertAcknowledgeTool, AlertCheckTool, AlertClearTool,
+        SimulateApproveTool, SimulateModifyAndApproveTool, ProcessOfflineTool,
+        SkillSuggestTool, SkillExecuteTool,
+        AdvisoryFeedbackTool,
+    )
+    gateway.register(CacheClearTool())
+    gateway.register(RateLimiterClearTool())
+    gateway.register(FallbackResetStatsTool())
+    gateway.register(ModelCircuitBreakerResetTool())
+    gateway.register(ToolCircuitBreakerResetTool())
+    gateway.register(OfflineQueueSyncTool())
+    gateway.register(OfflineQueueClearTool())
+    gateway.register(AlertAcknowledgeTool())
+    gateway.register(AlertCheckTool())
+    gateway.register(AlertClearTool())
+    gateway.register(SimulateApproveTool())
+    gateway.register(SimulateModifyAndApproveTool())
+    gateway.register(ProcessOfflineTool())
+    gateway.register(SkillSuggestTool())
+    gateway.register(SkillExecuteTool())
+    gateway.register(AdvisoryFeedbackTool())
+    _maintenance_tools_registered = True
+    _log.info("Maintenance tools registered in shared gateway")
 
 
 def register_workflow_tools(gateway):

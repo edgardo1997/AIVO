@@ -52,10 +52,18 @@ def _close_stream_iterator(iterator) -> None:
 
 
 def _gateway_response(result, not_found=False):
-    """Convert a ToolResult to a JSONResponse, mapping policy denials to 403."""
+    """Convert a ToolResult to a JSONResponse, mapping policy denials to 403.
+
+    Infers 404/409 from common error patterns when not_found is set.
+    """
     if not result.success:
+        err = result.error or ""
         if result.policy_decision:
             status = 403
+        elif "not found" in err.lower():
+            status = 404
+        elif "already exists" in err.lower():
+            status = 409
         elif not_found:
             status = 404
         else:
@@ -335,31 +343,39 @@ async def get_conversation(session_id: str, request: Request):
 
 @router.put("/conversations/{session_id}")
 async def save_conversation(session_id: str, body: dict, request: Request):
-    user_id = request_identity(request).user_id
+    from modules import get_gateway
+
+    identity = request_identity(request).to_dict()
     safe_session_id = _validate_conversation_id(session_id)
     messages = _normalize_conversation_messages(body.get("messages", []))
     title = str(body.get("title", "")).strip()[:120] or "Nueva operación"
     updated_at = datetime.now(timezone.utc).isoformat()
-    return _conversation_db().upsert_conversation(
-        user_id, safe_session_id, title, messages, updated_at
-    )
+    params = {
+        "user_id": identity["user_id"],
+        "session_id": safe_session_id,
+        "title": title,
+        "messages": messages,
+        "updated_at": updated_at,
+    }
+    result = await get_gateway().execute("conversation.save", params, {"identity": identity})
+    resp = _gateway_response(result)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.delete("/conversations/{session_id}")
 async def delete_conversation(session_id: str, request: Request):
-    identity = request_identity(request)
-    safe_session_id = _validate_conversation_id(session_id)
-    deleted = _conversation_db().delete_conversation(identity.user_id, safe_session_id)
-    try:
-        from modules.audit import _svc as audit_service
+    from modules import get_gateway
 
-        if deleted:
-            audit_service.log_action(
-                "conversation_delete", safe_session_id, "success", user=identity.user_id
-            )
-    except Exception:
-        log.exception("Could not audit conversation deletion")
-    return {"deleted": deleted, "session_id": safe_session_id}
+    identity = request_identity(request).to_dict()
+    safe_session_id = _validate_conversation_id(session_id)
+    params = {"user_id": identity["user_id"], "session_id": safe_session_id}
+    result = await get_gateway().execute("conversation.delete", params, {"identity": identity})
+    resp = _gateway_response(result, not_found=True)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.get("/memory/sessions")
@@ -394,20 +410,15 @@ async def search_memory(request: Request, q: str = Query("", min_length=1), limi
 
 @router.delete("/memory/sessions/{session_id}")
 async def delete_memory_session(session_id: str, request: Request):
-    from modules.auth import request_identity
+    from modules import get_gateway
 
     identity = request_identity(request).to_dict()
-    memory = get_memory() or get_orchestrator()._memory
-    deleted = memory.delete_session(session_id, identity["user_id"])
-    if not deleted:
-        return JSONResponse(status_code=404, content={"error": "Session not found"})
-    try:
-        from modules.audit import _svc as audit_service
-
-        audit_service.log_action("memory_session_delete", session_id, "success", user=identity["user_id"])
-    except Exception:
-        pass
-    return {"deleted": True, "session_id": session_id, "records_deleted": deleted}
+    params = {"session_id": session_id, "user_id": identity["user_id"]}
+    result = await get_gateway().execute("memory.session.delete", params, {"identity": identity})
+    resp = _gateway_response(result, not_found=True)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.get("/memory/environment")
@@ -425,21 +436,15 @@ async def list_environment_memory(request: Request, limit: int = Query(50, ge=1,
 
 @router.delete("/memory/environment")
 async def delete_environment_memory(request: Request):
-    identity = request_identity(request)
-    memory = get_memory() or get_orchestrator()._memory
-    deleted = memory.delete_environment_data(identity.user_id)
-    try:
-        from modules.audit import _svc as audit_service
+    from modules import get_gateway
 
-        audit_service.log_action(
-            "environment_memory_delete",
-            f"records={deleted}",
-            "success",
-            user=identity.user_id,
-        )
-    except Exception:
-        log.exception("Could not audit environmental memory deletion")
-    return {"deleted": True, "records_deleted": deleted}
+    identity = request_identity(request).to_dict()
+    params = {"user_id": identity["user_id"]}
+    result = await get_gateway().execute("memory.environment.delete", params, {"identity": identity})
+    resp = _gateway_response(result)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.get("/permissions/rules")
@@ -783,14 +788,14 @@ def _build_chat_pipeline_trace(result) -> Dict[str, Any]:
 
 @router.post("/advisory/feedback")
 async def advisory_feedback(body: dict, request: Request):
-    helpful = body.get("helpful", False)
-    insight_kind = body.get("insight_kind")
-    execution_id = body.get("execution_id")
-    svc = get_advisory_service()
-    if svc:
-        svc.record_feedback(helpful, insight_kind, execution_id)
-        return {"status": "ok", "stats": svc.feedback_stats()}
-    return {"status": "error", "detail": "Advisory service not available"}
+    from modules import get_gateway
+
+    identity = request_identity(request).to_dict()
+    result = await get_gateway().execute("advisory.feedback", body, {"identity": identity})
+    resp = _gateway_response(result)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.post("/chat")
@@ -1181,14 +1186,11 @@ def get_goals():
 
 
 @router.post("/goals")
-def post_goal(body: dict, request: Request):
-    _require_admin(request)
-    goal_registry = get_goal_registry()
-    if goal_registry is None:
-        get_orchestrator()
-        goal_registry = get_goal_registry()
+async def post_goal(body: dict, request: Request):
+    from modules import get_gateway
     from sentinel.core.goals import GoalDefinition, RiskLevel
 
+    identity = request_identity(request).to_dict()
     gid = body.get("id")
     if not gid:
         return JSONResponse({"error": "id is required"}, status_code=400)
@@ -1199,82 +1201,73 @@ def post_goal(body: dict, request: Request):
     if not intent_targets:
         return JSONResponse({"error": "intent_targets must not be empty"}, status_code=400)
     caps = body.get("possible_capabilities", [])
-    if not goal_registry._test_skip_cap_validation:
+    goal_registry = get_goal_registry()
+    if goal_registry is not None and caps and not goal_registry._test_skip_cap_validation:
         invalid = _validate_capabilities(caps)
         if invalid:
             return JSONResponse({"error": f"unknown capabilities: {invalid}"}, status_code=400)
     risk_str = body.get("base_risk", "low")
     if risk_str not in ("low", "medium", "high", "critical"):
         return JSONResponse({"error": f"invalid base_risk: {risk_str}"}, status_code=400)
-    if goal_registry.get(gid) is not None:
+    if goal_registry is not None and goal_registry.get(gid) is not None:
         return JSONResponse({"error": f"goal '{gid}' already exists"}, status_code=409)
-    goal = GoalDefinition(
-        id=gid,
-        name=body.get("name", gid),
-        description=body.get("description", ""),
-        related_intents=intent_targets,
-        possible_capabilities=caps,
-        priority=priority,
-        base_risk=RiskLevel(risk_str),
-        keywords=body.get("keywords", []),
-    )
-    goal_registry.register(goal, source="api")
-    return JSONResponse({"status": "registered", "goal_id": gid}, status_code=201)
+    result = await get_gateway().execute("goals.register", body, {"identity": identity})
+    resp = _gateway_response(result)
+    if resp:
+        return resp
+    return JSONResponse(result.data, status_code=201)
 
 
 @router.delete("/goals/{goal_id}")
-def delete_goal(goal_id: str, request: Request):
-    _require_admin(request)
-    goal_registry = get_goal_registry()
-    if goal_registry is None:
-        get_orchestrator()
-        goal_registry = get_goal_registry()
-    try:
-        goal_registry.unregister(goal_id, source="api")
-        return {"status": "deleted", "goal_id": goal_id}
-    except KeyError:
-        return JSONResponse({"error": f"goal '{goal_id}' not found"}, status_code=404)
+async def delete_goal(goal_id: str, request: Request):
+    from modules import get_gateway
+
+    identity = request_identity(request).to_dict()
+    result = await get_gateway().execute("goals.unregister", {"goal_id": goal_id}, {"identity": identity})
+    resp = _gateway_response(result, not_found=True)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.patch("/goals/{goal_id}")
-def patch_goal(goal_id: str, body: dict, request: Request):
-    _require_admin(request)
+async def patch_goal(goal_id: str, body: dict, request: Request):
+    from modules import get_gateway
+    from sentinel.core.goals import RiskLevel
+
+    identity = request_identity(request).to_dict()
     goal_registry = get_goal_registry()
     if goal_registry is None:
         get_orchestrator()
         goal_registry = get_goal_registry()
-    if goal_registry.get(goal_id) is None:
+    if goal_registry is None or goal_registry.get(goal_id) is None:
         return JSONResponse({"error": f"goal '{goal_id}' not found"}, status_code=404)
     clen = body.get("priority")
     if clen is not None and not (0 <= clen <= 10):
         return JSONResponse({"error": "priority must be 0-10"}, status_code=400)
+    params = {"goal_id": goal_id}
     allowed = {
-        "name",
-        "description",
-        "related_intents",
-        "possible_capabilities",
-        "priority",
-        "base_risk",
-        "keywords",
-        "enabled",
-        "context_rules",
+        "name", "description", "related_intents", "possible_capabilities",
+        "priority", "base_risk", "keywords", "enabled", "context_rules",
     }
-    changes = {k: v for k, v in body.items() if k in allowed and v is not None}
-    if not changes:
+    for k, v in body.items():
+        if k in allowed and v is not None:
+            params[k] = v
+    if len(params) == 1:
         return JSONResponse({"error": "no valid fields to update"}, status_code=400)
-    if "possible_capabilities" in changes and not goal_registry._test_skip_cap_validation:
-        invalid = _validate_capabilities(changes["possible_capabilities"])
+    if "possible_capabilities" in params and not goal_registry._test_skip_cap_validation:
+        invalid = _validate_capabilities(params["possible_capabilities"])
         if invalid:
             return JSONResponse({"error": f"unknown capabilities: {invalid}"}, status_code=400)
-    from sentinel.core.goals import RiskLevel
-
-    if "base_risk" in changes:
-        rv = changes["base_risk"]
+    if "base_risk" in params:
+        rv = params["base_risk"]
         if rv not in ("low", "medium", "high", "critical"):
             return JSONResponse({"error": f"invalid base_risk: {rv}"}, status_code=400)
-        changes["base_risk"] = RiskLevel(rv)
-    goal_registry.update(goal_id, changes, source="api")
-    return {"status": "updated", "goal_id": goal_id}
+    result = await get_gateway().execute("goals.update", params, {"identity": identity})
+    resp = _gateway_response(result, not_found=True)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.get("/goals/audit")
@@ -1353,97 +1346,56 @@ def get_goal_matches(
 
 @router.post("/simulate/approve")
 async def approve_execution(body: dict, request: Request):
-    from modules.auth import request_identity
+    from modules import get_gateway
 
-    orch = get_orchestrator()
+    identity = request_identity(request).to_dict()
     action_id = body.get("action_id", "")
     if not action_id:
         return JSONResponse({"error": "action_id is required"}, status_code=400)
-    approved = body.get("approved", True)
-    result = await orch.approve_execution(
-        action_id,
-        approved=approved,
-        approver_identity=request_identity(request).to_dict(),
-    )
-    plan = result.plan
-    return {
-        "presentation": _presentation.present(result, PresentationMode.USER),
-        "blocked": result.blocked,
-        "approved": result.approved,
-        "action_id": result.action_id,
-        "error": result.error,
-        "simulation_summary": result.simulation_summary,
-        "decision": result.decision.decision if result.decision else None,
-        "decision_reason": result.decision.reason if result.decision else None,
-        "intent": {
-            "action": plan.intent.action,
-            "target": plan.intent.target,
-            "parameters": plan.intent.parameters,
-            "confidence": plan.intent.confidence,
-            "raw_input": plan.intent.raw_input,
-        },
-        "tool_result": {
-            "success": result.tool_result.success if result.tool_result else None,
-            "data": result.tool_result.data if result.tool_result else None,
-            "error": result.tool_result.error if result.tool_result else None,
-            "requires_confirmation": result.tool_result.requires_confirmation if result.tool_result else False,
-            "duration_ms": result.tool_result.duration_ms if result.tool_result else None,
-        }
-        if result.tool_result
-        else None,
-        "step_results": [_step_result(s) for s in result.step_results] if result.step_results else None,
-        "rollback_actions": result.rollback_actions,
-    }
+    result = await get_gateway().execute("simulate.approve", body, {"identity": identity})
+    resp = _gateway_response(result)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.post("/simulate/modify-and-approve")
 async def modify_and_approve(body: dict, request: Request):
-    from modules.auth import request_identity
+    from modules import get_gateway
 
-    orch = get_orchestrator()
+    identity = request_identity(request).to_dict()
     action_id = body.get("action_id", "")
     if not action_id:
         return JSONResponse({"error": "action_id is required"}, status_code=400)
     steps = body.get("steps", [])
     if not steps:
-        return {"error": "steps are required", "approved": False, "action_id": action_id}
-    result = await orch.approve_with_modifications(
-        action_id,
-        steps,
-        approver_identity=request_identity(request).to_dict(),
-    )
+        return JSONResponse({"error": "steps are required"}, status_code=400)
+    params = {"action_id": action_id, "steps": steps}
+    result = await get_gateway().execute("simulate.modify_and_approve", params, {"identity": identity})
+    resp = _gateway_response(result)
+    if resp:
+        return resp
     return {
-        "presentation": _presentation.present(result, PresentationMode.USER),
-        "blocked": result.blocked,
-        "approved": result.approved,
-        "action_id": result.action_id,
-        "error": result.error,
-        "step_results": [_step_result(s) for s in result.step_results] if result.step_results else None,
-        "rollback_actions": result.rollback_actions,
+        **result.data,
         "modified": True,
-        "requires_reconfirmation": result.blocked and bool(result.action_id),
+        "requires_reconfirmation": result.data.get("blocked", False) and bool(result.data.get("action_id")),
     }
 
 
 @router.post("/simulate/reject")
 async def reject_execution(body: dict, request: Request):
-    from modules.auth import request_identity
+    from modules import get_gateway
 
-    orch = get_orchestrator()
+    identity = request_identity(request).to_dict()
     action_id = body.get("action_id", "")
     if not action_id:
         return JSONResponse({"error": "action_id is required"}, status_code=400)
-    result = await orch.approve_execution(
-        action_id,
-        approved=False,
-        approver_identity=request_identity(request).to_dict(),
-    )
-    return {
-        "blocked": False,
-        "approved": False,
-        "action_id": action_id,
-        "error": result.error,
-    }
+    params = {"action_id": action_id, "approved": False}
+    result = await get_gateway().execute("simulate.approve", params, {"identity": identity})
+    resp = _gateway_response(result)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.get("/feedback/stats")
@@ -1582,37 +1534,30 @@ def get_budgets():
 
 
 @router.post("/cost/budgets")
-def create_budget(body: dict):
-    from sentinel.core.cost_tracker import BudgetConfig
+async def create_budget(body: dict, request: Request):
+    from modules import get_gateway
 
-    orch = get_orchestrator()
-    ct = orch.cost_tracker
-    if ct is None:
-        return JSONResponse({"error": "Cost tracker not available"}, status_code=400)
+    identity = request_identity(request).to_dict()
     name = body.get("name", "")
     if not name:
         return JSONResponse({"error": "name is required"}, status_code=400)
-    ct.set_budget(
-        BudgetConfig(
-            name=name,
-            max_cost_usd=float(body.get("max_cost_usd", 0)),
-            period=body.get("period", "monthly"),
-            provider_id=body.get("provider_id"),
-            max_tokens=body.get("max_tokens"),
-            enabled=body.get("enabled", True),
-        )
-    )
-    return {"success": True, "name": name}
+    result = await get_gateway().execute("budget.create", body, {"identity": identity})
+    resp = _gateway_response(result)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.delete("/cost/budgets/{name}")
-def delete_budget(name: str):
-    orch = get_orchestrator()
-    ct = orch.cost_tracker
-    if ct is None:
-        return JSONResponse({"error": "Cost tracker not available"}, status_code=400)
-    ct.delete_budget(name)
-    return {"success": True}
+async def delete_budget(name: str, request: Request):
+    from modules import get_gateway
+
+    identity = request_identity(request).to_dict()
+    result = await get_gateway().execute("budget.delete", {"name": name}, {"identity": identity})
+    resp = _gateway_response(result)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.get("/cost/alerts")
@@ -1695,13 +1640,15 @@ def get_cache_stats():
 
 
 @router.post("/cache/clear")
-def clear_cache():
-    orch = get_orchestrator()
-    pc = orch.plan_cache
-    if pc is None:
-        return {"cleared": False}
-    count = pc.clear()
-    return {"cleared": True, "entries_removed": count}
+async def clear_cache(request: Request):
+    from modules import get_gateway
+
+    identity = request_identity(request).to_dict()
+    result = await get_gateway().execute("cache.clear", {}, {"identity": identity})
+    resp = _gateway_response(result)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.get("/circuit-breaker")
@@ -1832,20 +1779,19 @@ def get_timeline(request_id: str):
 
 
 @router.post("/recovery/circuit-breaker/reset")
-def reset_recovery_circuit(body: dict):
-    """Reset one explicitly typed circuit; avoids ambiguous cross-resource resets."""
+async def reset_recovery_circuit(body: dict, request: Request):
+    from modules import get_gateway
+
     resource_type = str(body.get("resource_type", "")).strip().lower()
     resource_id = str(body.get("resource_id", "")).strip()
     if resource_type not in ("model", "tool") or not resource_id:
         raise HTTPException(status_code=400, detail="resource_type (model|tool) and resource_id are required")
-    orch = get_orchestrator()
-    if resource_type == "model":
-        router_service = getattr(orch, "_model_router", None)
-        count = router_service.circuit_breaker.reset(resource_id) if router_service else 0
-    else:
-        hardening = _get_hardening(orch)
-        count = hardening.circuit_breaker.reset(resource_id) if hardening else 0
-    return {"resource_type": resource_type, "resource_id": resource_id, "circuits_reset": count}
+    identity = request_identity(request).to_dict()
+    result = await get_gateway().execute("circuit_breaker.reset_tool", body, {"identity": identity})
+    resp = _gateway_response(result)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.get("/model-router/status")
@@ -1877,12 +1823,16 @@ def get_model_router_status(refresh: bool = Query(False)):
 
 
 @router.post("/circuit-breaker/reset")
-def reset_circuit_breaker(provider_id: Optional[str] = Query(None)):
-    orch = get_orchestrator()
-    total = 0
-    if orch._model_router:
-        total += orch._model_router.circuit_breaker.reset(provider_id=provider_id)
-    return {"reset": total, "provider_id": provider_id}
+async def reset_circuit_breaker(request: Request, provider_id: Optional[str] = Query(None)):
+    from modules import get_gateway
+
+    identity = request_identity(request).to_dict()
+    params = {"provider_id": provider_id} if provider_id else {}
+    result = await get_gateway().execute("circuit_breaker.reset_model", params, {"identity": identity})
+    resp = _gateway_response(result)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.get("/last-execution")
@@ -1918,34 +1868,30 @@ def get_rate_limiter_stats():
 
 
 @router.post("/rate-limiter/clear")
-def clear_rate_limiter():
-    orch = get_orchestrator()
-    rl = getattr(orch, "_rate_limiter", None)
-    if rl is None:
-        return {"cleared": False}
-    count = rl.clear()
-    return {"cleared": True, "buckets_removed": count}
+async def clear_rate_limiter(request: Request):
+    from modules import get_gateway
+
+    identity = request_identity(request).to_dict()
+    result = await get_gateway().execute("rate_limiter.clear", {}, {"identity": identity})
+    resp = _gateway_response(result)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.post("/process/offline")
 async def process_offline(body: dict, request: Request):
-    from modules.auth import request_identity
+    from modules import get_gateway
 
-    orch = get_orchestrator()
+    identity = request_identity(request).to_dict()
     utterance = body.get("utterance", "")
     if not utterance:
-        return {"error": "utterance is required"}
-    session_id = body.get("session_id")
-    result = await orch.process_offline(
-        utterance,
-        identity=request_identity(request).to_dict(),
-        session_id=session_id,
-    )
-    return {
-        "queued": result.action_id is not None,
-        "item_id": result.action_id,
-        "error": result.error,
-    }
+        return JSONResponse({"error": "utterance is required"}, status_code=400)
+    result = await get_gateway().execute("process.offline", body, {"identity": identity})
+    resp = _gateway_response(result)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.get("/offline-queue")
@@ -1963,26 +1909,28 @@ def get_offline_queue(status: Optional[str] = Query(None), operation_type: Optio
 
 
 @router.post("/offline-queue/sync")
-async def sync_offline_queue():
-    orch = get_orchestrator()
-    q = getattr(orch, "_offline_queue", None)
-    if q is None:
-        return {"synced": 0}
-    stats = await orch._process_offline_queue()
-    return stats
+async def sync_offline_queue(request: Request):
+    from modules import get_gateway
+
+    identity = request_identity(request).to_dict()
+    result = await get_gateway().execute("offline_queue.sync", {}, {"identity": identity})
+    resp = _gateway_response(result)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.post("/offline-queue/clear")
-def clear_offline_queue(status: Optional[str] = Query(None)):
-    orch = get_orchestrator()
-    q = getattr(orch, "_offline_queue", None)
-    if q is None:
-        return {"cleared": 0}
-    from sentinel.core.offline_queue import QueueStatus
+async def clear_offline_queue(request: Request, status: Optional[str] = Query(None)):
+    from modules import get_gateway
 
-    st = QueueStatus(status) if status else None
-    count = q.clear(status=st)
-    return {"cleared": count}
+    identity = request_identity(request).to_dict()
+    params = {"status": status} if status else {}
+    result = await get_gateway().execute("offline_queue.clear", params, {"identity": identity})
+    resp = _gateway_response(result)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.get("/network/status")
@@ -2005,13 +1953,15 @@ def get_fallback_stats():
 
 
 @router.post("/fallback/reset-stats")
-def reset_fallback_stats():
-    orch = get_orchestrator()
-    mr = getattr(orch, "_model_router", None)
-    if mr is None:
-        return {"reset": 0}
-    count = mr.reset_fallback_stats()
-    return {"reset": count}
+async def reset_fallback_stats(request: Request):
+    from modules import get_gateway
+
+    identity = request_identity(request).to_dict()
+    result = await get_gateway().execute("fallback.reset_stats", {}, {"identity": identity})
+    resp = _gateway_response(result)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.get("/skills")
@@ -2037,33 +1987,33 @@ def find_skills(q: str = Query("")):
 
 
 @router.post("/skills/suggest")
-async def suggest_skill(body: dict):
-    orch = get_orchestrator()
-    se = getattr(orch, "_skill_engine", None)
-    if se is None:
-        return {"success": False, "error": "Skill engine not configured"}
+async def suggest_skill(body: dict, request: Request):
+    from modules import get_gateway
+
+    identity = request_identity(request).to_dict()
     task = body.get("task", "")
     if not task:
         return {"success": False, "error": "task is required"}
-    result = await se.suggest(task)
-    return result
+    result = await get_gateway().execute("skill.suggest", body, {"identity": identity})
+    resp = _gateway_response(result)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.post("/skills/execute")
 async def execute_skill(body: dict, request: Request):
-    from modules.auth import request_identity
+    from modules import get_gateway
 
-    orch = get_orchestrator()
-    se = getattr(orch, "_skill_engine", None)
-    if se is None:
-        return {"success": False, "error": "Skill engine not configured"}
+    identity = request_identity(request).to_dict()
     skill_id = body.get("skill_id", "")
-    params = body.get("params", {})
     if not skill_id:
         return {"success": False, "error": "skill_id is required"}
-    identity = request_identity(request).to_dict()
-    result = await se.execute(skill_id, params, context={"identity": identity, "session_id": body.get("session_id")})
-    return result.to_dict()
+    result = await get_gateway().execute("skill.execute", body, {"identity": identity, "session_id": body.get("session_id")})
+    resp = _gateway_response(result)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.get("/alerts")
@@ -2085,38 +2035,39 @@ def list_alerts(
 
 
 @router.post("/alerts/acknowledge")
-def acknowledge_alert(body: dict):
-    orch = get_orchestrator()
-    am = getattr(orch, "_alert_manager", None)
-    if am is None:
-        return {"acknowledged": 0}
-    alert_id = body.get("alert_id", "")
-    if alert_id:
-        ok = am.acknowledge(alert_id)
-        return {"acknowledged": 1 if ok else 0}
-    source = body.get("source")
-    count = am.acknowledge_all(source=source)
-    return {"acknowledged": count}
+async def acknowledge_alert(body: dict, request: Request):
+    from modules import get_gateway
+
+    identity = request_identity(request).to_dict()
+    result = await get_gateway().execute("alert.acknowledge", body, {"identity": identity})
+    resp = _gateway_response(result)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.post("/alerts/check")
-async def check_alerts():
-    orch = get_orchestrator()
-    am = getattr(orch, "_alert_manager", None)
-    if am is None:
-        return {"checked": False}
-    count = am.check_all()
-    return {"checked": True, "new_alerts": count, "stats": am.stats()}
+async def check_alerts(request: Request):
+    from modules import get_gateway
+
+    identity = request_identity(request).to_dict()
+    result = await get_gateway().execute("alert.check", {}, {"identity": identity})
+    resp = _gateway_response(result)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.post("/alerts/clear")
-def clear_alerts(acknowledged_only: bool = Query(True)):
-    orch = get_orchestrator()
-    am = getattr(orch, "_alert_manager", None)
-    if am is None:
-        return {"cleared": 0}
-    count = am.clear(acknowledged_only=acknowledged_only)
-    return {"cleared": count}
+async def clear_alerts(request: Request, acknowledged_only: bool = Query(True)):
+    from modules import get_gateway
+
+    identity = request_identity(request).to_dict()
+    result = await get_gateway().execute("alert.clear", {"acknowledged_only": acknowledged_only}, {"identity": identity})
+    resp = _gateway_response(result)
+    if resp:
+        return resp
+    return result.data
 
 
 # ── Knowledge Base endpoints ────────────────────────────────────────────────
@@ -2144,33 +2095,35 @@ def kb_search(body: dict):
 
 
 @router.post("/kb/add")
-def kb_add(body: dict):
-    orch = get_orchestrator()
-    kb = _get_kb(orch)
-    if kb is None:
-        return {"enabled": False}
+async def kb_add(body: dict, request: Request):
+    from modules import get_gateway
+
+    identity = request_identity(request).to_dict()
     text = body.get("text", "")
     if not text:
-        return {"error": "text is required"}
-    metadata = {"source": body.get("source", "api")}
-    doc_id = body.get("doc_id")
-    did = kb.add_text(text, metadata=metadata, doc_id=doc_id)
-    return {"doc_id": did, "status": "added"}
+        return JSONResponse({"error": "text is required"}, status_code=400)
+    result = await get_gateway().execute("kb.add", body, {"identity": identity})
+    resp = _gateway_response(result)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.post("/kb/add-file")
-async def kb_add_file(body: dict):
-    orch = get_orchestrator()
-    kb = _get_kb(orch)
-    if kb is None:
-        return {"enabled": False}
+async def kb_add_file(body: dict, request: Request):
+    from modules import get_gateway
+
+    identity = request_identity(request).to_dict()
     path = body.get("path", "")
     if not path:
-        return {"error": "path is required"}
+        return JSONResponse({"error": "path is required"}, status_code=400)
     if not os.path.exists(path):
-        return {"error": f"File not found: {path}"}
-    doc_id = kb.add_file(path)
-    return {"doc_id": doc_id, "path": path, "status": "added"}
+        return JSONResponse({"error": f"File not found: {path}"}, status_code=400)
+    result = await get_gateway().execute("kb.add_file", body, {"identity": identity})
+    resp = _gateway_response(result)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.get("/kb/list")
@@ -2189,23 +2142,27 @@ def kb_list():
 
 
 @router.delete("/kb/{doc_id}")
-def kb_delete(doc_id: str):
-    orch = get_orchestrator()
-    kb = _get_kb(orch)
-    if kb is None:
-        return {"enabled": False}
-    removed = kb.delete(doc_id)
-    return {"doc_id": doc_id, "removed": removed}
+async def kb_delete(doc_id: str, request: Request):
+    from modules import get_gateway
+
+    identity = request_identity(request).to_dict()
+    result = await get_gateway().execute("kb.delete", {"doc_id": doc_id}, {"identity": identity})
+    resp = _gateway_response(result, not_found=True)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.post("/kb/clear")
-def kb_clear():
-    orch = get_orchestrator()
-    kb = _get_kb(orch)
-    if kb is None:
-        return {"enabled": False}
-    count = kb.clear()
-    return {"cleared": count}
+async def kb_clear(request: Request):
+    from modules import get_gateway
+
+    identity = request_identity(request).to_dict()
+    result = await get_gateway().execute("kb.clear", {}, {"identity": identity})
+    resp = _gateway_response(result)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.get("/kb/stats")
@@ -2218,13 +2175,15 @@ def kb_stats():
 
 
 @router.post("/kb/rebuild")
-def kb_rebuild():
-    orch = get_orchestrator()
-    kb = _get_kb(orch)
-    if kb is None:
-        return {"enabled": False}
-    kb.rebuild()
-    return {"status": "rebuilding"}
+async def kb_rebuild(request: Request):
+    from modules import get_gateway
+
+    identity = request_identity(request).to_dict()
+    result = await get_gateway().execute("kb.rebuild", {}, {"identity": identity})
+    resp = _gateway_response(result)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.post("/kb/query")
@@ -2249,40 +2208,18 @@ def _get_pipeline(orch):
 
 
 @router.post("/pipeline/ingest")
-def pipeline_ingest(body: dict):
-    orch = get_orchestrator()
-    fp = _get_pipeline(orch)
-    if fp is None:
-        return {"enabled": False}
+async def pipeline_ingest(body: dict, request: Request):
+    from modules import get_gateway
+
+    identity = request_identity(request).to_dict()
     path = body.get("path", "")
     if not path:
-        return {"error": "path is required"}
-    try:
-        result = fp.ingest(
-            path,
-            recursive=body.get("recursive", True),
-            repo=body.get("repo", False),
-        )
-        return result.to_dict()
-    except (FileNotFoundError, ValueError):
-        return JSONResponse(
-            status_code=400,
-            content={
-                "error": "The requested path could not be ingested",
-                "files_processed": 0,
-                "files_failed": 1,
-            },
-        )
-    except Exception:
-        log.exception("File pipeline ingestion failed")
-        return JSONResponse(
-            status_code=500,
-            content={
-                "error": "File ingestion failed",
-                "files_processed": 0,
-                "files_failed": 1,
-            },
-        )
+        return JSONResponse({"error": "path is required"}, status_code=400)
+    result = await get_gateway().execute("pipeline.ingest", body, {"identity": identity})
+    resp = _gateway_response(result)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.get("/pipeline/status")
@@ -2295,13 +2232,15 @@ def pipeline_status():
 
 
 @router.post("/pipeline/reset-stats")
-def pipeline_reset_stats():
-    orch = get_orchestrator()
-    fp = _get_pipeline(orch)
-    if fp is None:
-        return {"enabled": False}
-    fp.reset_stats()
-    return {"status": "reset"}
+async def pipeline_reset_stats(request: Request):
+    from modules import get_gateway
+
+    identity = request_identity(request).to_dict()
+    result = await get_gateway().execute("pipeline.reset_stats", {}, {"identity": identity})
+    resp = _gateway_response(result)
+    if resp:
+        return resp
+    return result.data
 
 
 # ── Web Browsing endpoints ──────────────────────────────────────────────────
@@ -2312,31 +2251,33 @@ def _get_web(orch):
 
 
 @router.post("/web/navigate")
-def web_navigate(body: dict):
-    orch = get_orchestrator()
-    wb = _get_web(orch)
-    if wb is None:
-        return {"enabled": False}
+async def web_navigate(body: dict, request: Request):
+    from modules import get_gateway
+
+    identity = request_identity(request).to_dict()
     url = body.get("url", "")
     if not url:
-        return {"error": "url is required"}
-    timeout = body.get("timeout", 15)
-    result = wb.navigate(url, timeout=timeout)
-    return result.to_dict()
+        return JSONResponse({"error": "url is required"}, status_code=400)
+    result = await get_gateway().execute("web.navigate", body, {"identity": identity})
+    resp = _gateway_response(result)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.post("/web/extract")
-def web_extract(body: dict):
-    orch = get_orchestrator()
-    wb = _get_web(orch)
-    if wb is None:
-        return {"enabled": False}
+async def web_extract(body: dict, request: Request):
+    from modules import get_gateway
+
+    identity = request_identity(request).to_dict()
     url = body.get("url", "")
     if not url:
-        return {"error": "url is required"}
-    timeout = body.get("timeout", 15)
-    text = wb.extract_text(url, timeout=timeout)
-    return {"url": url, "text": text, "length": len(text)}
+        return JSONResponse({"error": "url is required"}, status_code=400)
+    result = await get_gateway().execute("web.extract", body, {"identity": identity})
+    resp = _gateway_response(result)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.get("/web/search")
@@ -2379,63 +2320,71 @@ def hardening_config(request: Request):
 
 
 @router.put("/hardening/config")
-def hardening_update_config(body: dict, request: Request):
+async def hardening_update_config(body: dict, request: Request):
+    from modules import get_gateway
+
     _require_admin(request)
-    orch = get_orchestrator()
-    h = _get_hardening(orch)
-    if h is None:
-        return {"enabled": False}
-    settable = {}
-    for key in (
-        "default_timeout_seconds",
-        "default_circuit_breaker_threshold",
-        "default_circuit_breaker_cooldown",
-        "default_retry_jitter",
-    ):
-        if key in body:
-            settable[key] = body[key]
-    if settable:
-        h.update_config(**settable)
-    return {"updated": settable}
+    identity = request_identity(request).to_dict()
+    params = {"action": "set"}
+    key_map = {
+        "default_timeout_seconds": "timeout_seconds",
+        "default_circuit_breaker_threshold": "circuit_breaker_threshold",
+        "default_circuit_breaker_cooldown": "circuit_breaker_cooldown",
+        "default_retry_jitter": "retry_jitter",
+    }
+    for old_key, new_key in key_map.items():
+        if old_key in body:
+            params[new_key] = body[old_key]
+    result = await get_gateway().execute("hardening.config", params, {"identity": identity})
+    resp = _gateway_response(result)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.put("/hardening/tool-override/{tool_id}")
-def hardening_tool_override(tool_id: str, body: dict, request: Request):
+async def hardening_tool_override(tool_id: str, body: dict, request: Request):
+    from modules import get_gateway
+
     _require_admin(request)
-    orch = get_orchestrator()
-    h = _get_hardening(orch)
-    if h is None:
-        return {"enabled": False}
-    overrides = {}
+    identity = request_identity(request).to_dict()
+    params = {"action": "tool_override", "tool_id": tool_id}
     for key in ("timeout_seconds", "circuit_breaker_threshold", "circuit_breaker_cooldown", "retry_jitter"):
         if key in body:
-            overrides[key] = body[key]
-    if overrides:
-        h.set_tool_override(tool_id, **overrides)
-    return {"tool_id": tool_id, "overrides": overrides}
+            params[key] = body[key]
+    result = await get_gateway().execute("hardening.config", params, {"identity": identity})
+    resp = _gateway_response(result)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.delete("/hardening/tool-override/{tool_id}")
-def hardening_remove_override(tool_id: str, request: Request):
+async def hardening_remove_override(tool_id: str, request: Request):
+    from modules import get_gateway
+
     _require_admin(request)
-    orch = get_orchestrator()
-    h = _get_hardening(orch)
-    if h is None:
-        return {"enabled": False}
-    removed = h.remove_tool_override(tool_id)
-    return {"tool_id": tool_id, "removed": removed}
+    identity = request_identity(request).to_dict()
+    params = {"action": "remove_override", "tool_id": tool_id}
+    result = await get_gateway().execute("hardening.config", params, {"identity": identity})
+    resp = _gateway_response(result)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.post("/hardening/circuit-breaker/reset")
-def hardening_reset_circuits(request: Request, body: Optional[dict] = None):
+async def hardening_reset_circuits(request: Request, body: Optional[dict] = None):
+    from modules import get_gateway
+
     _require_admin(request)
-    orch = get_orchestrator()
-    h = _get_hardening(orch)
-    if h is None:
-        return {"enabled": False}
-    tool_id = (body or {}).get("tool_id", "")
-    count = h.circuit_breaker.reset(tool_id if tool_id else None)
-    return {"reset": tool_id or "all", "circuits_reset": count}
+    identity = request_identity(request).to_dict()
+    params = {"tool_id": (body or {}).get("tool_id", "")}
+    result = await get_gateway().execute("hardening.reset", params, {"identity": identity})
+    resp = _gateway_response(result)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.get("/hardening/health")
@@ -2475,16 +2424,21 @@ def profile_get(request: Request, user_id: str = ""):
 
 
 @router.patch("/profile")
-def profile_update(body: dict, request: Request):
-    pm = _get_profile_mgr()
-    if pm is None:
-        return {"enabled": False}
+async def profile_update(body: dict, request: Request):
+    from modules import get_gateway
+
+    identity = request_identity(request).to_dict()
     uid = _scoped_user_id(request, str(body.get("user_id", "")))
-    pm.get_or_create_profile(uid)
+    params = {"user_id": uid}
     allowed = {"username", "display_name", "avatar", "theme", "timezone", "locale", "bio", "tags"}
-    updates = {k: v for k, v in body.items() if k in allowed}
-    profile = pm.update_profile(uid, **updates)
-    return profile.to_dict()
+    for k, v in body.items():
+        if k in allowed:
+            params[k] = v
+    result = await get_gateway().execute("profile.update", params, {"identity": identity})
+    resp = _gateway_response(result)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.get("/profile/preferences")
@@ -2498,30 +2452,36 @@ def profile_preferences(request: Request, user_id: str = ""):
 
 
 @router.put("/profile/preferences")
-def profile_set_preference(body: dict, request: Request):
-    pm = _get_profile_mgr()
-    if pm is None:
-        return {"enabled": False}
+async def profile_set_preference(body: dict, request: Request):
+    from modules import get_gateway
+
+    identity = request_identity(request).to_dict()
     uid = _scoped_user_id(request, str(body.get("user_id", "")))
     key = body.get("key", "")
-    value = body.get("value")
     if not key:
-        return {"error": "key is required"}
-    pm.get_or_create_profile(uid)
-    pm.set_preference(uid, key, value)
-    return {"key": key, "value": value, "status": "set"}
+        return JSONResponse({"error": "key is required"}, status_code=400)
+    params = {"action": "set", "user_id": uid, "key": key, "value": body.get("value")}
+    result = await get_gateway().execute("profile.preference", params, {"identity": identity})
+    resp = _gateway_response(result)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.delete("/profile/preferences")
-def profile_delete_preference(request: Request, key: str = "", user_id: str = ""):
-    pm = _get_profile_mgr()
-    if pm is None:
-        return {"enabled": False}
+async def profile_delete_preference(request: Request, key: str = "", user_id: str = ""):
+    from modules import get_gateway
+
+    identity = request_identity(request).to_dict()
     uid = _scoped_user_id(request, user_id)
     if not key:
-        return {"error": "key is required"}
-    pm.delete_preference(uid, key)
-    return {"key": key, "status": "deleted"}
+        return JSONResponse({"error": "key is required"}, status_code=400)
+    params = {"action": "delete", "user_id": uid, "key": key}
+    result = await get_gateway().execute("profile.preference", params, {"identity": identity})
+    resp = _gateway_response(result)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.get("/profile/history")
@@ -2545,13 +2505,17 @@ def profile_export(request: Request, user_id: str = ""):
 
 
 @router.post("/profile/import")
-def profile_import(body: dict, request: Request):
-    pm = _get_profile_mgr()
-    if pm is None:
-        return {"enabled": False}
+async def profile_import(body: dict, request: Request):
+    from modules import get_gateway
+
+    identity = request_identity(request).to_dict()
     uid = _scoped_user_id(request, str(body.get("user_id", "")))
-    result = pm.import_profile(uid, body)
-    return result
+    params = {"user_id": uid, "data": body.get("data", body)}
+    result = await get_gateway().execute("profile.import", params, {"identity": identity})
+    resp = _gateway_response(result)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.get("/profile/presets")
@@ -2565,44 +2529,54 @@ def profile_presets(request: Request, user_id: str = ""):
 
 
 @router.post("/profile/presets")
-def profile_save_preset(body: dict, request: Request):
-    pm = _get_profile_mgr()
-    if pm is None:
-        return {"enabled": False}
+async def profile_save_preset(body: dict, request: Request):
+    from modules import get_gateway
+
+    identity = request_identity(request).to_dict()
     uid = _scoped_user_id(request, str(body.get("user_id", "")))
     preset_name = body.get("preset_name", "")
     if not preset_name:
-        return {"error": "preset_name is required"}
-    ok = pm.save_preset(uid, preset_name, description=body.get("description", ""))
-    if not ok:
-        return {"error": f"Preset '{preset_name}' already exists"}
-    return {"preset_name": preset_name, "status": "saved"}
+        return JSONResponse({"error": "preset_name is required"}, status_code=400)
+    params = {"action": "save", "user_id": uid, "preset_name": preset_name, "description": body.get("description", "")}
+    result = await get_gateway().execute("profile.preset", params, {"identity": identity})
+    resp = _gateway_response(result)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.post("/profile/presets/apply")
-def profile_apply_preset(body: dict, request: Request):
-    pm = _get_profile_mgr()
-    if pm is None:
-        return {"enabled": False}
+async def profile_apply_preset(body: dict, request: Request):
+    from modules import get_gateway
+
+    identity = request_identity(request).to_dict()
     uid = _scoped_user_id(request, str(body.get("user_id", "")))
     preset_name = body.get("preset_name", "")
     if not preset_name:
-        return {"error": "preset_name is required"}
-    result = pm.apply_preset(uid, preset_name)
-    return result
+        return JSONResponse({"error": "preset_name is required"}, status_code=400)
+    params = {"action": "apply", "user_id": uid, "preset_name": preset_name}
+    result = await get_gateway().execute("profile.preset", params, {"identity": identity})
+    resp = _gateway_response(result)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.delete("/profile/presets")
-def profile_delete_preset(body: dict, request: Request):
-    pm = _get_profile_mgr()
-    if pm is None:
-        return {"enabled": False}
+async def profile_delete_preset(body: dict, request: Request):
+    from modules import get_gateway
+
+    identity = request_identity(request).to_dict()
     uid = _scoped_user_id(request, str(body.get("user_id", "")))
     preset_name = body.get("preset_name", "")
     if not preset_name:
-        return {"error": "preset_name is required"}
-    pm.delete_preset(uid, preset_name)
-    return {"preset_name": preset_name, "status": "deleted"}
+        return JSONResponse({"error": "preset_name is required"}, status_code=400)
+    params = {"action": "delete", "user_id": uid, "preset_name": preset_name}
+    result = await get_gateway().execute("profile.preset", params, {"identity": identity})
+    resp = _gateway_response(result)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.get("/profile/search")

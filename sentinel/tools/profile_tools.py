@@ -149,6 +149,41 @@ class ProfilePreferenceTool(Tool):
         return ToolResult.ok(data={"preferences": prefs, "count": len(prefs)}, tool_id="profile.preference")
 
 
+class ProfileImportTool(Tool):
+    def __init__(self, profile_mgr: UserProfileManager):
+        self._mgr = profile_mgr
+
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            id="profile.import",
+            name="Import Profile",
+            description="Import a user profile from JSON data.",
+            version="1.0.0",
+            category=_TOOL_CATEGORY,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "user_id": {"type": "string", "description": "User ID (defaults to context user)"},
+                    "data": {"type": "object", "description": "Profile data to import"},
+                },
+                "required": ["data"],
+            },
+            required_permissions=["permissions.admin"],
+        )
+
+    async def execute(self, params: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> ToolResult:
+        ctx = context or {}
+        identity = ctx.get("identity", {})
+        user_id = params.get("user_id") or identity.get("user_id")
+        if not user_id:
+            return ToolResult.fail("user_id is required", tool_id="profile.import")
+        data = params.get("data", {})
+        if not data:
+            return ToolResult.fail("data is required", tool_id="profile.import")
+        result = self._mgr.import_profile(user_id, data)
+        return ToolResult.ok(data=result, tool_id="profile.import")
+
+
 class ProfileExportTool(Tool):
     def __init__(self, profile_mgr: UserProfileManager):
         self._mgr = profile_mgr

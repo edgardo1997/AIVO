@@ -142,6 +142,106 @@ def _step_result(step) -> Dict[str, Any]:
     }
 
 
+class ReportPreviewTool(Tool):
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            id="reports.preview",
+            name="Preview Report",
+            description="Preview a bounded report from local file sources",
+            version="1.0.0",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "File path to scan"},
+                    "recursive": {"type": "boolean", "description": "Scan subdirectories"},
+                    "max_files": {"type": "integer", "minimum": 1, "maximum": 100},
+                    "expected_output_tokens": {"type": "integer", "minimum": 100},
+                },
+                "required": ["path"],
+            },
+            required_permissions=["filesystem.read"],
+            timeout_seconds=120,
+            category="reports",
+        )
+
+    async def execute(self, params: Dict[str, Any], context: Dict[str, Any]) -> ToolResult:
+        try:
+            fp = _file_pipeline()
+            data = fp.preview_report(
+                params.get("path", ""),
+                recursive=params.get("recursive", True),
+                max_files=int(params.get("max_files", 25)),
+                expected_output_tokens=int(params.get("expected_output_tokens", 1200)),
+            )
+            return ToolResult.ok(data=data, tool_id="reports.preview")
+        except Exception as e:
+            return ToolResult.fail(error=str(e), tool_id="reports.preview")
+
+
+class ReportExportTool(Tool):
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            id="reports.export",
+            name="Export Report",
+            description="Export a report to a specific format",
+            version="1.0.0",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "report": {"type": "string", "description": "Report content or path"},
+                    "format": {"type": "string", "description": "Export format (markdown, pdf, etc.)"},
+                },
+                "required": ["report", "format"],
+            },
+            required_permissions=["filesystem.read"],
+            timeout_seconds=120,
+            category="reports",
+        )
+
+    async def execute(self, params: Dict[str, Any], context: Dict[str, Any]) -> ToolResult:
+        try:
+            fp = _file_pipeline()
+            content, media_type, filename = fp.export_report(
+                str(params.get("report", "")),
+                str(params.get("format", "markdown")),
+            )
+            return ToolResult.ok(
+                data={
+                    "content": content,
+                    "media_type": media_type,
+                    "filename": filename,
+                },
+                tool_id="reports.export",
+            )
+        except Exception as e:
+            return ToolResult.fail(error=str(e), tool_id="reports.export")
+
+
+class CreateMemorySessionTool(Tool):
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            id="memory.session.create",
+            name="Create Memory Session",
+            description="Create a new memory session",
+            version="1.0.0",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "label": {"type": "string", "description": "Session label"},
+                },
+            },
+            required_permissions=["memory.write"],
+            timeout_seconds=5,
+            category="memory",
+        )
+
+    async def execute(self, params: Dict[str, Any], context: Dict[str, Any]) -> ToolResult:
+        import uuid
+        session_id = uuid.uuid4().hex[:16]
+        label = str(params.get("label", ""))[:100]
+        return ToolResult.ok(data={"session_id": session_id, "label": label}, tool_id="memory.session.create")
+
+
 class MultiAgentProcessTool(Tool):
     def spec(self) -> ToolSpec:
         return ToolSpec(

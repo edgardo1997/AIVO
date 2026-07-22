@@ -34,36 +34,56 @@ from sentinel.presentation import PresentationLayer, PresentationMode
 
 @router.post("/reports/preview")
 async def preview_report(body: dict, request: Request):
-    from modules.auth import request_identity, require_level
+    from modules import get_gateway
+    from modules.auth import request_identity
 
-    identity = request_identity(request)
-    require_level(identity, "confirm")
-    return _file_pipeline().preview_report(
-        body.get("path", ""),
-        recursive=body.get("recursive", True),
-        max_files=int(body.get("max_files", 25)),
-        expected_output_tokens=int(body.get("expected_output_tokens", 1200)),
-    )
+    params = {
+        "path": body.get("path", ""),
+        "recursive": body.get("recursive", True),
+        "max_files": body.get("max_files", 25),
+        "expected_output_tokens": body.get("expected_output_tokens", 1200),
+    }
+    identity = request_identity(request).to_dict()
+    result = await get_gateway().execute("reports.preview", params, {"identity": identity})
+    resp = _gateway_response(result)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.post("/reports/export")
 async def export_report(body: dict, request: Request):
-    from modules.auth import request_identity, require_level
+    from modules import get_gateway
+    from modules.auth import request_identity
 
-    identity = request_identity(request)
-    require_level(identity, "confirm")
-    content, media_type, filename = _file_pipeline().export_report(
-        str(body.get("report", "")),
-        str(body.get("format", "markdown")),
-    )
+    params = {
+        "report": str(body.get("report", "")),
+        "format": str(body.get("format", "markdown")),
+    }
+    identity = request_identity(request).to_dict()
+    result = await get_gateway().execute("reports.export", params, {"identity": identity})
+    resp = _gateway_response(result)
+    if resp:
+        return resp
     return Response(
-        content=content, media_type=media_type, headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+        content=result.data["content"],
+        media_type=result.data["media_type"],
+        headers={"Content-Disposition": f'attachment; filename="{result.data["filename"]}"'},
     )
 
 
 @router.post("/memory/sessions")
 async def create_memory_session(body: dict, request: Request):
-    return {"session_id": uuid.uuid4().hex[:16], "label": str(body.get("label", ""))[:100]}
+    from modules import get_gateway
+    from modules.auth import request_identity
+
+    params = {"label": body.get("label", "")}
+    identity = request_identity(request).to_dict()
+    result = await get_gateway().execute("memory.session.create", params, {"identity": identity})
+    resp = _gateway_response(result)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.get("/conversations")

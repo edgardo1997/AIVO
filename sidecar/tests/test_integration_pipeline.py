@@ -253,10 +253,8 @@ class TestEmergencyStopMidFlow:
         perm_svc.emergency("stop")
         try:
             resp = client.post("/api/sentinel/process", json={"utterance": "cpu usage"})
-            assert resp.status_code == 200
-            data = resp.json()
-            assert data["tool_result"]["success"] is False
-            assert "emergency" in data["tool_result"]["error"].lower()
+            assert resp.status_code == 403
+            assert "emergency" in resp.json()["error"].lower()
         finally:
             perm_svc.emergency("resume")
         resp = client.post("/api/sentinel/process", json={"utterance": "cpu usage"})

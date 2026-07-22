@@ -538,6 +538,14 @@ def register_goal_tools(gateway):
     _log.info("Goal tools registered in shared gateway")
 
 
+def register_process_tools(gateway):
+    from sentinel.tools.process_tools import ProcessTool, MultiAgentProcessTool
+
+    gateway.register(ProcessTool())
+    gateway.register(MultiAgentProcessTool())
+    _log.info("Process tools registered in shared gateway")
+
+
 def register_vault_tools(gateway):
     from sentinel.tools.vault_tools import (
         VaultCreateTool,

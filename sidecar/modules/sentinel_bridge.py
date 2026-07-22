@@ -222,116 +222,44 @@ async def delete_granular_permission_rule(rule_id: str, request: Request):
 
 @router.post("/process")
 async def process_utterance(body: dict, request: Request):
+    from modules import get_gateway
     from modules.auth import request_identity
 
-    orch = get_orchestrator()
     utterance = body.get("utterance", "")
     if not utterance:
         return {"error": "utterance is required"}
-    raw_session_id = body.get("session_id")
-    session_id = _validate_conversation_id(raw_session_id) if raw_session_id else None
-    dry_run = body.get("dry_run", False)
-    presentation_mode = PresentationMode.parse(body.get("presentation_mode"))
-    result = await orch.process(
-        utterance,
-        identity=request_identity(request).to_dict(),
-        session_id=session_id,
-        dry_run=dry_run,
-    )
-    plan = result.plan
-    goal_meta = None
-    if plan.plan.goal:
-        goal_meta = {
-            "id": plan.plan.goal.id,
-            "priority": plan.plan.goal.priority,
-            "possible_capabilities": plan.plan.goal.possible_capabilities,
-        }
-
-    return {
-        "presentation": result.presentation if result.presentation is not None
-            else _presentation.present(result, presentation_mode),
-        "simulated": result.simulated,
-        "approved": result.approved,
-        "blocked": result.blocked,
-        "action_id": result.action_id,
-        "simulation_summary": result.simulation_summary,
-        "error": result.error,
-        "decision": result.decision.decision if result.decision else None,
-        "decision_reason": result.decision.reason if result.decision else None,
-        "goal": goal_meta,
-        "intent": {
-            "action": plan.intent.action,
-            "target": plan.intent.target,
-            "parameters": plan.intent.parameters,
-            "confidence": plan.intent.confidence,
-            "raw_input": plan.intent.raw_input,
-        },
-        "context_factors": result.decision.context_factors if result.decision else [],
-        "base_risk_score": result.decision.base_risk_score if result.decision else None,
-        "context_modifier": result.decision.context_modifier if result.decision else None,
-        "final_risk_score": result.decision.final_risk_score if result.decision else None,
-        "plan": {
-            "risk_score": plan.plan.risk_score,
-            "steps": [
-                {
-                    "id": s.id,
-                    "tool_id": s.tool_id,
-                    "description": s.description,
-                    "estimated_impact": s.estimated_impact,
-                    "is_reversible": s.is_reversible,
-                    "depends_on": s.depends_on,
-                }
-                for s in plan.plan.steps
-            ],
-        },
-        "tool_result": {
-            "success": result.tool_result.success if result.tool_result else None,
-            "data": result.tool_result.data if result.tool_result else None,
-            "error": result.tool_result.error if result.tool_result else None,
-            "requires_confirmation": result.tool_result.requires_confirmation if result.tool_result else False,
-            "duration_ms": result.tool_result.duration_ms if result.tool_result else None,
-        }
-        if result.tool_result
-        else None,
-        "step_results": [_step_result(s) for s in result.step_results] if result.step_results else None,
-        "rollback_actions": result.rollback_actions,
-        "advisory": result.advisory.to_dict() if result.advisory else None,
-        "grounding_results": result.grounding_results,
-        "grounding_satisfied": result.grounding_satisfied,
+    params = {
+        "utterance": utterance,
+        "session_id": body.get("session_id"),
+        "dry_run": body.get("dry_run", False),
+        "presentation_mode": body.get("presentation_mode"),
     }
+    identity = request_identity(request).to_dict()
+    result = await get_gateway().execute("process.execute", params, {"identity": identity})
+    resp = _gateway_response(result)
+    if resp:
+        return resp
+    return result.data
 
 
 @router.post("/process/multi-agent")
 async def process_multi_agent(body: dict, request: Request):
+    from modules import get_gateway
     from modules.auth import request_identity
 
-    orch = get_orchestrator()
     utterance = body.get("utterance", "")
     if not utterance:
         return {"error": "utterance is required"}
-    session_id = body.get("session_id")
-    result = await orch.process_multi_agent(
-        utterance,
-        identity=request_identity(request).to_dict(),
-        session_id=session_id,
-    )
-    return {
-        "success": result.tool_result.success if result.tool_result else False,
-        "error": result.error,
-        "grounding_results": result.grounding_results,
-        "grounding_satisfied": result.grounding_satisfied,
-        "sub_task_results": [
-            {
-                "sub_task_id": s.step_id,
-                "success": s.success,
-                "error": s.error,
-                "duration_ms": s.duration_ms,
-            }
-            for s in result.step_results
-        ]
-        if result.step_results
-        else [],
+    params = {
+        "utterance": utterance,
+        "session_id": body.get("session_id"),
     }
+    identity = request_identity(request).to_dict()
+    result = await get_gateway().execute("process.multi_agent", params, {"identity": identity})
+    resp = _gateway_response(result)
+    if resp:
+        return resp
+    return result.data
 
 
 # ── Vault endpoints ──────────────────────────────────────────

@@ -353,7 +353,8 @@ class AIService:
                     messages.append(ctx)
         messages.append({"role": "user", "content": message})
 
-        model = model_override or cfg.get("model") or self._get_default_model(cfg.get("provider", "sentinel_local"))
+        active_provider = provider or cfg.get("provider", "sentinel_local")
+        model = model_override or cfg.get("model") or self._get_default_model(active_provider)
         managed = self._context_manager.manage(messages, model=model)
         managed_messages = managed["messages"]
         if managed["trimmed"] > 0 or managed["summarized"]:
@@ -376,18 +377,22 @@ class AIService:
         def advanced_chat():
             if not self._router:
                 chat_cfg = dict(cfg)
-                provider = chat_cfg.get("provider", "sentinel_local")
+                chat_provider = provider or chat_cfg.get("provider", "sentinel_local")
                 if self._vault:
-                    stored = self._vault.reveal_value(f"ai-provider-{provider}")
+                    stored = self._vault.reveal_value(f"ai-provider-{chat_provider}")
                     if stored:
                         chat_cfg["api_key"] = stored
                 client = self._make_client(chat_cfg)
                 resp = client.chat.completions.create(model=model, messages=managed_messages)
                 return {
                     "response": resp.choices[0].message.content,
-                    "provider": provider,
+                    "provider": chat_provider,
                     "model": model,
                 }
+            old_preferred = None
+            if provider and self._router:
+                old_preferred = getattr(self._router, '_preferred_provider', None)
+                self._router.set_preferred_provider(provider)
             try:
                 result = self._router.chat(managed_messages, task_type=task_type)
                 return {
@@ -417,9 +422,9 @@ class AIService:
                             }
                     except Exception:
                         log.debug("Sentinel local availability refresh failed", exc_info=True)
-                provider = cfg.get("provider", "sentinel_local")
+                fallback_provider = cfg.get("provider", "sentinel_local")
                 configured_provider_has_key = bool(
-                    self._router and self._router.has_api_key(provider)
+                    self._router and self._router.has_api_key(fallback_provider)
                 )
                 if not configured_provider_has_key:
                     try:
@@ -432,6 +437,9 @@ class AIService:
                     except Exception:
                         log.debug("Local model recovery unavailable", exc_info=True)
                 raise
+            finally:
+                if old_preferred is not None and self._router:
+                    self._router.set_preferred_provider(old_preferred)
 
         return self._conversation.respond(request, advanced=advanced_chat).to_dict()
 

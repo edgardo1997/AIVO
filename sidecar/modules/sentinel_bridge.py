@@ -94,6 +94,10 @@ def _file_pipeline():
 
 @router.post("/reports/preview")
 async def preview_report(body: dict, request: Request):
+    from modules.auth import request_identity, require_level
+
+    identity = request_identity(request)
+    require_level(identity, "confirm")
     return _file_pipeline().preview_report(
         body.get("path", ""),
         recursive=body.get("recursive", True),
@@ -104,6 +108,10 @@ async def preview_report(body: dict, request: Request):
 
 @router.post("/reports/export")
 async def export_report(body: dict, request: Request):
+    from modules.auth import request_identity, require_level
+
+    identity = request_identity(request)
+    require_level(identity, "confirm")
     content, media_type, filename = _file_pipeline().export_report(
         str(body.get("report", "")),
         str(body.get("format", "markdown")),
@@ -1164,13 +1172,21 @@ async def sentinel_chat_stream(body: dict, request: Request):
 
 
 @router.get("/capabilities")
-def get_capabilities():
+def get_capabilities(request: Request):
+    from modules.auth import request_identity, require_level
+
+    identity = request_identity(request)
+    require_level(identity, "view")
     orch = get_orchestrator()
     return orch.get_capabilities()
 
 
 @router.get("/conversation/capabilities")
-def get_conversation_capabilities():
+def get_conversation_capabilities(request: Request):
+    from modules.auth import request_identity, require_level
+
+    identity = request_identity(request)
+    require_level(identity, "view")
     from modules.ai_provider import _svc as ai_svc
 
     get_orchestrator()
@@ -1178,7 +1194,11 @@ def get_conversation_capabilities():
 
 
 @router.get("/goals")
-def get_goals():
+def get_goals(request: Request):
+    from modules.auth import request_identity, require_level
+
+    identity = request_identity(request)
+    require_level(identity, "view")
     goal_registry = get_goal_registry()
     if goal_registry is None:
         return {"goals": []}
@@ -1293,12 +1313,17 @@ def get_goal_audit(request: Request):
 
 @router.get("/goals/matches")
 def get_goal_matches(
+    request: Request,
     intent: str = Query(..., description="Intent target to match against goals"),
     cpu: Optional[float] = Query(None, description="cpu_percent context override"),
     memory: Optional[float] = Query(None, description="memory_percent context override"),
     disk: Optional[float] = Query(None, description="disk_percent context override"),
     verbose: Optional[bool] = Query(False, description="Include score breakdown"),
 ):
+    from modules.auth import request_identity, require_level
+
+    identity = request_identity(request)
+    require_level(identity, "view")
     from sentinel.core.goals import GoalScorer
 
     goal_registry = get_goal_registry()

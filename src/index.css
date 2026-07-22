@@ -1,21 +1,37 @@
 :root {
-  --bg-primary: #09090b;
-  --bg-secondary: #0d0d12;
-  --bg-card: #111116;
-  --bg-hover: #1a1a23;
-  --border: #27272a;
-  --text-primary: #f4f4f5;
-  --text-secondary: #a1a1aa;
-  --text-muted: #71717a;
-  --accent: #6366f1;
-  --accent-light: #818cf8;
-  --accent-glow: rgba(99, 102, 241, 0.15);
-  --success: #10b981;
-  --warning: #f59e0b;
-  --danger: #ef4444;
-  --radius: 8px;
-  --radius-lg: 12px;
-  --radius-xl: 16px;
+  /* Paleta Premium Minimalista */
+  --bg-primary: #0d0d0d;
+  --bg-secondary: #141414;
+  --bg-card: #1a1a1a;
+  --bg-hover: #222222;
+  --border: #2a2a2a;
+  --text-primary: #ffffff;
+  --text-secondary: #a0a0a0;
+  --text-muted: #606060;
+  
+  /* Accent elegante - Un solo color protagonista */
+  --accent: #0066ff;
+  --accent-light: #0080ff;
+  --accent-premium: #0052cc;
+  --accent-glow: rgba(0, 102, 255, 0.1);
+  
+  /* Gradient premium */
+  --premium-gradient: linear-gradient(135deg, #0066ff 0%, #0044aa 100%);
+  --premium-subtle: linear-gradient(135deg, rgba(0, 102, 255, 0.05) 0%, rgba(0, 68, 170, 0.03) 100%);
+  
+  /* Estados funcionales */
+  --success: #00cc66;
+  --warning: #ff9900;
+  --danger: #ff3333;
+  
+  /* Tipografía premium */
+  --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  
+  /* Radio elegante */
+  --radius: 4px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-premium: 16px;
 }
 
 * {
@@ -32,11 +48,12 @@ body,
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  font-family: var(--font-family);
   background: var(--bg-primary);
   color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  letter-spacing: -0.01em;
 }
 
 :where(button, input, select, textarea, a):focus-visible {
@@ -638,6 +655,15 @@ body {
 .toast-message {
   color: var(--text-primary);
   line-height: 1.4;
+}
+
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.8; }
+}
+
+.skeleton {
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
 }
 
 @keyframes toast-in {

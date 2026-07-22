@@ -11,6 +11,7 @@ from modules.permissions import _svc as perm_svc
 from sentinel.core.agent import AgentRegistry, AgentSpec, AgentStatus
 
 client = TestClient(app)
+client.headers.update({"X-Test-Token": "valid-test-token"})
 
 
 class TestAgentRegistry:

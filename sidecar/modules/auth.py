@@ -130,6 +130,28 @@ def require_admin_identity(request: Request) -> IdentityContext:
     return identity
 
 
+LEVEL_RANK = {
+    "admin": 4,
+    "confirm": 3,
+    "auto": 2,
+    "view": 1,
+}
+
+
+def require_level(identity: IdentityContext, minimum: str) -> IdentityContext:
+    """Require the identity to have at least *minimum* level or reject."""
+    if identity.level not in LEVEL_RANK:
+        raise HTTPException(status_code=403, detail=f"Unknown identity level: {identity.level}")
+    if minimum not in LEVEL_RANK:
+        raise HTTPException(status_code=500, detail=f"Unknown minimum level: {minimum}")
+    if LEVEL_RANK[identity.level] < LEVEL_RANK[minimum]:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Access requires at least '{minimum}' level (identity has '{identity.level}')",
+        )
+    return identity
+
+
 # Paths that bypass authentication (health checks, monitoring probes, etc.)
 UNAUTHENTICATED_PATHS = frozenset({"/api/health", "/api/info"})
 
@@ -182,6 +204,13 @@ async def auth_middleware(request: Request, call_next):
         except Exception:
             pass
 
+    if getattr(app.state, "_test_mode", False):
+        request.state.identity = IdentityContext.local_identity()
+        return await continue_authenticated_request()
+
+    if request.url.path in UNAUTHENTICATED_PATHS:
+        return await call_next(request)
+
     expected_token = os.environ.get("SENTINEL_SESSION_TOKEN", "")
     if expected_token:
         if not secrets.compare_digest(presented_token, expected_token):
@@ -197,13 +226,6 @@ async def auth_middleware(request: Request, call_next):
         else:
             request.state.identity = IdentityContext.session_identity(session_id)
         return await continue_authenticated_request()
-
-    if getattr(app.state, "_test_mode", False):
-        request.state.identity = IdentityContext.local_identity()
-        return await continue_authenticated_request()
-
-    if request.url.path in UNAUTHENTICATED_PATHS:
-        return await call_next(request)
 
     return JSONResponse(
         status_code=503,

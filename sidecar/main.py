@@ -107,6 +107,40 @@ async def sentinel_lifespan(_app: FastAPI):
 from modules.auth import auth_middleware
 
 
+def _ensure_session_token():
+    token = os.environ.get("SENTINEL_SESSION_TOKEN", "")
+    if token:
+        return
+    env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")
+    try:
+        if os.path.isfile(env_path):
+            with open(env_path, "r") as f:
+                for line in f:
+                    if line.startswith("VITE_SENTINEL_SESSION_TOKEN="):
+                        token = line.strip().split("=", 1)[1]
+                        break
+    except Exception as e:
+        log.warning("Error leyendo .env: %s", e)
+    if not token:
+        import secrets
+        token = "sentinel-" + secrets.token_hex(32)
+        try:
+            existing = ""
+            if os.path.isfile(env_path):
+                with open(env_path, "r") as f:
+                    lines = f.readlines()
+                existing = "".join(l for l in lines if not l.startswith("VITE_SENTINEL_SESSION_TOKEN="))
+            with open(env_path, "w") as f:
+                f.write(existing)
+                f.write(f"VITE_SENTINEL_SESSION_TOKEN={token}\n")
+            log.info("Session token auto-generado y guardado en .env")
+        except Exception as e:
+            log.warning("No se pudo guardar el token de sesión en .env: %s", e)
+    os.environ["SENTINEL_SESSION_TOKEN"] = token
+
+_ensure_session_token()
+
+
 def _create_app() -> FastAPI:
     docs_enabled = os.environ.get("SENTINEL_ENABLE_API_DOCS") == "1"
     application = FastAPI(

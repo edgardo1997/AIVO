@@ -57,7 +57,7 @@ describe('API Layer', () => {
       const data = await api.monitor.system();
       expect(data.hostname).toBe('test-pc');
       const headers = new Headers(mockFetch.mock.calls[0][1].headers);
-      expect(headers.get('Authorization')).toBe('Bearer sentinel-dev-session');
+      expect(headers.get('Authorization')).toMatch(/^Bearer /);
     });
 
     it('fetches cpu info', async () => {
@@ -110,8 +110,8 @@ describe('API Layer', () => {
     });
 
     it('gets config', async () => {
-      mockFetch.mockResolvedValueOnce(mockV1Response({ provider: 'openrouter' }));
-      const data = await api.ai.config();
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ provider: 'openrouter' }) });
+      const data = await api.ai.config() as any;
       expect(data.provider).toBe('openrouter');
     });
 

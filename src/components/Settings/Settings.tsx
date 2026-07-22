@@ -213,7 +213,7 @@ export function Settings({ initialSection = "models" }: { initialSection?: Setti
   useEffect(() => {
     const initializeModel = async () => {
       try {
-        const res = await api.ai.config();
+        const res = await api.ai.config() as any;
         setCurrentConfig({ provider: res.provider, model: res.model });
         setSelectedModel(res.model);
 

@@ -334,7 +334,9 @@ class TestUnauthenticatedPaths:
         assert resp.status_code == 200
         assert resp.json()["name"] == "Sentinel Sidecar"
 
-    def test_protected_path_rejected_when_no_auth_configured(self):
+    def test_protected_path_rejected_when_no_auth_configured(self, monkeypatch):
+        monkeypatch.delenv("SENTINEL_SESSION_TOKEN", raising=False)
+        monkeypatch.delenv("AIVO_SESSION_TOKEN", raising=False)
         app = self._app()
 
         @app.get("/api/protected")

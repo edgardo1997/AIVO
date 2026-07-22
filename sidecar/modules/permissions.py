@@ -1,7 +1,7 @@
 import logging
 import threading
 from typing import TYPE_CHECKING
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from enum import Enum
 
@@ -51,30 +51,52 @@ class LevelRequest(BaseModel):
 
 
 @router.get("/status")
-def get_permission_status():
+def get_permission_status(request: Request):
+    from modules.auth import request_identity, require_level
+
+    identity = request_identity(request)
+    require_level(identity, "view")
     return _svc.get_status()
 
 
 @router.post("/level")
-def set_permission_level(req: LevelRequest):
+def set_permission_level(req: LevelRequest, request: Request):
+    from modules.auth import request_identity, require_admin_identity
+
+    require_admin_identity(request)
     return _svc.set_level(req.level.value)
 
 
 @router.post("/emergency/{action}")
-def emergency_action(action: str):
+def emergency_action(action: str, request: Request):
+    from modules.auth import request_identity, require_admin_identity
+
+    require_admin_identity(request)
     return _svc.emergency(action)
 
 
 @router.post("/confirm")
-def confirm_action(req: ConfirmRequest):
+def confirm_action(req: ConfirmRequest, request: Request):
+    from modules.auth import request_identity, require_level
+
+    identity = request_identity(request)
+    require_level(identity, "confirm")
     return _svc.confirm_action(req.action_id, req.approved)
 
 
 @router.post("/blocklist")
-def add_blocklist(pattern: str):
+def add_blocklist(pattern: str, request: Request):
+    from modules.auth import request_identity, require_level
+
+    identity = request_identity(request)
+    require_level(identity, "admin")
     return _svc.add_blocklist(pattern)
 
 
 @router.delete("/blocklist/{item}")
-def remove_blocklist(item: str):
+def remove_blocklist(item: str, request: Request):
+    from modules.auth import request_identity, require_level
+
+    identity = request_identity(request)
+    require_level(identity, "admin")
     return _svc.remove_blocklist(item)

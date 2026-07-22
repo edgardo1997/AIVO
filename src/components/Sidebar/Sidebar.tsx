@@ -55,7 +55,8 @@ export function Sidebar({ active, onTabChange }: { active: TabType; onTabChange:
   return (
     <nav className="sidebar">
       <div className="sidebar-logo">
-        <span>◇</span> Sentinel
+        <div className="sidebar-logo-icon">◇</div>
+        <div className="sidebar-logo-text">Sentinel</div>
       </div>
 
       {Object.entries(groupedTabs).map(([category, categoryTabs]) => (
@@ -70,7 +71,8 @@ export function Sidebar({ active, onTabChange }: { active: TabType; onTabChange:
               onClick={() => onTabChange(t.id)}
               title={t.tooltip}
             >
-              <span>{t.icon}</span> {t.label}
+              <span className="sidebar-item-icon">{t.icon}</span>
+              <span className="sidebar-item-text">{t.label}</span>
             </button>
           ))}
         </div>

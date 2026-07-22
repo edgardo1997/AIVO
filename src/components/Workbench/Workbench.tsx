@@ -1,118 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, v1Api } from "../../api";
-import { Settings } from "../Settings/Settings";
 import { useMode } from "../../contexts/AppContext";
+import { ViewRouter, viewGroups, viewMeta } from "../Views/ViewRouter";
+import type { ViewKey } from "../Views/ViewRouter";
+import { WorkbenchProvider, permissionChoices, sentinelThemes, type WorkMessage, type Conversation, type ModelConfig, type RuntimeCapabilities } from "./WorkbenchContext";
+import { WorkbenchSidebar } from "./WorkbenchSidebar";
+import { WorkbenchRightPanel } from "./WorkbenchRightPanel";
+import { WorkbenchDialogs } from "./WorkbenchDialogs";
 import "./Workbench.css";
 import "./WorkbenchShell.css";
 
-type PipelineData = Record<string, any> | null;
-type WorkMessage = {
-  id: string;
-  prompt: string;
-  response?: string;
-  provider?: string;
-  model?: string;
-  pipeline?: PipelineData;
-  performance?: {
-    time_to_first_token_ms: number;
-    generation_ms: number;
-    output_tokens: number;
-    tokens_per_second: number;
-  };
-  elapsed?: number;
-  error?: string;
-  errorCode?: string;
-  retryable?: boolean;
-};
-type Conversation = { id: string; title: string; messages: WorkMessage[]; updatedAt: number };
-type ModelConfig = {
-  provider: string;
-  model: string;
-  strategy: string;
-  preferred_provider?: string | null;
-  free_providers: Record<string, {
-    label: string;
-    base_url: string;
-    default_model: string;
-    api_key_required: boolean;
-  }>;
-};
-type RuntimeCapabilities = {
-  models: { available: boolean; available_count: number; providers: string[] };
-  system: { registered_count: number; categories: string[] };
-};
-
-const functionGroups = [
-  {
-    id: "think",
-    title: "Pensar y aprender",
-    description: "Conversación sin acceso al equipo",
-    items: [
-      { title: "Preguntar cualquier cosa", description: "Explicar, escribir, comparar o planear", action: "focus" },
-      { title: "Aprender Python", description: "Iniciar una clase adaptada a tu nivel", prompt: "Quiero aprender Python desde cero. Enséñame paso a paso y hazme una pregunta para conocer mi nivel." },
-      { title: "Resolver un problema", description: "Razonar contigo sin ejecutar herramientas", action: "solve" },
-    ],
-  },
-  {
-    id: "observe",
-    title: "Observar este equipo",
-    description: "Lecturas reales y seguras",
-    items: [
-      { title: "Diagnóstico general", description: "CPU, RAM, disco y riesgos de recursos", prompt: "Analiza el estado completo de mi equipo y explícame cualquier riesgo" },
-      { title: "Procesos activos", description: "Ver los procesos con mayor consumo", prompt: "Lista los procesos con mayor uso de recursos" },
-      { title: "Aplicaciones disponibles", description: "Descubrir programas que Sentinel puede abrir", prompt: "Muéstrame las aplicaciones disponibles que Sentinel puede abrir" },
-    ],
-  },
-  {
-    id: "act",
-    title: "Actuar con control",
-    description: "Las políticas deciden si hace falta aprobación",
-    items: [
-      { title: "Abrir una aplicación", description: "Escribe qué programa quieres iniciar", action: "open-app" },
-      { title: "Abrir PowerShell", description: "Acción real gobernada y registrada", prompt: "Abre PowerShell" },
-      { title: "Cambiar permisos", description: "Elegir el nivel de autoridad", action: "permissions" },
-    ],
-  },
-  {
-    id: "connect",
-    title: "Inteligencia y privacidad",
-    description: "Elegir modelos comprobados y administrar claves",
-    items: [
-      { title: "Conectar un modelo", description: "Configurar proveedor local o remoto", action: "settings" },
-      { title: "Selección automática", description: "Sentinel elige entre proveedores disponibles", action: "automatic" },
-    ],
-  },
-  {
-    id: "knowledge",
-    title: "Archivos y conocimiento",
-    description: "Trabajar con contenido elegido por ti",
-    items: [
-      { title: "Buscar archivos", description: "Localizar contenido sin modificarlo", prompt: "Ayúdame a buscar un archivo en mi equipo; primero pregúntame dónde debo buscar y qué nombre o contenido necesito" },
-      { title: "Preparar un informe", description: "Seleccionar fuentes, estimar costo y exportar", prompt: "Quiero preparar un informe. Pregúntame qué archivos debo usar y muéstrame una estimación antes de generarlo" },
-      { title: "Consultar documentos", description: "Usar la base de conocimiento local", prompt: "Quiero consultar mis documentos. Pregúntame qué información necesito encontrar" },
-    ],
-  },
-  {
-    id: "automation",
-    title: "Automatización y administración",
-    description: "Capacidades avanzadas bajo políticas",
-    items: [
-      { title: "Crear una automatización", description: "Definir condición, acción y permisos", prompt: "Ayúdame a crear una automatización segura. Pregúntame qué debe ocurrir, cuándo y qué permisos puede utilizar" },
-      { title: "Revisar seguridad", description: "Estado, permisos y registro verificable", action: "security" },
-      { title: "Detener herramientas", description: "Bloquear inmediatamente toda ejecución", action: "emergency" },
-    ],
-  },
-] as const;
-
 const CONVERSATIONS_KEY = "sentinel.workbench.conversations.v1";
 const THEME_KEY = "sentinel.interface.theme.v1";
-
-const sentinelThemes = [
-  { id: "forge", name: "Forge", description: "Grafito y señal verde", colors: ["#111713", "#69d394", "#dce7df"] },
-  { id: "aurora", name: "Aurora", description: "Azul nocturno y cian", colors: ["#0d1522", "#57c8e8", "#dcecf5"] },
-  { id: "ember", name: "Ember", description: "Carbón y cobre", colors: ["#191310", "#e59a61", "#f0e3d8"] },
-  { id: "daylight", name: "Daylight", description: "Claro y concentrado", colors: ["#f2f4ef", "#267a52", "#18251e"] },
-] as const;
 
 function newConversation(): Conversation {
   return { id: crypto.randomUUID(), title: "Nueva operación", messages: [], updatedAt: Date.now() };
@@ -155,13 +54,6 @@ const stageColors: Record<string, string> = {
 
 type WorkbenchProps = { onLogout?: () => void };
 
-const permissionChoices = [
-  { id: "view", icon: "◉", title: "Solo lectura", description: "Consultar estado y analizar información. No permite modificar el sistema." },
-  { id: "confirm", icon: "◇", title: "Solicitar aprobación", description: "Pregunta antes de ejecutar acciones con impacto en archivos, aplicaciones o red." },
-  { id: "auto", icon: "✦", title: "Aprobar por mí", description: "Ejecuta acciones seguras y solicita aprobación cuando detecta riesgo potencial." },
-  { id: "admin", icon: "⚡", title: "Acceso completo", description: "Ejecuta sin confirmaciones rutinarias. Los bloqueos críticos e irreversibles permanecen activos." },
-];
-
 export function Workbench({ onLogout }: WorkbenchProps) {
   const { mode, toggleMode } = useMode();
   const [conversations, setConversations] = useState<Conversation[]>(loadConversations);
@@ -185,6 +77,8 @@ export function Workbench({ onLogout }: WorkbenchProps) {
   const [modelSwitchBusy, setModelSwitchBusy] = useState(false);
   const [providerSettingsOpen, setProviderSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<"intelligence" | "system" | "about">("intelligence");
+  const [view, setView] = useState<ViewKey | "">("");
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [permissionCenterOpen, setPermissionCenterOpen] = useState(false);
   const [adminWarningOpen, setAdminWarningOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
@@ -305,6 +199,7 @@ export function Workbench({ onLogout }: WorkbenchProps) {
     const timer = window.setInterval(() => void refreshSecurity(), 5000);
     return () => window.clearInterval(timer);
   }, [refreshSecurity]);
+
   const refreshIntelligence = useCallback(async () => {
     const [configResult, capabilityResult] = await Promise.allSettled([
       api.ai.config(),
@@ -319,16 +214,20 @@ export function Workbench({ onLogout }: WorkbenchProps) {
       setModelStatusError("No se pudo comprobar la inteligencia disponible");
     }
   }, []);
+
   useEffect(() => { void refreshIntelligence(); }, [refreshIntelligence]);
+
   useEffect(() => () => {
     streamAbortRef.current?.abort();
     cancelScheduledStreamFrame();
     streamDeltaBufferRef.current = { messageId: null, text: "" };
   }, []);
+
   useEffect(() => {
     document.documentElement.dataset.sentinelTheme = theme;
     localStorage.setItem(THEME_KEY, theme);
   }, [theme]);
+
   useEffect(() => {
     const openSettings = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key === ",") {
@@ -339,6 +238,39 @@ export function Workbench({ onLogout }: WorkbenchProps) {
     window.addEventListener("keydown", openSettings);
     return () => window.removeEventListener("keydown", openSettings);
   }, []);
+
+  useEffect(() => {
+    const cycleViews = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key === "V") {
+        event.preventDefault();
+        const allItems = viewGroups.flatMap((g) => g.items);
+        if (!allItems.length) return;
+        const currentIndex = view ? allItems.findIndex((item) => item.key === view) : -1;
+        const nextIndex = (currentIndex + 1) % allItems.length;
+        setView(allItems[nextIndex].key as ViewKey);
+      }
+      if (event.key === "Escape" && view) {
+        setView("");
+      }
+    };
+    window.addEventListener("keydown", cycleViews);
+    return () => window.removeEventListener("keydown", cycleViews);
+  }, [view]);
+
+  const viewContentRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!view) return;
+    const timer = window.setTimeout(() => {
+      const el = viewContentRef.current;
+      if (el) {
+        el.scrollTo({ top: 0, behavior: "smooth" });
+        el.focus({ preventScroll: true });
+      }
+    }, 16);
+    return () => window.clearTimeout(timer);
+  }, [view]);
+
   useEffect(() => {
     if (!busy || !stageStartedAt) return;
     const update = () => setStageElapsed(performance.now() - stageStartedAt);
@@ -346,6 +278,7 @@ export function Workbench({ onLogout }: WorkbenchProps) {
     const timer = window.setInterval(update, 100);
     return () => window.clearInterval(timer);
   }, [busy, stageStartedAt]);
+
   useEffect(() => {
     let active = true;
     const hydrate = async () => {
@@ -376,8 +309,10 @@ export function Workbench({ onLogout }: WorkbenchProps) {
     };
     void hydrate();
     return () => { active = false; };
-  }, []); // Hydrate exactly once; subsequent changes use the debounced writer below.
+  }, []);
+
   useEffect(() => { conversationsRef.current = conversations; }, [conversations]);
+
   useEffect(() => {
     if (!conversationStoreReady || busy) return;
 
@@ -419,6 +354,7 @@ export function Workbench({ onLogout }: WorkbenchProps) {
       }
     });
   }, [busy, conversationStoreReady, conversations]);
+
   useEffect(() => {
     if (followLatestRef.current && feedRef.current) feedRef.current.scrollTop = feedRef.current.scrollHeight;
   }, [messages, busy]);
@@ -456,7 +392,7 @@ export function Workbench({ onLogout }: WorkbenchProps) {
           setStageStartedAt(performance.now());
           setStageElapsed(0);
           setMessages((current) => current.map((m) => m.id === id
-            ? { ...m, pipeline: (event.pipeline ?? null) as PipelineData }
+            ? { ...m, pipeline: (event.pipeline ?? null) as Record<string, any> }
             : m));
         }
         if (event.type === "meta") {
@@ -662,146 +598,87 @@ export function Workbench({ onLogout }: WorkbenchProps) {
     else setRightWidth((value) => Math.max(250, Math.min(470, value - delta)));
   };
 
-  return <div className="wb sentinel-command" data-theme={theme} style={{ "--wb-left": `${leftWidth}px`, "--wb-right": rightOpen ? `${rightWidth}px` : "0px" } as React.CSSProperties}>
-    <aside className="wb-left">
-      <div className="wb-brand"><span className="wb-brand-mark"><i /><i /><i />S</span><span>SENTINEL<small>Intelligent Coordination</small></span></div>
-      <button className="wb-new" onClick={createConversation}><span>＋</span><div>Nueva misión<small>Define un objetivo</small></div></button>
-      <div className="wb-label">Navegación</div>
-      <button className="wb-nav-primary" onClick={() => { followLatestRef.current = false; feedRef.current?.scrollTo({ top: 0, behavior: "smooth" }); }}>◉ Inicio</button>
-      <button onClick={() => document.getElementById("wb-recent-missions")?.scrollIntoView({ block: "start" })}>◇ Misiones <span className="wb-nav-count">{conversations.length}</span></button>
-      <button className="wb-functions-button" onClick={() => setFunctionCenterOpen(true)}>⌘ Capacidades</button>
-      <button onClick={() => setRightOpen(true)}>↗ Actividad <span className="wb-nav-count">{audit.length}</span></button>
-      <div className="wb-label">Acciones rápidas</div>
-      <button onClick={() => { setSettingsSection("intelligence"); setProviderSettingsOpen(true); }}>✦ Inteligencia y modelos</button>
-      <button onClick={() => setPermissionCenterOpen(true)}>◇ Permisos y privacidad</button>
-      <button disabled={busy} onClick={() => void send("Muestra el estado actual de CPU, memoria, disco y red")}>◉ Revisar este equipo</button>
-      <div className="wb-quick-grid" aria-label="Acciones rápidas">
-        <button disabled={busy} onClick={() => void send("Abre PowerShell")}>Terminal</button>
-        <button disabled={busy} onClick={() => void send("Lista los procesos con mayor uso de recursos")}>Procesos</button>
-      </div>
-      <div className="wb-label" id="wb-recent-missions">Misiones recientes</div>
-      {conversationStoreError && <div className="wb-sync-status" role="status">{conversationStoreError}</div>}
-      {conversations.map((conversation) => <div className="wb-conversation" key={conversation.id}>
-        <button disabled={busy} className={`wb-history${conversation.id === activeId ? " active" : ""}`} onClick={() => { setActiveId(conversation.id); followLatestRef.current = false; }}>{conversation.title}</button>
-        <button className="wb-delete-conversation" aria-label={`Eliminar conversación ${conversation.title}`} title="Eliminar conversación" disabled={busy} onClick={() => void deleteConversation(conversation.id)}>×</button>
-      </div>)}
-      {!!messages.length && <><div className="wb-label">Hitos de la misión</div>{messages.map((m, index) => <button key={m.id} className="wb-history wb-milestone" onClick={() => document.getElementById(`wb-${m.id}`)?.scrollIntoView({ block: "start" })}><span>{String(index + 1).padStart(2, "0")}</span>{m.prompt}</button>)}</>}
-      <div className="wb-account-area">
-        {accountOpen && <div className="wb-account-menu" role="menu">
-          <div className="wb-account-summary"><span>ED</span><div><b>Usuario local</b><small>Sesión protegida en este equipo</small></div></div>
-          <button role="menuitem" onClick={() => void validateMicrophone()}><span>◉</span><div>Validar micrófono<small>{micStatus || "Comprobar acceso de voz"}</small></div></button>
-          <button role="menuitem" onClick={() => { setSettingsSection("intelligence"); setProviderSettingsOpen(true); setAccountOpen(false); }}><span>✦</span><div>Inteligencia y modelos<small>{modelConfig?.provider ?? "Comprobar conexión"}</small></div></button>
-          <button role="menuitem" onClick={() => { setPermissionCenterOpen(true); setAccountOpen(false); }}><span>◇</span><div>Permisos y privacidad<small>{permissionChoices.find((item) => item.id === permission?.level)?.title ?? "Cargando"}</small></div></button>
-          <button role="menuitem" onClick={() => { setThemeOpen(true); setAccountOpen(false); }}><span>◐</span><div>Apariencia<small>{sentinelThemes.find((item) => item.id === theme)?.name}</small></div></button>
-          <button role="menuitem" onClick={() => void inviteFriend()}><span>↗</span><div>Invitar a un amigo<small>Copiar invitación</small></div></button>
-          <button role="menuitem" onClick={() => { setSettingsSection("system"); setProviderSettingsOpen(true); setAccountOpen(false); }}><span>⚙</span><div>Configuración<small>Sistema y actualizaciones</small></div><kbd>Ctrl+,</kbd></button>
-          <button className="wb-signout" role="menuitem" onClick={onLogout}><span>⇥</span><div>Cerrar sesión<small>Finalizar sesión local</small></div></button>
-        </div>}
-        <button className="wb-account-trigger" aria-expanded={accountOpen} onClick={() => setAccountOpen((value) => !value)}><span>ED</span><div><b>Usuario local</b><small>{permissionChoices.find((item) => item.id === permission?.level)?.title ?? "Conectando"}</small></div><i>⌃</i></button>
-      </div>
-    </aside>
-    <div className="wb-resizer" role="separator" aria-label="Cambiar ancho del panel izquierdo" aria-orientation="vertical" aria-valuenow={leftWidth} tabIndex={0} onPointerDown={(e) => resize("left", e)} onKeyDown={(e) => resizeWithKeyboard("left", e)} />
-    <section className="wb-center">
-      <header className="wb-threadbar"><div className="wb-mission-title"><small>MISIÓN ACTIVA</small><b>{messages[0]?.prompt ?? "Esperando un objetivo"}</b></div><button className="wb-intelligence-pill" type="button" onClick={() => { setSettingsSection("intelligence"); setProviderSettingsOpen(true); }}><span className="wb-model-dot" />{modelConfig?.strategy === "smart" ? "Automático" : (modelConfig?.free_providers[modelConfig?.provider]?.label ?? modelConfig?.provider ?? "Inteligencia")}</button><button className="wb-permission-pill" type="button" onClick={() => setPermissionCenterOpen(true)}><span>●</span>{permissionChoices.find((item) => item.id === permission?.level)?.title ?? "Cargando permisos"}</button><div className="wb-theme-anchor"><button className="wb-theme-trigger" type="button" aria-expanded={themeOpen} onClick={() => setThemeOpen((value) => !value)}>◐ Tema</button>{themeOpen && <div className="wb-theme-panel"><header><b>Atmósfera visual</b><span>Se guarda en este equipo</span></header>{sentinelThemes.map((item) => <button key={item.id} className={theme === item.id ? "active" : ""} onClick={() => { setTheme(item.id); setThemeOpen(false); }}><span className="wb-theme-swatches">{item.colors.map((color) => <i key={color} style={{ background: color }} />)}</span><div><b>{item.name}</b><small>{item.description}</small></div><em>{theme === item.id ? "●" : "○"}</em></button>)}</div>}</div><button type="button" aria-label={rightOpen ? "Ocultar registro de decisiones" : "Mostrar registro de decisiones"} title={rightOpen ? "Ocultar registro" : "Mostrar registro"} onClick={() => setRightOpen((v) => !v)}>Registro</button></header>
-      <div className="wb-mode-toggle" style={{ display: "flex", gap: 8, padding: "8px 16px", borderBottom: "1px solid var(--border)" }}>
-        <button
-          type="button"
-          className="btn btn-ghost"
-          aria-pressed={mode === "developer"}
-          onClick={toggleMode}
-          style={{ fontSize: 11, display: "flex", alignItems: "center", gap: 4 }}
-        >
-          {mode === "developer" ? "Vista simple" : "Detalles técnicos"}
-        </button>
-        <span style={{ fontSize: 10, color: "var(--text-muted)", alignSelf: "center" }}>
-          Ctrl+Shift+D
-        </span>
-      </div>
-      {permission?.emergency_stop && <div className="wb-stop-banner">Emergency Stop activo — Tool Gateway bloqueado</div>}
-      <div className="wb-feed" ref={feedRef} onScroll={(event) => {
-        const element = event.currentTarget;
-        followLatestRef.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80;
-      }}>
-        {!messages.length && <div className="wb-empty sentinel-origin"><div className="sentinel-orbit" aria-hidden="true"><span /><span /><span /><b>S</b></div><small>{runtimeCapabilities?.models.available ? "INTELIGENCIA DISPONIBLE" : "CONVERSACIÓN SIN MODELO"} · CONTROL HUMANO ACTIVO</small><h2>¿Qué quieres conseguir?</h2><p>Puedes conversar sobre cualquier tema o pedir una acción. Sentinel separa la ayuda de la IA del acceso al equipo y solo ejecuta mediante políticas verificables.</p><div className="wb-origin-actions"><button onClick={() => { setPrompt(""); composerRef.current?.focus(); }}>Preguntar o aprender<span>La IA te ayuda →</span></button><button disabled={busy} onClick={() => void send("Analiza el estado completo de mi equipo y explícame cualquier riesgo")}>Revisar este equipo<span>Lectura segura →</span></button><button onClick={() => setFunctionCenterOpen(true)}>Ver todas las funciones<span>Solo capacidades reales →</span></button></div>{modelStatusError && <div className="wb-capability-warning">{modelStatusError}. Puedes revisar la conexión en Configuración.</div>}</div>}
-        {messages.map((message) => {
-          const pipeline: any = message.pipeline;
-          const blocked = Boolean(pipeline?.blocked && pipeline?.action_id);
-          return <article className="wb-exchange" id={`wb-${message.id}`} key={message.id}>
-            <div className="wb-user"><span>{message.prompt}</span></div>
-            {(message.response || message.error) && <div className="wb-assistant">
-              <button className="wb-process" onClick={() => setExpanded((x) => ({ ...x, [message.id]: !x[message.id] }))}>
-                Procesado en {Math.round(message.elapsed ?? 0)} ms <span>{expanded[message.id] ? "⌄" : "›"}</span>
-              </button>
-              {expanded[message.id] && <div className="wb-pipeline">
-                {stages.map((stage, index) => {
-                  const st = stage.status(pipeline);
-                  return <div key={stage.label} style={{ borderLeft: `2px solid ${stageColors[st]}` }}>
-                    <b>{index + 1}. {stage.label}</b>
-                    <span style={{ color: stageColors[st] }}>{stage.desc(pipeline)}</span>
-                  </div>;
-                })}
-              </div>}
-              {message.response && <div className="wb-answer">{message.response}</div>}
-              {message.error && <div className="wb-error"><b>{message.error}</b>{message.errorCode && <span>Diagnóstico: {message.errorCode}</span>}{message.retryable && <button disabled={busy} onClick={() => void send(message.prompt)}>Reintentar</button>}</div>}
-              {blocked && <div className="wb-approval"><b>Confirmación requerida</b><p>{pipeline.simulation_summary ?? pipeline.decision_reason ?? "Sentinel requiere una decisión explícita."}</p><div><button disabled={busy} onClick={() => decide(message.id, pipeline, false)}>Rechazar</button><button className="primary" disabled={busy} onClick={() => decide(message.id, pipeline, true)}>Aprobar y ejecutar</button></div></div>}
-              <div className="wb-meta">{message.provider ?? "Sentinel"}{message.model ? ` · ${message.model}` : ""}{message.performance ? ` · primer token ${(message.performance.time_to_first_token_ms / 1000).toFixed(1)} s · ${message.performance.tokens_per_second.toFixed(1)} tok/s` : ""}{pipeline?.decision ? ` · ${safeText(pipeline.decision?.decision ?? pipeline.decision)}` : ""}</div>
-            </div>}
-          </article>;
-        })}
-        {busy && <div className="wb-working"><span>{streamStage === "generating"
-          ? `Generando respuesta… ${(stageElapsed / 1000).toFixed(1)} s${planningElapsed != null ? ` · análisis ${(planningElapsed / 1000).toFixed(1)} s` : ""}`
-          : `Analizando intención y políticas… ${(stageElapsed / 1000).toFixed(1)} s`}</span><button type="button" onClick={cancelGeneration}>Detener</button></div>}
-      </div>
-      <form className="wb-composer" onSubmit={(e) => { e.preventDefault(); void send(); }}>
-        <textarea ref={composerRef} aria-label="Solicitud para Sentinel" value={prompt} onChange={(e) => setPrompt(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }} placeholder={permission?.emergency_stop ? "Puedes seguir conversando; las acciones del equipo están detenidas" : "Pregunta, aprende o solicita una acción"} disabled={busy} />
-        <div className="wb-composer-actions">
-          <label className="wb-model-picker" title="Elige cómo Sentinel seleccionará la inteligencia para esta conversación">
-            <span className="wb-model-dot" aria-hidden="true" />
-            <select aria-label="Modo de inteligencia" value={modelConfig?.strategy === "smart" ? "automatic" : (modelConfig?.preferred_provider ?? modelConfig?.provider ?? "sentinel_local")} disabled={!modelConfig || modelSwitchBusy || busy} onChange={(event) => void switchModel(event.target.value)}>
-              <option value="automatic">Automático · Sentinel decide</option>
-              {Array.from(new Set([...(runtimeCapabilities?.models.providers ?? []), modelConfig?.provider].filter(Boolean) as string[])).map((providerId) => <option key={providerId} value={providerId}>{modelConfig?.free_providers[providerId]?.label ?? providerId}</option>)}
-            </select>
-          </label>
-          <span className="wb-access-state">{permission?.emergency_stop ? "Herramientas detenidas · chat disponible" : `Permisos: ${permission?.level ?? "cargando"}`}</span>
-          <button className="wb-send" aria-label="Enviar solicitud" title="Enviar" disabled={busy || !prompt.trim()}>↑</button>
-        </div>
-      </form>
-    </section>
-    {rightOpen && <><div className="wb-resizer" role="separator" aria-label="Cambiar ancho del panel derecho" aria-orientation="vertical" aria-valuenow={rightWidth} tabIndex={0} onPointerDown={(e) => resize("right", e)} onKeyDown={(e) => resizeWithKeyboard("right", e)} /><aside className="wb-right">
-      <section id="wb-security" className="wb-control-card"><div className="wb-section-kicker">CONTROL</div><h3>Autoridad operativa</h3><button className="wb-level-display" onClick={() => setPermissionCenterOpen(true)}><span>{permissionChoices.find((item) => item.id === permission?.level)?.icon}</span><div><b>{permissionChoices.find((item) => item.id === permission?.level)?.title}</b><small>Cambiar nivel</small></div></button><button className={permission?.emergency_stop ? "resume" : "danger"} disabled={permissionBusy} onClick={() => void toggleEmergency()}>{permission?.emergency_stop ? "Reactivar ejecución" : "Detener toda ejecución"}</button><div className="wb-security-row"><span>Decisiones pendientes</span><b>{permission?.pending_actions ?? 0}</b></div></section>
-      <section><div className="wb-section-kicker">TELEMETRÍA</div><h3>Estado de la misión</h3><div className="wb-result"><span>Interacciones</span><b>{messages.length}</b></div><div className="wb-result"><span>Última decisión</span><b>{safeText((messages.at(-1)?.pipeline as any)?.decision)}</b></div></section>
-      <section id="wb-audit"><div className="wb-section-kicker">LEDGER</div><h3>Registro verificable</h3>{audit.length === 0 && <p className="wb-no-audit">Aún no hay acciones registradas.</p>}{audit.slice(0, 8).map((row, i) => <div className="wb-audit" key={row.id ?? i}><i /><div><b>{row.action ?? row.tool_id ?? row.event ?? "AUDIT"}</b><span>{row.timestamp ?? row.created_at ?? ""}</span></div></div>)}</section>
-    </aside></>}
-    {providerSettingsOpen && <div className="wb-provider-backdrop" role="presentation" onMouseDown={(event) => {
-      if (event.target === event.currentTarget) setProviderSettingsOpen(false);
-    }}>
-      <section className="wb-provider-dialog" role="dialog" aria-modal="true" aria-label="Conectar inteligencia">
-        <header><div><b>Conectar inteligencia</b><span>Las claves se guardan cifradas en este equipo.</span></div><button type="button" aria-label="Cerrar configuración" onClick={() => setProviderSettingsOpen(false)}>×</button></header>
-        <div className="wb-provider-content"><Settings initialSection={settingsSection} /></div>
+  const contextValue = {
+    conversations, activeId, setActiveId, busy, prompt, setPrompt, messages,
+    permission, audit, permissionBusy, conversationStoreError, modelConfig,
+    runtimeCapabilities, modelStatusError, view, setView, collapsedGroups, setCollapsedGroups,
+    accountOpen, setAccountOpen, micStatus, theme, setTheme, themeOpen, setThemeOpen,
+    functionCenterOpen, setFunctionCenterOpen, providerSettingsOpen, setProviderSettingsOpen,
+    settingsSection, setSettingsSection, permissionCenterOpen, setPermissionCenterOpen,
+    adminWarningOpen, setAdminWarningOpen, rightOpen, setRightOpen, modelSwitchBusy,
+    streamStage, stageElapsed, planningElapsed, expanded,
+    feedRef, composerRef, followLatestRef,
+    createConversation, deleteConversation, send, cancelGeneration, decide,
+    changePermission, enableFullAccess, validateMicrophone, inviteFriend, toggleEmergency,
+    switchModel, runFunction, resize, resizeWithKeyboard, leftWidth, rightWidth, onLogout,
+  };
+
+  return <WorkbenchProvider value={contextValue}>
+    <div className="wb sentinel-command" data-theme={theme} role="application" style={{ "--wb-left": `${leftWidth}px`, "--wb-right": rightOpen ? `${rightWidth}px` : "0px" } as React.CSSProperties}>
+      <a href="#wb-main-content" className="wb-skip-link">Saltar al contenido principal</a>
+      <aside className="wb-left" role="navigation" aria-label="Panel de navegación principal"><WorkbenchSidebar /></aside>
+      <div className="wb-resizer" role="separator" aria-label="Cambiar ancho del panel izquierdo" aria-orientation="vertical" aria-valuenow={leftWidth} tabIndex={0} onPointerDown={(e) => resize("left", e)} onKeyDown={(e) => resizeWithKeyboard("left", e)} />
+      <section className="wb-center" id="wb-main-content" role="main" aria-label="Contenido principal">
+        <header className="wb-threadbar"><div className="wb-mission-title"><small>{view ? "VISTA DEL SISTEMA" : "MISIÓN ACTIVA"}</small><b>{view ? `${viewMeta[view]?.icon ?? ""} ${viewMeta[view]?.label ?? view}` : (messages[0]?.prompt ?? "Esperando un objetivo")}</b></div>        {view ? <button className="wb-view-back-header" type="button" aria-label="Volver al chat" onClick={() => setView("")}>← Volver al chat <kbd style={{ fontSize: 8, opacity: 0.6, marginLeft: 4 }}>Esc</kbd></button> : <><button className="wb-intelligence-pill" type="button" onClick={() => { setSettingsSection("intelligence"); setProviderSettingsOpen(true); }}><span className="wb-model-dot" />{modelConfig?.strategy === "smart" ? "Automático" : (modelConfig?.free_providers[modelConfig?.provider]?.label ?? modelConfig?.provider ?? "Inteligencia")}</button><button className="wb-permission-pill" type="button" onClick={() => setPermissionCenterOpen(true)}><span>●</span>{permissionChoices.find((item) => item.id === permission?.level)?.title ?? "Cargando permisos"}</button><div className="wb-theme-anchor"><button className="wb-theme-trigger" type="button" aria-expanded={themeOpen} onClick={() => setThemeOpen((value) => !value)}>◐ Tema</button>{themeOpen && <div className="wb-theme-panel"><header><b>Atmósfera visual</b><span>Se guarda en este equipo</span></header>{sentinelThemes.map((item) => <button key={item.id} className={theme === item.id ? "active" : ""} onClick={() => { setTheme(item.id); setThemeOpen(false); }}><span className="wb-theme-swatches">{item.colors.map((color) => <i key={color} style={{ background: color }} />)}</span><div><b>{item.name}</b><small>{item.description}</small></div><em>{theme === item.id ? "●" : "○"}</em></button>)}</div>}</div><button type="button" aria-label={rightOpen ? "Ocultar registro de decisiones" : "Mostrar registro de decisiones"} title={rightOpen ? "Ocultar registro" : "Mostrar registro"} onClick={() => setRightOpen((v) => !v)}>Registro</button></>}</header>
+        {view ? <div className="wb-view-content" key={view} ref={viewContentRef} tabIndex={-1} aria-label={`Vista: ${viewMeta[view]?.label ?? view}`}>{view && <ViewRouter view={view as ViewKey} onNavigate={(tab) => { setView(tab === "chat" ? "" : (tab as ViewKey)); }} />}</div> : <>
+          <div className="wb-mode-toggle" style={{ display: "flex", gap: 8, padding: "8px 16px", borderBottom: "1px solid var(--border)" }}>
+            <button type="button" className="btn btn-ghost" aria-pressed={mode === "developer"} onClick={toggleMode} style={{ fontSize: 11, display: "flex", alignItems: "center", gap: 4 }}>{mode === "developer" ? "Vista simple" : "Detalles técnicos"}</button>
+            <span style={{ fontSize: 10, color: "var(--text-muted)", alignSelf: "center" }}>Ctrl+Shift+D</span>
+          </div>
+          {permission?.emergency_stop && <div className="wb-stop-banner">Emergency Stop activo — Tool Gateway bloqueado</div>}
+          <div className="wb-feed" ref={feedRef} onScroll={(event) => {
+            const element = event.currentTarget;
+            followLatestRef.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80;
+          }}>
+            {!messages.length && !runtimeCapabilities && <div className="wb-empty" style={{ padding: 40, textAlign: "center" }}><div className="sentinel-orbit" aria-hidden="true"><span /><span /><span /><b>S</b></div><p style={{ color: "var(--text-muted)", fontSize: 13, marginTop: 16 }}>Conectando con Sentinel...</p></div>}
+            {!messages.length && runtimeCapabilities && <div className="wb-empty sentinel-origin"><div className="sentinel-orbit" aria-hidden="true"><span /><span /><span /><b>S</b></div><small>{runtimeCapabilities?.models.available ? "INTELIGENCIA DISPONIBLE" : "CONVERSACIÓN SIN MODELO"} · CONTROL HUMANO ACTIVO</small><h2>¿Qué quieres conseguir?</h2><p>Puedes conversar sobre cualquier tema o pedir una acción. Sentinel separa la ayuda de la IA del acceso al equipo y solo ejecuta mediante políticas verificables.</p><div className="wb-origin-actions"><button onClick={() => { setPrompt(""); composerRef.current?.focus(); }}>Preguntar o aprender<span>La IA te ayuda →</span></button><button disabled={busy} onClick={() => void send("Analiza el estado completo de mi equipo y explícame cualquier riesgo")}>Revisar este equipo<span>Lectura segura →</span></button><button onClick={() => setFunctionCenterOpen(true)}>Ver todas las funciones<span>Solo capacidades reales →</span></button></div>{modelStatusError && <div className="wb-capability-warning">{modelStatusError}. Puedes revisar la conexión en Configuración.</div>}</div>}
+            {messages.map((message) => {
+              const pipeline: any = message.pipeline;
+              const blocked = Boolean(pipeline?.blocked && pipeline?.action_id);
+              return <article className="wb-exchange" id={`wb-${message.id}`} key={message.id}>
+                <div className="wb-user"><span>{message.prompt}</span></div>
+                {(message.response || message.error) && <div className="wb-assistant">
+                  <button className="wb-process" onClick={() => setExpanded((x) => ({ ...x, [message.id]: !x[message.id] }))}>
+                    Procesado en {Math.round(message.elapsed ?? 0)} ms <span>{expanded[message.id] ? "⌄" : "›"}</span>
+                  </button>
+                  {expanded[message.id] && <div className="wb-pipeline">
+                    {stages.map((stage, index) => {
+                      const st = stage.status(pipeline);
+                      return <div key={stage.label} style={{ borderLeft: `2px solid ${stageColors[st]}` }}>
+                        <b>{index + 1}. {stage.label}</b>
+                        <span style={{ color: stageColors[st] }}>{stage.desc(pipeline)}</span>
+                      </div>;
+                    })}
+                  </div>}
+                  {message.response && <div className="wb-answer">{message.response}</div>}
+                  {message.error && <div className="wb-error"><b>{message.error}</b>{message.errorCode && <span>Diagnóstico: {message.errorCode}</span>}{message.retryable && <button disabled={busy} onClick={() => void send(message.prompt)}>Reintentar</button>}</div>}
+                  {blocked && <div className="wb-approval"><b>Confirmación requerida</b><p>{pipeline.simulation_summary ?? pipeline.decision_reason ?? "Sentinel requiere una decisión explícita."}</p><div><button disabled={busy} onClick={() => decide(message.id, pipeline, false)}>Rechazar</button><button className="primary" disabled={busy} onClick={() => decide(message.id, pipeline, true)}>Aprobar y ejecutar</button></div></div>}
+                  <div className="wb-meta">{message.provider ?? "Sentinel"}{message.model ? ` · ${message.model}` : ""}{message.performance ? ` · primer token ${(message.performance.time_to_first_token_ms / 1000).toFixed(1)} s · ${message.performance.tokens_per_second.toFixed(1)} tok/s` : ""}{pipeline?.decision ? ` · ${safeText(pipeline.decision?.decision ?? pipeline.decision)}` : ""}</div>
+                </div>}
+              </article>;
+            })}
+            {busy && <div className="wb-working"><span>{streamStage === "generating"
+              ? `Generando respuesta… ${(stageElapsed / 1000).toFixed(1)} s${planningElapsed != null ? ` · análisis ${(planningElapsed / 1000).toFixed(1)} s` : ""}`
+              : `Analizando intención y políticas… ${(stageElapsed / 1000).toFixed(1)} s`}</span><button type="button" onClick={cancelGeneration}>Detener</button></div>}
+          </div>
+          <form className="wb-composer" onSubmit={(e) => { e.preventDefault(); void send(); }}>
+            <textarea ref={composerRef} aria-label="Solicitud para Sentinel" value={prompt} onChange={(e) => setPrompt(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }} placeholder={permission?.emergency_stop ? "Puedes seguir conversando; las acciones del equipo están detenidas" : "Pregunta, aprende o solicita una acción"} disabled={busy} />
+            <div className="wb-composer-actions">
+              <label className="wb-model-picker" title="Elige cómo Sentinel seleccionará la inteligencia para esta conversación">
+                <span className="wb-model-dot" aria-hidden="true" />
+                <select aria-label="Modo de inteligencia" value={modelConfig?.strategy === "smart" ? "automatic" : (modelConfig?.preferred_provider ?? modelConfig?.provider ?? "sentinel_local")} disabled={!modelConfig || modelSwitchBusy || busy} onChange={(event) => void switchModel(event.target.value)}>
+                  <option value="automatic">Automático · Sentinel decide</option>
+                  {Array.from(new Set([...(runtimeCapabilities?.models.providers ?? []), modelConfig?.provider].filter(Boolean) as string[])).map((providerId) => <option key={providerId} value={providerId}>{modelConfig?.free_providers[providerId]?.label ?? providerId}</option>)}
+                </select>
+              </label>
+              <span className="wb-access-state">{permission?.emergency_stop ? "Herramientas detenidas · chat disponible" : `Permisos: ${permission?.level ?? "cargando"}`}</span>
+              <button className="wb-send" aria-label="Enviar solicitud" title="Enviar" disabled={busy || !prompt.trim()}>↑</button>
+            </div>
+          </form>
+        </>}
       </section>
-    </div>}
-    {functionCenterOpen && <div className="wb-provider-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setFunctionCenterOpen(false); }}>
-      <section className="wb-function-center" role="dialog" aria-modal="true" aria-labelledby="function-center-title">
-        <header><div><small>MAPA DE CAPACIDADES</small><h2 id="function-center-title">Funciones reales de Sentinel</h2><p>Cada opción conversa, consulta una herramienta existente o abre una configuración operativa.</p></div><button aria-label="Cerrar funciones" onClick={() => setFunctionCenterOpen(false)}>×</button></header>
-        <div className="wb-function-status"><span className={runtimeCapabilities?.models.available ? "ready" : "offline"}>IA {runtimeCapabilities?.models.available ? `${runtimeCapabilities.models.available_count} disponible` : "no disponible"}</span><span className="ready">{runtimeCapabilities?.system.registered_count ?? "—"} herramientas registradas</span><span className={permission?.emergency_stop ? "offline" : "ready"}>Ejecución {permission?.emergency_stop ? "detenida" : "activa"}</span></div>
-        <div className="wb-function-groups">{functionGroups.map((group) => <section key={group.id}><div className="wb-function-heading"><b>{group.title}</b><span>{group.description}</span></div>{group.items.map((item) => <button key={item.title} disabled={busy || ("action" in item && item.action === "automatic" && !runtimeCapabilities?.models.available)} onClick={() => void runFunction(item)}><div><b>{item.title}</b><span>{item.description}</span></div><em>→</em></button>)}</section>)}</div>
-      </section>
-    </div>}
-    {permissionCenterOpen && <div className="wb-provider-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setPermissionCenterOpen(false); }}>
-      <section className="wb-permission-dialog" role="dialog" aria-modal="true" aria-labelledby="permission-title">
-        <header><div><span className="wb-dialog-icon">◇</span><div><h2 id="permission-title">¿Cómo debe aprobar Sentinel las acciones?</h2><p>Elige cuánto control conservar. Puedes cambiarlo en cualquier momento.</p></div></div><button aria-label="Cerrar" onClick={() => setPermissionCenterOpen(false)}>×</button></header>
-        <div className="wb-permission-options">
-          {permissionChoices.map((choice) => <button key={choice.id} className={`wb-permission-option${permission?.level === choice.id ? " selected" : ""}${choice.id === "admin" ? " full" : ""}`} disabled={permissionBusy} onClick={() => void changePermission(choice.id)}>
-            <span className="wb-permission-icon">{choice.icon}</span><div><b>{choice.title}</b><p>{choice.description}</p>{choice.id === "admin" && <em>Riesgo alto</em>}</div><span className="wb-radio">{permission?.level === choice.id ? "●" : "○"}</span>
-          </button>)}
-        </div>
-        <footer><span>Las políticas, el registro de auditoría y el botón de emergencia siempre permanecen activos.</span></footer>
-      </section>
-    </div>}
-    {adminWarningOpen && <div className="wb-provider-backdrop">
-      <section className="wb-admin-warning" role="alertdialog" aria-modal="true" aria-labelledby="admin-warning-title">
-        <div className="wb-warning-mark">!</div><h2 id="admin-warning-title">Activar acceso completo</h2><p>Sentinel podrá abrir aplicaciones, usar internet y modificar archivos accesibles por tu usuario sin pedir confirmación en cada ocasión.</p><ul><li>Las acciones seguirán registrándose.</li><li>El botón de emergencia seguirá disponible.</li><li>El daño crítico e irreversible continuará bloqueado.</li></ul><div><button onClick={() => setAdminWarningOpen(false)}>Cancelar</button><button className="danger" disabled={permissionBusy} onClick={() => void enableFullAccess()}>Entiendo, activar</button></div>
-      </section>
-    </div>}
-  </div>;
+      {rightOpen && <><div className="wb-resizer" role="separator" aria-label="Cambiar ancho del panel derecho" aria-orientation="vertical" aria-valuenow={rightWidth} tabIndex={0} onPointerDown={(e) => resize("right", e)} onKeyDown={(e) => resizeWithKeyboard("right", e)} /><aside className="wb-right" role="complementary" aria-label="Panel de actividad y control"><WorkbenchRightPanel /></aside></>}
+      <WorkbenchDialogs />
+    </div>
+  </WorkbenchProvider>;
 }

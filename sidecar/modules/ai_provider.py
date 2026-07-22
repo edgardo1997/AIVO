@@ -1,6 +1,6 @@
 import logging
 from typing import Optional
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from pydantic import BaseModel
 from services.ai_service import AIService
 
@@ -45,12 +45,20 @@ def analyze_metrics(req: SystemAnalyzeRequest):
 
 
 @router.get("/config")
-def get_config():
+def get_config(request: Request):
+    from modules.auth import request_identity, require_level
+
+    identity = request_identity(request)
+    require_level(identity, "view")
     return _svc.get_config()
 
 
 @router.post("/config")
-def set_config(cfg: ConfigModel):
+def set_config(cfg: ConfigModel, request: Request):
+    from modules.auth import request_identity, require_level
+
+    identity = request_identity(request)
+    require_level(identity, "admin")
     data = cfg.model_dump()
     delete_key = data.pop("delete_key", None)
     if delete_key and data.get("provider"):
@@ -59,7 +67,11 @@ def set_config(cfg: ConfigModel):
 
 
 @router.get("/providers")
-def get_providers():
+def get_providers(request: Request):
+    from modules.auth import request_identity, require_level
+
+    identity = request_identity(request)
+    require_level(identity, "view")
     return _svc.get_free_providers()
 
 
@@ -71,7 +83,11 @@ def local_model_status():
 
 
 @router.post("/validate-model")
-def validate_model(req: ValidateModelRequest):
+def validate_model(req: ValidateModelRequest, request: Request):
+    from modules.auth import request_identity, require_level
+
+    identity = request_identity(request)
+    require_level(identity, "admin")
     return _svc.validate_model(req.provider, req.model)
 
 

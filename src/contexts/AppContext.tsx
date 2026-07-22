@@ -150,6 +150,7 @@ export function useAppState(): AppState {
   return ctx;
 }
 
+// oxlint-disable-next-line react/only-export-components
 export function useMode() {
   const ctx = useContext(AppContext);
   if (!ctx) {

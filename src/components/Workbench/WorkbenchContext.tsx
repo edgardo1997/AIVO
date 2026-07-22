@@ -1,7 +1,5 @@
 import { createContext, useContext, type RefObject } from "react";
 import type { ViewKey } from "../Views/ViewRouter";
-import type { ViewGroup } from "../Views/ViewRouter";
-
 export type WorkMessage = {
   id: string;
   prompt: string;
@@ -31,6 +29,7 @@ export type RuntimeCapabilities = {
   system: { registered_count: number; categories: string[] };
 };
 
+// oxlint-disable-next-line react/only-export-components
 export const permissionChoices = [
   { id: "view", icon: "◉", title: "Solo lectura", description: "Consultar estado y analizar información. No permite modificar el sistema." },
   { id: "confirm", icon: "◇", title: "Solicitar aprobación", description: "Pregunta antes de ejecutar acciones con impacto en archivos, aplicaciones o red." },
@@ -38,6 +37,7 @@ export const permissionChoices = [
   { id: "admin", icon: "⚡", title: "Acceso completo", description: "Ejecuta sin confirmaciones rutinarias. Los bloqueos críticos e irreversibles permanecen activos." },
 ] as const;
 
+// oxlint-disable-next-line react/only-export-components
 export const sentinelThemes = [
   { id: "forge", name: "Forge", description: "Grafito y señal verde", colors: ["#111713", "#69d394", "#dce7df"] },
   { id: "aurora", name: "Aurora", description: "Azul nocturno y cian", colors: ["#0d1522", "#57c8e8", "#dcecf5"] },
@@ -45,6 +45,7 @@ export const sentinelThemes = [
   { id: "daylight", name: "Daylight", description: "Claro y concentrado", colors: ["#f2f4ef", "#267a52", "#18251e"] },
 ] as const;
 
+// oxlint-disable-next-line react/only-export-components
 export const functionGroups = [
   {
     id: "think", title: "Pensar y aprender", description: "Conversación sin acceso al equipo",
@@ -162,6 +163,7 @@ interface WorkbenchContextValue {
 
 const WorkbenchContext = createContext<WorkbenchContextValue | null>(null);
 
+// oxlint-disable-next-line react/only-export-components
 export function useWorkbench(): WorkbenchContextValue {
   const ctx = useContext(WorkbenchContext);
   if (!ctx) throw new Error("useWorkbench must be used within WorkbenchProvider");

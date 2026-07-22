@@ -55,6 +55,7 @@ export type ViewGroup = {
   items: { key: ViewKey; label: string; icon: string; description: string }[];
 };
 
+// oxlint-disable-next-line react/only-export-components
 export const viewGroups: ViewGroup[] = [
   {
     id: "system",
@@ -118,6 +119,7 @@ export const viewGroups: ViewGroup[] = [
   },
 ];
 
+// oxlint-disable-next-line react/only-export-components
 export const viewMeta: Record<ViewKey, { label: string; icon: string; description: string }> =
   Object.fromEntries(viewGroups.flatMap((g) => g.items.map((item) => [item.key, { label: item.label, icon: item.icon, description: item.description }]))) as any;
 

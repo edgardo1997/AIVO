@@ -4,12 +4,13 @@ import type { ViewKey } from "../Views/ViewRouter";
 
 export function WorkbenchSidebar() {
   const {
-    conversations, activeId, setActiveId, busy, prompt, setPrompt, messages,
+    conversations, activeId, setActiveId, busy, messages,
     permission, audit, conversationStoreError, modelConfig, view, setView, collapsedGroups, setCollapsedGroups,
-    accountOpen, setAccountOpen, micStatus, theme, setTheme, themeOpen, setThemeOpen,
-    functionCenterOpen, setFunctionCenterOpen, setSettingsSection, setProviderSettingsOpen,
+    accountOpen, setAccountOpen, micStatus, theme,
+    setFunctionCenterOpen, setThemeOpen,
+    setSettingsSection, setProviderSettingsOpen,
     setPermissionCenterOpen, createConversation, deleteConversation, send, validateMicrophone,
-    inviteFriend, onLogout, followLatestRef, feedRef, composerRef, setRightOpen,
+    inviteFriend, onLogout, followLatestRef, feedRef, setRightOpen,
   } = useWorkbench();
 
   return <>

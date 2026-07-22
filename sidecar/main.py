@@ -129,7 +129,7 @@ def _ensure_session_token():
             if os.path.isfile(env_path):
                 with open(env_path, "r") as f:
                     lines = f.readlines()
-                existing = "".join(l for l in lines if not l.startswith("VITE_SENTINEL_SESSION_TOKEN="))
+                existing = "".join(line for line in lines if not line.startswith("VITE_SENTINEL_SESSION_TOKEN="))
             with open(env_path, "w") as f:
                 f.write(existing)
                 f.write(f"VITE_SENTINEL_SESSION_TOKEN={token}\n")

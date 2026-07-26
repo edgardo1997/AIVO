@@ -19,12 +19,14 @@ class AdvisoryService:
         self._feedback: List[Dict[str, Any]] = []
 
     def record_feedback(self, helpful: bool, insight_kind: str | None = None, execution_id: str | None = None) -> None:
-        self._feedback.append({
-            "helpful": helpful,
-            "insight_kind": insight_kind,
-            "execution_id": execution_id,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        })
+        self._feedback.append(
+            {
+                "helpful": helpful,
+                "insight_kind": insight_kind,
+                "execution_id": execution_id,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+        )
 
     def feedback_stats(self) -> Dict[str, Any]:
         total = len(self._feedback)

@@ -1,7 +1,5 @@
 """Repository-wide deterministic test classification and resource checks."""
 
-from __future__ import annotations
-
 import time
 from pathlib import Path
 

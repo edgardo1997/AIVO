@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import logging
 import http.client
 import re
@@ -80,9 +78,7 @@ class WebBrowsingService:
             return self._record_result(WebResult(url=url, error=str(exc), duration_ms=0))
 
         try:
-            final_url, status, headers, body = self.fetch_public_bytes(
-                url, timeout=timeout, max_bytes=MAX_CONTENT_SIZE
-            )
+            final_url, status, headers, body = self.fetch_public_bytes(url, timeout=timeout, max_bytes=MAX_CONTENT_SIZE)
             duration = (time.perf_counter() - start) * 1000
             result = WebResult(url=final_url, status_code=status, headers=headers, duration_ms=duration)
             if status != 200:
@@ -189,7 +185,9 @@ class WebBrowsingService:
             for address in addresses:
                 connection = None
                 try:
-                    connection_type = http.client.HTTPSConnection if parsed.scheme == "https" else http.client.HTTPConnection
+                    connection_type = (
+                        http.client.HTTPSConnection if parsed.scheme == "https" else http.client.HTTPConnection
+                    )
                     connection = connection_type(parsed.hostname, port, timeout=timeout)
                     raw_socket = socket.create_connection((address, port), timeout=timeout)
                     if parsed.scheme == "https":

@@ -9,21 +9,21 @@ from typing import List, Optional
 log = logging.getLogger(__name__)
 
 SCHEME_GUIDS = {
-    "guid_min":  "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c",
-    "guid_bal":  "381b4222-f694-41f0-9685-ff5bb260df2f",
-    "guid_max":  "e9a42b02-d5df-448d-aa00-03f14749eb61",
+    "guid_min": "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c",
+    "guid_bal": "381b4222-f694-41f0-9685-ff5bb260df2f",
+    "guid_max": "e9a42b02-d5df-448d-aa00-03f14749eb61",
 }
 
 PROFILE_ALIASES = {
-    "balanced":         "381b4222-f694-41f0-9685-ff5bb260df2f",
-    "balanceado":       "381b4222-f694-41f0-9685-ff5bb260df2f",
+    "balanced": "381b4222-f694-41f0-9685-ff5bb260df2f",
+    "balanceado": "381b4222-f694-41f0-9685-ff5bb260df2f",
     "high_performance": "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c",
-    "performance":      "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c",
+    "performance": "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c",
     "alto_rendimiento": "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c",
-    "power_saver":      "e9a42b02-d5df-448d-aa00-03f14749eb61",
-    "ahorro":           "e9a42b02-d5df-448d-aa00-03f14749eb61",
-    "powersaver":       "e9a42b02-d5df-448d-aa00-03f14749eb61",
-    "ultimate":         "e9a42b02-d5df-448d-aa00-03f14749eb61",
+    "power_saver": "e9a42b02-d5df-448d-aa00-03f14749eb61",
+    "ahorro": "e9a42b02-d5df-448d-aa00-03f14749eb61",
+    "powersaver": "e9a42b02-d5df-448d-aa00-03f14749eb61",
+    "ultimate": "e9a42b02-d5df-448d-aa00-03f14749eb61",
 }
 
 
@@ -47,7 +47,9 @@ def _run_powercfg(args: List[str]) -> str:
     try:
         result = subprocess.run(
             ["powercfg"] + args,
-            capture_output=True, text=True, timeout=10,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         if result.returncode != 0:
             log.warning("powercfg %s failed: %s", " ".join(args), result.stderr.strip())

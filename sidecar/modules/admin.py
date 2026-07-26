@@ -186,7 +186,9 @@ async def install_from_url(body: dict, request: Request):
     plugin_id = body.get("plugin_id", "")
     if not url:
         return JSONResponse({"error": "Missing 'url' in request body"}, status_code=400)
-    result = await get_gateway().execute("plugins.install_url", {"url": url, "plugin_id": plugin_id}, {"identity": identity})
+    result = await get_gateway().execute(
+        "plugins.install_url", {"url": url, "plugin_id": plugin_id}, {"identity": identity}
+    )
     if not result.success:
         return JSONResponse({"error": result.error}, status_code=400)
     return result.data
@@ -201,7 +203,9 @@ async def install_from_zip_upload(body: dict, request: Request):
     plugin_id = body.get("plugin_id", "")
     if not zip_b64:
         return JSONResponse({"error": "Missing 'zip_base64' in request body"}, status_code=400)
-    result = await get_gateway().execute("plugins.install_zip", {"zip_base64": zip_b64, "plugin_id": plugin_id}, {"identity": identity})
+    result = await get_gateway().execute(
+        "plugins.install_zip", {"zip_base64": zip_b64, "plugin_id": plugin_id}, {"identity": identity}
+    )
     if not result.success:
         return JSONResponse({"error": result.error}, status_code=400)
     return result.data
@@ -213,7 +217,11 @@ def export_plugin(plugin_id: str, request: Request):
     from modules.plugins import _svc
 
     zip_bytes = _svc.export_plugin(plugin_id)
-    return Response(content=zip_bytes, media_type="application/zip", headers={"Content-Disposition": f"attachment; filename={plugin_id}.zip"})
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename={plugin_id}.zip"},
+    )
 
 
 @router.get("/plugins/{plugin_id}/verify")

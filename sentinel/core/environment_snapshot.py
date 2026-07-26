@@ -64,10 +64,7 @@ def _capture_power_plan() -> Dict[str, Any]:
             return {
                 "active_guid": result.active_guid,
                 "active_name": result.active_name,
-                "plans": [
-                    {"guid": p.guid, "name": p.name, "active": p.active}
-                    for p in result.plans
-                ],
+                "plans": [{"guid": p.guid, "name": p.name, "active": p.active} for p in result.plans],
             }
     except Exception as e:
         log.warning("Failed to capture power plan: %s", e)
@@ -86,8 +83,13 @@ def _capture_gpu() -> List[Dict[str, Any]]:
 
 def _capture_env_vars() -> Dict[str, str]:
     keys = [
-        "PATH", "TEMP", "TMP", "USERNAME", "COMPUTERNAME",
-        "PROCESSOR_ARCHITECTURE", "NUMBER_OF_PROCESSORS",
+        "PATH",
+        "TEMP",
+        "TMP",
+        "USERNAME",
+        "COMPUTERNAME",
+        "PROCESSOR_ARCHITECTURE",
+        "NUMBER_OF_PROCESSORS",
         "SENTINEL_DATA_DIR",
     ]
     return {k: v for k, v in os.environ.items() if k in keys}
@@ -135,12 +137,14 @@ def list_snapshots() -> List[SnapshotMeta]:
                 with open(filepath, "r", encoding="utf-8") as f:
                     data = json.load(f)
                 m = data.get("meta", {})
-                metas.append(SnapshotMeta(
-                    id=m.get("id", fname.replace(".json", "")),
-                    name=m.get("name", "Unnamed"),
-                    created_at=m.get("created_at", ""),
-                    state_count=m.get("state_count", 0),
-                ))
+                metas.append(
+                    SnapshotMeta(
+                        id=m.get("id", fname.replace(".json", "")),
+                        name=m.get("name", "Unnamed"),
+                        created_at=m.get("created_at", ""),
+                        state_count=m.get("state_count", 0),
+                    )
+                )
             except (json.JSONDecodeError, OSError) as e:
                 log.warning("Corrupt snapshot %s: %s", fname, e)
                 continue

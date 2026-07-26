@@ -7,11 +7,23 @@ _presentation = PresentationLayer()
 
 def _get_orchestrator():
     from modules import get_sentinel_orchestrator
+
     return get_sentinel_orchestrator()
+
+
+def _file_pipeline():
+    from modules import get_gateway
+
+    _get_orchestrator()
+    pipeline = getattr(get_gateway(), "_file_pipeline", None)
+    if pipeline is None:
+        raise RuntimeError("File pipeline is not configured")
+    return pipeline
 
 
 def _validate_conversation_id(session_id: str) -> str:
     import re
+
     value = str(session_id).strip()
     if not re.match(r"^[A-Za-z0-9._-]{1,80}$", value):
         raise ValueError("Invalid conversation id")
@@ -71,8 +83,9 @@ class ProcessTool(Tool):
                     "possible_capabilities": plan.plan.goal.possible_capabilities,
                 }
             data = {
-                "presentation": result.presentation if result.presentation is not None
-                    else _presentation.present(result, presentation_mode),
+                "presentation": result.presentation
+                if result.presentation is not None
+                else _presentation.present(result, presentation_mode),
                 "simulated": result.simulated,
                 "approved": result.approved,
                 "blocked": result.blocked,
@@ -237,6 +250,7 @@ class CreateMemorySessionTool(Tool):
 
     async def execute(self, params: Dict[str, Any], context: Dict[str, Any]) -> ToolResult:
         import uuid
+
         session_id = uuid.uuid4().hex[:16]
         label = str(params.get("label", ""))[:100]
         return ToolResult.ok(data={"session_id": session_id, "label": label}, tool_id="memory.session.create")

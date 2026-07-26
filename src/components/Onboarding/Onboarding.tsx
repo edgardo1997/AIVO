@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../../api";
 import type { OnboardingStep } from "../../types";
 
@@ -11,10 +11,19 @@ interface Props {
 export function Onboarding({ onComplete, onSkip, onNavigate }: Props) {
   const [steps, setSteps] = useState<OnboardingStep[]>([]);
   const [current, setCurrent] = useState(0);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     api.help.onboardingSteps().then((r) => setSteps(r.steps)).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (steps.length === 0) return;
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onSkip(); };
+    window.addEventListener("keydown", handler);
+    dialogRef.current?.focus();
+    return () => window.removeEventListener("keydown", handler);
+  }, [steps.length, onSkip]);
 
   if (steps.length === 0) return null;
 
@@ -30,7 +39,7 @@ export function Onboarding({ onComplete, onSkip, onNavigate }: Props) {
   };
 
   return (
-    <div role="dialog" aria-modal="true" aria-labelledby="sentinel-onboarding-title" style={{
+    <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="sentinel-onboarding-title" style={{
       position: "fixed", inset: 0, zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center",
       background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)",
     }}>

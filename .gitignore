@@ -2,7 +2,6 @@
 __pycache__/
 *.py[cod]
 *.egg-info/
-dist/
 build/
 *.egg
 .venv/
@@ -19,7 +18,6 @@ htmlcov/
 
 # Node
 node_modules/
-dist/
 .vite/
 
 # Rust / Tauri
@@ -31,9 +29,6 @@ src-tauri/updater.key
 *.pfx
 *.p12
 *.dpapi
-
-# Build artifacts
-*.exe
 
 # IDE
 .vscode/
@@ -55,6 +50,7 @@ Thumbs.db
 .aivo_audit.jsonl
 
 # Build artifacts
+dist/
 *.exe
 *.msi
 *.dmg

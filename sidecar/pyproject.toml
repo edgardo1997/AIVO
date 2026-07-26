@@ -17,5 +17,7 @@ markers = [
     "security: Tests that validate security controls (auth, ACL, audit, injection prevention)",
     "adversarial: Tests that simulate active attacks (prompt injection, SSRF, path traversal)",
     "e2e: End-to-end tests that exercise full workflows",
+    "e2e_real: End-to-end tests against the compiled sidecar.exe binary",
     "performance: Benchmarks that intentionally repeat comparatively expensive operations",
+    "stability: Tests that validate resilience against crashes, corruption, and network failures",
 ]

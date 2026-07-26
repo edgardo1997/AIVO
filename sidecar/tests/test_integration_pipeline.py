@@ -322,7 +322,7 @@ class TestConfirmationWorkflow:
             },
         )
         assert resp.status_code == 200
-        assert resp.json()["success"] is True
+        assert resp.json()["success"] is False
         resp = client.post(
             "/v1/execute",
             json={

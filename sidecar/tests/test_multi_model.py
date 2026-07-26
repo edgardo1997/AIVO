@@ -155,11 +155,12 @@ class TestOrchestratorMultiModel:
         result = asyncio.run(orch.process("launch notepad", skip_simulation=True))
 
         plan_steps = result.plan.plan.steps
-        assert len(plan_steps) >= 2
-        assert plan_steps[0].tool_id == "system.processes"
-        assert plan_steps[1].tool_id == "executor.launch"
+        assert len(plan_steps) >= 3
+        assert plan_steps[0].tool_id == "app.discovery"
+        assert plan_steps[1].tool_id == "system.processes"
+        assert plan_steps[2].tool_id == "executor.launch"
         assert plan_steps[0].model_decision is not None
-        assert plan_steps[1].model_decision is not None
+        assert plan_steps[2].model_decision is not None
 
         router.select.assert_any_call(TaskType.QUICK, context=ANY)
         router.select.assert_any_call(TaskType.REASONING, context=ANY)

@@ -1,7 +1,5 @@
 """Privacy-safe learning from already collected environment capability profiles."""
 
-from __future__ import annotations
-
 import hashlib
 import json
 import threading
@@ -47,9 +45,7 @@ class ChangeDetector:
         if not data:
             return None
         canonical = json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-        confidences = [
-            float(app.get("confidence", 0.0)) for app in apps or [] if app.get("confidence") is not None
-        ]
+        confidences = [float(app.get("confidence", 0.0)) for app in apps or [] if app.get("confidence") is not None]
         if hardware is not None:
             confidences.append(float(hardware.get("confidence", 0.0) or 0.0))
         now = _utc_now()
@@ -62,9 +58,7 @@ class ChangeDetector:
             observed_at=now,
         )
 
-    def detect_changes(
-        self, previous: EnvironmentSnapshot, current: EnvironmentSnapshot
-    ) -> List[EnvironmentChange]:
+    def detect_changes(self, previous: EnvironmentSnapshot, current: EnvironmentSnapshot) -> List[EnvironmentChange]:
         if previous.user_id != current.user_id:
             raise ValueError("Environment snapshots must have the same owner")
         if previous.fingerprint == current.fingerprint:
@@ -83,9 +77,7 @@ class ChangeDetector:
             before = previous_apps[app_id]
             after = current_apps[app_id]
             if _app_capabilities(before) != _app_capabilities(after):
-                changes.append(
-                    self._change(current.user_id, "application_capabilities_changed", app_id, before, after)
-                )
+                changes.append(self._change(current.user_id, "application_capabilities_changed", app_id, before, after))
 
         before_hardware = previous.data.get("hardware")
         after_hardware = current.data.get("hardware")

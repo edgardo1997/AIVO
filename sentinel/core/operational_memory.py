@@ -8,8 +8,52 @@ import logging
 import threading
 
 
+_SECRET_KEYS = frozenset(
+    {
+        "password",
+        "passwd",
+        "secret",
+        "token",
+        "api_key",
+        "apikey",
+        "authorization",
+        "api-key",
+        "x-api-key",
+        "auth_token",
+        "access_key",
+        "secret_key",
+        "private_key",
+        "credentials",
+    }
+)
+
+
+def _redact_sensitive(obj: Any) -> Any:
+    """Recursively redact sensitive values by key name and value pattern."""
+    if isinstance(obj, dict):
+        result = {}
+        for k, v in obj.items():
+            normalized = str(k).lower().replace("-", "_")
+            if any(marker in normalized for marker in _SECRET_KEYS):
+                result[k] = "<REDACTED>"
+            else:
+                result[k] = _redact_sensitive(v)
+        return result
+    if isinstance(obj, (list, tuple)):
+        return [_redact_sensitive(i) for i in obj]
+    if isinstance(obj, str):
+        lowered = obj.lower().replace("_", "").replace("-", "")
+        for marker in _SECRET_KEYS:
+            marker_flat = marker.replace("_", "").replace("-", "")
+            if marker_flat in lowered:
+                return "<REDACTED>"
+        return obj
+    return obj
+
+
 def _sanitize(obj: Any) -> Any:
-    """Recursively convert non-serializable types to JSON-safe values."""
+    """Recursively convert non-serializable types to JSON-safe values, redacting secrets."""
+    obj = _redact_sensitive(obj)
     if isinstance(obj, Enum):
         return obj.value
     if isinstance(obj, dict):
@@ -187,9 +231,7 @@ class MemoryBackend(Protocol):
 
     def remember_execution(self, user_id: str, record: ExecutionRecord) -> Optional[EpisodicMemory]: ...
 
-    def get_episodes(
-        self, user_id: str, limit: int = 10, *, min_confidence: float = 0.0
-    ) -> List[EpisodicMemory]: ...
+    def get_episodes(self, user_id: str, limit: int = 10, *, min_confidence: float = 0.0) -> List[EpisodicMemory]: ...
 
     def get_patterns(self, user_id: str, min_evidence: Optional[int] = None) -> List[MemoryPattern]: ...
 
@@ -197,9 +239,7 @@ class MemoryBackend(Protocol):
         self, user_id: str, key: str, value: Any, *, source: str = "explicit"
     ) -> LearnedPreference: ...
 
-    def get_learned_preferences(
-        self, user_id: str, *, min_confidence: float = 0.0
-    ) -> Dict[str, LearnedPreference]: ...
+    def get_learned_preferences(self, user_id: str, *, min_confidence: float = 0.0) -> Dict[str, LearnedPreference]: ...
 
     def get_environment_snapshot(self, user_id: str) -> Optional[EnvironmentSnapshot]: ...
 
@@ -218,6 +258,8 @@ class MemoryBackend(Protocol):
     def get_pending_action(self, action_id: str) -> Optional[PendingActionRecord]: ...
 
     def remove_pending_action(self, action_id: str) -> Optional[PendingActionRecord]: ...
+
+    def consume_pending_action(self, action_id: str) -> Optional[PendingActionRecord]: ...
 
     def list_pending_actions(self) -> List[PendingActionRecord]: ...
 
@@ -359,9 +401,7 @@ class InMemoryBackend:
             self._rebuild_patterns(user_id)
             return len(ids)
 
-    def store_user_preference(
-        self, session_id: str, key: str, value: Any, *, user_id: Optional[str] = None
-    ) -> None:
+    def store_user_preference(self, session_id: str, key: str, value: Any, *, user_id: Optional[str] = None) -> None:
         if not hasattr(self, "_preferences"):
             self._preferences: Dict[str, Dict[str, Any]] = {}
         with self._lock:
@@ -384,9 +424,7 @@ class InMemoryBackend:
             self._observe_pattern(episode)
         return episode
 
-    def get_episodes(
-        self, user_id: str, limit: int = 10, *, min_confidence: float = 0.0
-    ) -> List[EpisodicMemory]:
+    def get_episodes(self, user_id: str, limit: int = 10, *, min_confidence: float = 0.0) -> List[EpisodicMemory]:
         now = datetime.now(timezone.utc)
         with self._lock:
             return [
@@ -423,9 +461,7 @@ class InMemoryBackend:
             self._learned_preferences[user_id][key] = pref
             return pref
 
-    def get_learned_preferences(
-        self, user_id: str, *, min_confidence: float = 0.0
-    ) -> Dict[str, LearnedPreference]:
+    def get_learned_preferences(self, user_id: str, *, min_confidence: float = 0.0) -> Dict[str, LearnedPreference]:
         with self._lock:
             return {
                 key: pref
@@ -511,6 +547,10 @@ class InMemoryBackend:
             return self._pending.get(action_id)
 
     def remove_pending_action(self, action_id: str) -> Optional[PendingActionRecord]:
+        with self._lock:
+            return self._pending.pop(action_id, None)
+
+    def consume_pending_action(self, action_id: str) -> Optional[PendingActionRecord]:
         with self._lock:
             return self._pending.pop(action_id, None)
 
@@ -608,12 +648,12 @@ class SQLiteBackend:
                 record.execution_id,
                 record.timestamp,
                 record.utterance,
-                json.dumps(record.intent),
-                json.dumps(record.plan),
-                json.dumps(record.decision) if record.decision else None,
-                json.dumps(record.context_summary),
-                json.dumps(record.step_results),
-                json.dumps(record.tool_result) if record.tool_result else None,
+                json.dumps(_sanitize(record.intent)),
+                json.dumps(_sanitize(record.plan)),
+                json.dumps(_sanitize(record.decision)) if record.decision else None,
+                json.dumps(_sanitize(record.context_summary)),
+                json.dumps(_sanitize(record.step_results)),
+                json.dumps(_sanitize(record.tool_result)) if record.tool_result else None,
                 record.error,
                 record.duration_ms,
             ),
@@ -639,7 +679,7 @@ class SQLiteBackend:
             if key not in allowed_columns:
                 raise ValueError(f"Invalid column name: {key}")
             sets.append(f"{key} = ?")
-            params.append(json.dumps(value) if isinstance(value, (dict, list)) else value)
+            params.append(json.dumps(_sanitize(value)) if isinstance(value, (dict, list)) else value)
         params.append(execution_id)
         sql = f"UPDATE execution_history SET {', '.join(sets)} WHERE execution_id = ?"  # nosec B608 - strict allowlist above
         self._db.execute(sql, tuple(params))
@@ -745,23 +785,20 @@ class SQLiteBackend:
         )
         if not remaining or remaining["count"] == 0:
             self._db.execute("DELETE FROM user_preferences WHERE session_id = ?", (session_id,))
-        self._db.execute(
-            "DELETE FROM session_preferences WHERE user_id = ? AND session_id = ?", (user_id, session_id)
-        )
+        self._db.execute("DELETE FROM session_preferences WHERE user_id = ? AND session_id = ?", (user_id, session_id))
         self._rebuild_patterns(user_id)
         self._db.commit()
         return len(execution_ids)
 
-    def store_user_preference(
-        self, session_id: str, key: str, value: Any, *, user_id: Optional[str] = None
-    ) -> None:
+    def store_user_preference(self, session_id: str, key: str, value: Any, *, user_id: Optional[str] = None) -> None:
+        safe = json.dumps(_sanitize(value))
         if user_id is not None:
             self._db.execute(
                 """INSERT INTO session_preferences (user_id, session_id, key, value)
                    VALUES (?, ?, ?, ?)
                    ON CONFLICT(user_id, session_id, key) DO UPDATE SET
                      value = excluded.value, updated_at = datetime('now')""",
-                (user_id, session_id, key, json.dumps(value)),
+                (user_id, session_id, key, safe),
             )
             self._db.commit()
             return
@@ -769,7 +806,7 @@ class SQLiteBackend:
             """INSERT INTO user_preferences (session_id, key, value)
                VALUES (?, ?, ?)
                ON CONFLICT(session_id, key) DO UPDATE SET value = excluded.value""",
-            (session_id, key, json.dumps(value)),
+            (session_id, key, safe),
         )
         self._db.commit()
 
@@ -807,8 +844,8 @@ class SQLiteBackend:
                     episode.tool_id,
                     episode.outcome,
                     episode.risk_score,
-                    json.dumps(episode.tags),
-                    json.dumps(episode.metadata),
+                    json.dumps(_sanitize(episode.tags)),
+                    json.dumps(_sanitize(episode.metadata)),
                     episode.expires_at,
                 ),
             )
@@ -844,9 +881,7 @@ class SQLiteBackend:
             ),
         )
 
-    def get_episodes(
-        self, user_id: str, limit: int = 10, *, min_confidence: float = 0.0
-    ) -> List[EpisodicMemory]:
+    def get_episodes(self, user_id: str, limit: int = 10, *, min_confidence: float = 0.0) -> List[EpisodicMemory]:
         rows = self._db.fetchall(
             """SELECT * FROM episodic_memory
                WHERE user_id = ? AND (expires_at IS NULL OR expires_at > ?)
@@ -882,14 +917,12 @@ class SQLiteBackend:
                ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value,
                  source = excluded.source, evidence_count = excluded.evidence_count,
                  confidence = excluded.confidence, updated_at = excluded.updated_at""",
-            (user_id, key, json.dumps(value), source, evidence, confidence, created_at, now),
+            (user_id, key, json.dumps(_sanitize(value)), source, evidence, confidence, created_at, now),
         )
         self._db.commit()
         return LearnedPreference(user_id, key, value, source, evidence, confidence, created_at, now)
 
-    def get_learned_preferences(
-        self, user_id: str, *, min_confidence: float = 0.0
-    ) -> Dict[str, LearnedPreference]:
+    def get_learned_preferences(self, user_id: str, *, min_confidence: float = 0.0) -> Dict[str, LearnedPreference]:
         rows = self._db.fetchall(
             "SELECT * FROM learned_preferences WHERE user_id = ? AND confidence >= ?",
             (user_id, min_confidence),
@@ -1026,8 +1059,9 @@ class SQLiteBackend:
     def store_pending_action(self, record: PendingActionRecord) -> None:
         self._db.execute(
             """INSERT OR REPLACE INTO pending_actions
-               (action_id, tool_id, params, reason, created_at, ttl_seconds, confirmed)
-               VALUES (?, ?, ?, ?, ?, ?, 0)""",
+               (action_id, tool_id, params, reason, created_at, ttl_seconds, confirmed,
+                risk_level, plan_id, params_hash, identity_hash, redacted)
+               VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)""",
             (
                 record.action_id,
                 record.tool_id,
@@ -1035,6 +1069,11 @@ class SQLiteBackend:
                 record.reason,
                 record.created_at,
                 record.ttl_seconds,
+                record.risk_level,
+                record.plan_id,
+                record.params_hash,
+                record.identity_hash,
+                1 if record.redacted else 0,
             ),
         )
         self._db.commit()
@@ -1044,11 +1083,15 @@ class SQLiteBackend:
         return self._row_to_pending(row) if row else None
 
     def remove_pending_action(self, action_id: str) -> Optional[PendingActionRecord]:
-        rec = self.get_pending_action(action_id)
-        if rec:
-            self._db.execute("DELETE FROM pending_actions WHERE action_id = ?", (action_id,))
-            self._db.commit()
-        return rec
+        return self.consume_pending_action(action_id)
+
+    def consume_pending_action(self, action_id: str) -> Optional[PendingActionRecord]:
+        with self._db.transaction(immediate=True) as conn:
+            row = conn.execute("SELECT * FROM pending_actions WHERE action_id = ?", (action_id,)).fetchone()
+            if not row:
+                return None
+            conn.execute("DELETE FROM pending_actions WHERE action_id = ?", (action_id,))
+        return self._row_to_pending(dict(row))
 
     def list_pending_actions(self) -> List[PendingActionRecord]:
         rows = self._db.fetchall("SELECT * FROM pending_actions ORDER BY created_at DESC")
@@ -1101,6 +1144,11 @@ class SQLiteBackend:
             reason=row.get("reason", ""),
             created_at=row.get("created_at", ""),
             ttl_seconds=row.get("ttl_seconds", 600),
+            risk_level=row.get("risk_level", "unknown"),
+            plan_id=row.get("plan_id", ""),
+            params_hash=row.get("params_hash", ""),
+            identity_hash=row.get("identity_hash", ""),
+            redacted=bool(row.get("redacted", 0)),
         )
 
     @staticmethod
@@ -1210,7 +1258,7 @@ def _episode_from_execution(user_id: str, record: ExecutionRecord, config: Opera
     expires_at = (
         (datetime.now(timezone.utc) + timedelta(days=config.episodic_retention_days)).isoformat().replace("+00:00", "Z")
     )
-    summary = f"{action or 'action'} → {target or tool_id or 'unknown'}: {outcome}"
+    summary = f"{action or 'action'} -> {target or tool_id or 'unknown'}: {outcome}"
     return EpisodicMemory(
         memory_id=hashlib.sha256(f"episode:{user_id}:{record.execution_id}".encode("utf-8")).hexdigest()[:24],
         user_id=user_id,

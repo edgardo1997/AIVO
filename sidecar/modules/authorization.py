@@ -3,17 +3,9 @@ import logging
 from fastapi import Depends, HTTPException, Request
 
 from .auth import IdentityContext
+from sentinel.core.security_levels import LEVEL_RANK
 
 logger = logging.getLogger("sentinel.authorization")
-
-LEVEL_RANK = {
-    "admin": 4,
-    "user": 3,
-    "auto": 2,
-    "confirm": 2,
-    "viewer": 1,
-    "view": 1,
-}
 
 
 def require_level(minimum: str):

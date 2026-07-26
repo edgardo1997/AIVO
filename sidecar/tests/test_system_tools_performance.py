@@ -15,9 +15,7 @@ def _cached_context() -> dict:
                 "frequency": {"current": 3000.0, "min": 1000.0, "max": 4000.0},
                 "load_avg": [0.1, 0.2, 0.3],
             },
-            "memory": {
-                "virtual": {"total": 100, "available": 60, "used": 40, "percent": 40.0}
-            },
+            "memory": {"virtual": {"total": 100, "available": 60, "used": 40, "percent": 40.0}},
             "disk": {"partitions": [{"total": 200, "free": 120, "percent": 40.0}]},
             "network": {"bytes_sent": 10, "bytes_recv": 20},
             "boot_time": 1.0,

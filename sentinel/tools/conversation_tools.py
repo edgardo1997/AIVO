@@ -12,6 +12,7 @@ _MAX_CONVERSATION_BYTES = 2 * 1024 * 1024
 
 def _db():
     from repositories.database import DatabaseManager
+
     return DatabaseManager()
 
 
@@ -40,8 +41,11 @@ class ConversationSaveTool(Tool):
     async def execute(self, params: Dict[str, Any], context: Dict[str, Any]) -> ToolResult:
         try:
             result = _db().upsert_conversation(
-                params["user_id"], params["session_id"], params["title"],
-                params["messages"], params["updated_at"],
+                params["user_id"],
+                params["session_id"],
+                params["title"],
+                params["messages"],
+                params["updated_at"],
             )
             return ToolResult.ok(data=result, tool_id="conversation.save")
         except Exception as e:
@@ -70,6 +74,8 @@ class ConversationDeleteTool(Tool):
     async def execute(self, params: Dict[str, Any], context: Dict[str, Any]) -> ToolResult:
         try:
             deleted = _db().delete_conversation(params["user_id"], params["session_id"])
-            return ToolResult.ok(data={"deleted": deleted, "session_id": params["session_id"]}, tool_id="conversation.delete")
+            return ToolResult.ok(
+                data={"deleted": deleted, "session_id": params["session_id"]}, tool_id="conversation.delete"
+            )
         except Exception as e:
             return ToolResult.fail(error=str(e), tool_id="conversation.delete")

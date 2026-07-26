@@ -20,13 +20,13 @@ _profile_to_gpu = {
 }
 
 PROFILE_MAP = {
-    "balanced":        "381b4222-f694-41f0-9685-ff5bb260df2f",
-    "balanceado":      "381b4222-f694-41f0-9685-ff5bb260df2f",
-    "performance":     "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c",
+    "balanced": "381b4222-f694-41f0-9685-ff5bb260df2f",
+    "balanceado": "381b4222-f694-41f0-9685-ff5bb260df2f",
+    "performance": "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c",
     "high_performance": "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c",
-    "power_saver":     "e9a42b02-d5df-448d-aa00-03f14749eb61",
-    "powersaver":      "e9a42b02-d5df-448d-aa00-03f14749eb61",
-    "ultimate":        "e9a42b02-d5df-448d-aa00-03f14749eb61",
+    "power_saver": "e9a42b02-d5df-448d-aa00-03f14749eb61",
+    "powersaver": "e9a42b02-d5df-448d-aa00-03f14749eb61",
+    "ultimate": "e9a42b02-d5df-448d-aa00-03f14749eb61",
 }
 
 
@@ -113,10 +113,12 @@ class PerformanceEngine:
     def _emit(self, event_type: str, session_id: str, request_id: str, details: Optional[Dict] = None):
         if self._event_bus is None:
             return
-        self._event_bus.emit(SentinelEvent.new(
-            event_type=event_type,
-            session_id=session_id or "system",
-            request_id=request_id or "",
-            component="performance_engine",
-            details=details,
-        ))
+        self._event_bus.emit(
+            SentinelEvent.new(
+                event_type=event_type,
+                session_id=session_id or "system",
+                request_id=request_id or "",
+                component="performance_engine",
+                details=details,
+            )
+        )

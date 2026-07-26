@@ -133,8 +133,18 @@ def get_memory():
 
 
 def _memory_record(record) -> Dict[str, Any]:
-    outcome = "failed" if record.error or (record.tool_result and record.tool_result.get("success") is False) else "succeeded"
-    confidence = 0.95 if record.tool_result and outcome == "succeeded" else 0.85 if record.tool_result else 0.75 if record.error else 0.65
+    outcome = (
+        "failed" if record.error or (record.tool_result and record.tool_result.get("success") is False) else "succeeded"
+    )
+    confidence = (
+        0.95
+        if record.tool_result and outcome == "succeeded"
+        else 0.85
+        if record.tool_result
+        else 0.75
+        if record.error
+        else 0.65
+    )
     return {
         "execution_id": record.execution_id,
         "timestamp": record.timestamp,
@@ -170,8 +180,17 @@ def _normalize_conversation_messages(value: Any) -> List[Dict[str, Any]]:
     if not isinstance(value, list) or len(value) > 200:
         raise HTTPException(status_code=422, detail="messages must be a list with at most 200 items")
     allowed = {
-        "id", "prompt", "response", "provider", "model", "pipeline",
-        "performance", "elapsed", "error", "errorCode", "retryable",
+        "id",
+        "prompt",
+        "response",
+        "provider",
+        "model",
+        "pipeline",
+        "performance",
+        "elapsed",
+        "error",
+        "errorCode",
+        "retryable",
     }
     messages: List[Dict[str, Any]] = []
     for raw in value:

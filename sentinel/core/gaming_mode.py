@@ -78,10 +78,12 @@ class GamingMode:
     def _emit(self, event_type: str, session_id: str, request_id: str, details: Optional[Dict] = None):
         if self._event_bus is None:
             return
-        self._event_bus.emit(SentinelEvent.new(
-            event_type=event_type,
-            session_id=session_id or "system",
-            request_id=request_id or "",
-            component="gaming_mode",
-            details=details,
-        ))
+        self._event_bus.emit(
+            SentinelEvent.new(
+                event_type=event_type,
+                session_id=session_id or "system",
+                request_id=request_id or "",
+                component="gaming_mode",
+                details=details,
+            )
+        )

@@ -3,8 +3,8 @@ from sentinel.core.tool import Tool, ToolResult, ToolSpec
 
 
 class PermissionConfirmTool(Tool):
-    def __init__(self, service):
-        self._svc = service
+    def __init__(self, gateway=None):
+        self._gateway = gateway
 
     def spec(self) -> ToolSpec:
         return ToolSpec(
@@ -26,9 +26,16 @@ class PermissionConfirmTool(Tool):
         )
 
     async def execute(self, params: Dict[str, Any], context: Dict[str, Any]) -> ToolResult:
+        gateway = self._gateway
+        if gateway is None:
+            from modules import get_gateway
+
+            gateway = get_gateway()
         try:
-            result = self._svc.confirm_action(params["action_id"], params["approved"])
-            return ToolResult.ok(data=result, tool_id="permissions.confirm")
+            result = await gateway.confirm(params["action_id"], params["approved"], context.get("identity", {}))
+            if result.success:
+                return ToolResult.ok(data={"confirmed": True, "result": result.data}, tool_id="permissions.confirm")
+            return ToolResult.fail(error=result.error or "Confirmation failed", tool_id="permissions.confirm")
         except Exception as e:
             return ToolResult.fail(error=str(e), tool_id="permissions.confirm")
 
@@ -186,6 +193,8 @@ class PermissionRemoveRuleTool(Tool):
             ok = self._svc.remove_rule(params["rule_id"])
             if not ok:
                 return ToolResult.fail(error="Rule not found", tool_id="permissions.remove_rule")
-            return ToolResult.ok(data={"deleted": True, "rule_id": params["rule_id"]}, tool_id="permissions.remove_rule")
+            return ToolResult.ok(
+                data={"deleted": True, "rule_id": params["rule_id"]}, tool_id="permissions.remove_rule"
+            )
         except Exception as e:
             return ToolResult.fail(error=str(e), tool_id="permissions.remove_rule")

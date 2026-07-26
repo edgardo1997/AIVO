@@ -76,6 +76,9 @@ export function SimulationConfirmDialog({
 
   return (
     <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Confirmación de ejecución"
       style={{
         position: "fixed", inset: 0, zIndex: 9999,
         display: "flex", alignItems: "center", justifyContent: "center",

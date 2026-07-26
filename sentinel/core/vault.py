@@ -19,6 +19,7 @@ def _synchronized(method):
 
     return guarded
 
+
 try:
     from cryptography.fernet import Fernet
 

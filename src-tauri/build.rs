@@ -21,6 +21,20 @@ fn main() {
     }
 
     let sidecar_exe = sidecar_dir.join("dist").join("sidecar.exe");
+
+    // Allow the CI signing job to skip the sidecar rebuild when artifacts
+    // were already compiled by the unprivileged build job.
+    if std::env::var("SKIP_SIDECAR_BUILD").is_ok() {
+        if !sidecar_exe.is_file() {
+            panic!(
+                "SKIP_SIDECAR_BUILD is set but no sidecar executable exists at {}",
+                sidecar_exe.display()
+            );
+        }
+        tauri_build::build();
+        return;
+    }
+
     if sidecar_is_stale(&sidecar_dir, &sidecar_exe) {
         build_sidecar(&sidecar_dir);
     }

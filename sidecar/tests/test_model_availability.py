@@ -81,24 +81,28 @@ def test_provider_key_is_kept_out_of_plaintext_configuration(tmp_path):
     vault = FakeVault()
     service.set_vault(vault)
 
-    service.set_config({
-        "provider": "nvidia",
-        "api_key": "nvapi-test-secret",
-        "base_url": "https://integrate.api.nvidia.com/v1",
-        "model": "nvidia/nemotron-3-super-120b-a12b",
-        "strategy": "manual",
-    })
+    service.set_config(
+        {
+            "provider": "nvidia",
+            "api_key": "nvapi-test-secret",
+            "base_url": "https://integrate.api.nvidia.com/v1",
+            "model": "nvidia/nemotron-3-super-120b-a12b",
+            "strategy": "manual",
+        }
+    )
 
     assert "nvapi-test-secret" not in config_path.read_text()
     assert vault.values["ai-provider-nvidia"] == "nvapi-test-secret"
     assert service.get_config()["api_key"] == ""
     assert service.get_config()["api_key_configured"] is True
 
-    service.set_config({
-        "provider": "nvidia",
-        "api_key": "set",
-        "model": "nvidia/nemotron-3-super-120b-a12b",
-    })
+    service.set_config(
+        {
+            "provider": "nvidia",
+            "api_key": "set",
+            "model": "nvidia/nemotron-3-super-120b-a12b",
+        }
+    )
     assert vault.values["ai-provider-nvidia"] == "nvapi-test-secret"
 
     restarted = AIService(repo=AIRepository(filepath=str(config_path)), router=ModelRouter())

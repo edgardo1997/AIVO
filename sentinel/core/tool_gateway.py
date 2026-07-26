@@ -1,4 +1,5 @@
 import asyncio
+import json
 from dataclasses import asdict
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 import time
@@ -85,7 +86,15 @@ class ToolGateway:
         if self._policy_engine:
             self._policy_engine.set_event_bus(event_bus)
 
-    async def _emit(self, event_type: str, *, tool_id: str = "", status: str = "", details: Optional[Dict[str, Any]] = None, context: Optional[Dict[str, Any]] = None) -> None:
+    async def _emit(
+        self,
+        event_type: str,
+        *,
+        tool_id: str = "",
+        status: str = "",
+        details: Optional[Dict[str, Any]] = None,
+        context: Optional[Dict[str, Any]] = None,
+    ) -> None:
         if self._event_bus is None:
             return
         ctx = context or {}
@@ -176,14 +185,20 @@ class ToolGateway:
             ctx["identity"] = identity
         if not isinstance(identity, dict) or not identity.get("is_authenticated") or not identity.get("user_id"):
             result = ToolResult.fail(
-                error="Identity required: authenticated user_id is missing",
+                error=json.dumps(
+                    {
+                        "error_type": "AUTHENTICATION_REQUIRED",
+                        "message": "This operation requires an authenticated user identity",
+                        "required": ["user_id", "session_id"],
+                    }
+                ),
                 tool_id=tool_id,
             )
             result.policy_decision = "identity"
             result.policy_result = {
                 "effect": "deny",
                 "policy_id": "identity",
-                "reason": result.error,
+                "reason": "Authenticated user identity is required",
             }
             return result
 
@@ -256,8 +271,12 @@ class ToolGateway:
                     risk_level = policy_result.context.get("level", "unknown") if policy_result.context else "unknown"
                     plan_id = ctx.get("plan_id", "")
                     action_id = self._confirmation_broker.request(
-                        tool_id, params, ctx, policy_result.reason,
-                        risk_level=risk_level, plan_id=plan_id,
+                        tool_id,
+                        params,
+                        ctx,
+                        policy_result.reason,
+                        risk_level=risk_level,
+                        plan_id=plan_id,
                     )
                 if self._audit_service:
                     self._audit_service.log_action(
@@ -308,12 +327,16 @@ class ToolGateway:
             try:
                 grounding_requirements = ctx.get("grounding_requirements", [])
                 if grounding_requirements:
-                    logger.info("Enforcing %d grounding requirement(s) for tool %s", len(grounding_requirements), tool_id)
+                    logger.info(
+                        "Enforcing %d grounding requirement(s) for tool %s", len(grounding_requirements), tool_id
+                    )
                     for req in grounding_requirements:
                         if getattr(req, "required", False):
                             result_gr = await self._grounding_engine.enforce_grounding(req, ctx)
                             if not result_gr.grounded:
-                                logger.warning("Required grounding failed for %s: %s", req.category.value, result_gr.error)
+                                logger.warning(
+                                    "Required grounding failed for %s: %s", req.category.value, result_gr.error
+                                )
                                 return ToolResult.fail(
                                     error=f"Required grounding for {req.category.value} not satisfied: {result_gr.error}",
                                     tool_id=tool_id,
@@ -388,7 +411,13 @@ class ToolGateway:
                 blocked.quality_result = quality_data
                 if span_id:
                     self._observability.finish(span_id, False, "quality", quality_data, blocked.policy_decision)
-                await self._emit(event_types.TOOL_FINISHED, tool_id=tool_id, status="blocked", context=ctx, details={"elapsed_ms": elapsed})
+                await self._emit(
+                    event_types.TOOL_FINISHED,
+                    tool_id=tool_id,
+                    status="blocked",
+                    context=ctx,
+                    details={"elapsed_ms": elapsed},
+                )
                 return blocked
             if quality.redacted:
                 logger.info("QualityGate redacted output for %s", tool_id)
@@ -399,7 +428,13 @@ class ToolGateway:
                 if not result.success and self._hardening is not None:
                     category = ErrorClassifier.classify(result.error or "", tool_id).value
                 self._observability.finish(span_id, result.success, category, quality_data, result.policy_decision)
-            await self._emit(event_types.TOOL_FINISHED, tool_id=tool_id, status="completed" if result.success else "failed", context=ctx, details={"elapsed_ms": elapsed})
+            await self._emit(
+                event_types.TOOL_FINISHED,
+                tool_id=tool_id,
+                status="completed" if result.success else "failed",
+                context=ctx,
+                details={"elapsed_ms": elapsed},
+            )
             return result
         except asyncio.TimeoutError:
             elapsed = (time.monotonic() - start) * 1000
@@ -410,7 +445,13 @@ class ToolGateway:
                 self._hardening.record_timeout()
             if span_id:
                 self._observability.finish(span_id, False, "transient")
-            await self._emit(event_types.TOOL_FINISHED, tool_id=tool_id, status="timeout", context=ctx, details={"elapsed_ms": elapsed})
+            await self._emit(
+                event_types.TOOL_FINISHED,
+                tool_id=tool_id,
+                status="timeout",
+                context=ctx,
+                details={"elapsed_ms": elapsed},
+            )
             return ToolResult.fail(
                 error=f"Tool '{tool_id}' timed out after {elapsed:.0f}ms",
                 tool_id=tool_id,
@@ -425,7 +466,13 @@ class ToolGateway:
                     self._hardening.circuit_breaker.record_failure(tool_id)
             if span_id:
                 self._observability.finish(span_id, False, category.value if self._hardening is not None else "fatal")
-            await self._emit(event_types.TOOL_FINISHED, tool_id=tool_id, status="error", context=ctx, details={"elapsed_ms": elapsed, "error": str(e)})
+            await self._emit(
+                event_types.TOOL_FINISHED,
+                tool_id=tool_id,
+                status="error",
+                context=ctx,
+                details={"elapsed_ms": elapsed, "error": str(e)},
+            )
             return ToolResult.fail(
                 error=f"Execution error: {e}",
                 tool_id=tool_id,

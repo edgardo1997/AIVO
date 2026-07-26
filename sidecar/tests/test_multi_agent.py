@@ -255,7 +255,7 @@ class TestOrchestratorIntegration:
         orch = Orchestrator(intent_engine=IntentEngine(), tool_gateway=gw, multi_agent_orchestrator=None)
         result = await orch.process_multi_agent("test")
         assert not result.tool_result or not result.tool_result.success
-        assert "not configured" in (result.error or "")
+        assert "no está configurada" in (result.error or "").lower()
 
     @pytest.mark.asyncio
     async def test_process_multi_agent_with_orchestrator(self):

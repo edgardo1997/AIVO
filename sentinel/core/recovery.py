@@ -214,7 +214,9 @@ class RollbackManager:
             if isinstance(result.data, dict):
                 for k, v in result.data.items():
                     params.setdefault(k, v)
-            logger.info("Rolling back %s via %s with params=%s", step.id, step.rollback_tool_id, params)
+            logger.info(
+                "Rolling back %s via %s with param_keys=%s", step.id, step.rollback_tool_id, list(params.keys())
+            )
             try:
                 fb = await execute_tool(step.rollback_tool_id, params)
                 actions.append(

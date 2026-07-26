@@ -39,6 +39,49 @@ class SystemInfoTool(Tool):
             category="system",
         )
 
+    def _collect_gpu_info(self) -> list:
+        gpus = []
+        try:
+            out = subprocess.check_output(
+                ["nvidia-smi", "--query-gpu=index,name,memory.total,memory.free", "--format=csv,noheader,nounits"],
+                timeout=5,
+                text=True,
+                stderr=subprocess.DEVNULL,
+            )
+            for line in out.strip().splitlines():
+                parts = [p.strip() for p in line.split(",")]
+                if len(parts) >= 4:
+                    gpus.append(
+                        {
+                            "name": parts[1],
+                            "vram_total_mb": float(parts[2]),
+                            "vram_free_mb": float(parts[3]),
+                        }
+                    )
+        except (FileNotFoundError, subprocess.TimeoutExpired, subprocess.CalledProcessError, ValueError):
+            pass
+        if not gpus:
+            try:
+                out = subprocess.check_output(
+                    ["wmic", "path", "win32_VideoController", "get", "name,adapterram", "/format:csv"],
+                    timeout=5,
+                    text=True,
+                    stderr=subprocess.DEVNULL,
+                )
+                for line in out.strip().splitlines()[1:]:
+                    parts = [p.strip() for p in line.split(",")]
+                    if len(parts) >= 2 and parts[1]:
+                        ram_bytes = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
+                        gpus.append(
+                            {
+                                "name": parts[1],
+                                "vram_total_mb": ram_bytes // (1024 * 1024) if ram_bytes else 0,
+                            }
+                        )
+            except (FileNotFoundError, subprocess.TimeoutExpired, subprocess.CalledProcessError, ValueError):
+                pass
+        return gpus
+
     async def execute(self, params: Dict[str, Any], context: Dict[str, Any]) -> ToolResult:
         system = context.get("system") if isinstance(context, dict) else None
         if isinstance(system, dict) and system.get("cpu") and system.get("memory"):
@@ -48,30 +91,22 @@ class SystemInfoTool(Tool):
             disk = partitions[0] if partitions else {}
             network = system.get("network", {})
             boot = system.get("boot_time")
-            return ToolResult.ok(
-                data={
-                    "cpu": {
-                        "percent": cpu.get("percent"),
-                        "cores": cpu.get("cores_logical"),
-                    },
-                    "memory": {
-                        "total": memory.get("total"),
-                        "available": memory.get("available"),
-                        "percent": memory.get("percent"),
-                        "used": memory.get("used"),
-                    },
-                    "disk": {
-                        "total": disk.get("total"),
-                        "free": disk.get("free"),
-                        "percent": disk.get("percent"),
-                    },
-                    "network": {
-                        "bytes_sent": network.get("bytes_sent"),
-                        "bytes_recv": network.get("bytes_recv"),
-                    },
-                    "uptime_seconds": int(psutil.time.time() - boot) if boot else None,
-                }
-            )
+            gpu_list = system.get("gpu", [])
+            data = {
+                "cpu": {"percent": cpu.get("percent"), "cores": cpu.get("cores_logical")},
+                "memory": {
+                    "total": memory.get("total"),
+                    "available": memory.get("available"),
+                    "percent": memory.get("percent"),
+                    "used": memory.get("used"),
+                },
+                "disk": {"total": disk.get("total"), "free": disk.get("free"), "percent": disk.get("percent")},
+                "network": {"bytes_sent": network.get("bytes_sent"), "bytes_recv": network.get("bytes_recv")},
+                "uptime_seconds": int(psutil.time.time() - boot) if boot else None,
+            }
+            if gpu_list:
+                data["gpu"] = gpu_list
+            return ToolResult.ok(data=data)
 
         cpu_percent = await asyncio.to_thread(psutil.cpu_percent, 0.1)
         cpu_count = psutil.cpu_count()
@@ -79,6 +114,7 @@ class SystemInfoTool(Tool):
         disk = psutil.disk_usage("/")
         net = psutil.net_io_counters()
         boot = psutil.boot_time()
+        gpu_list = await asyncio.to_thread(self._collect_gpu_info)
 
         data = {
             "cpu": {"percent": cpu_percent, "cores": cpu_count},
@@ -88,17 +124,12 @@ class SystemInfoTool(Tool):
                 "percent": mem.percent,
                 "used": mem.used,
             },
-            "disk": {
-                "total": disk.total,
-                "free": disk.free,
-                "percent": disk.percent,
-            },
-            "network": {
-                "bytes_sent": net.bytes_sent,
-                "bytes_recv": net.bytes_recv,
-            },
+            "disk": {"total": disk.total, "free": disk.free, "percent": disk.percent},
+            "network": {"bytes_sent": net.bytes_sent, "bytes_recv": net.bytes_recv},
             "uptime_seconds": int(psutil.time.time() - boot),
         }
+        if gpu_list:
+            data["gpu"] = gpu_list
         return ToolResult.ok(data=data)
 
 
@@ -401,10 +432,13 @@ class SystemOptimizeTool(Tool):
                 tool_id="system.optimize",
             )
 
-        return ToolResult.ok(data={
-            "mode": result.mode,
-            "context": result.context,
-            "actions": result.actions,
-            "snapshot_id": result.snapshot_id,
-            "dry_run": dry_run,
-        }, tool_id="system.optimize")
+        return ToolResult.ok(
+            data={
+                "mode": result.mode,
+                "context": result.context,
+                "actions": result.actions,
+                "snapshot_id": result.snapshot_id,
+                "dry_run": dry_run,
+            },
+            tool_id="system.optimize",
+        )

@@ -30,7 +30,7 @@ class TestSimulationBlocking:
         assert data["blocked"] is True, f"Expected blocked=True, got {data.get('blocked')}"
         assert data["action_id"] is not None, "Expected action_id for blocked execution"
         assert data["error"] is not None, "Expected error message explaining block"
-        assert "blocked" in data["error"].lower()
+        assert "autorización" in data["error"].lower()
         assert data["simulation_summary"] != ""
 
     def test_blocking_pending_action_stored(self):
@@ -90,7 +90,7 @@ class TestSimulationBlocking:
         rejected = asyncio.run(orch.approve_execution(action_id, approved=False))
         assert rejected.blocked is False
         assert rejected.error is not None
-        assert "rejected" in rejected.error.lower()
+        assert "rechazada" in rejected.error.lower()
 
     def test_approve_unknown_action_returns_error(self):
         orch = get_orchestrator()

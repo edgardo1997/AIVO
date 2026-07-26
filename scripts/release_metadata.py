@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """Generate and verify Sentinel release integrity metadata."""
 
-from __future__ import annotations
-
 import argparse
 import hashlib
 import json
@@ -103,7 +101,7 @@ def generate(root: Path, artifact_root: Path, metadata_dir: Path) -> Path:
         "$schema": SCHEMA,
         "product": "Sentinel",
         "version": package["version"],
-        "source": {"repository": os.environ.get("GITHUB_REPOSITORY", "edgardo1997/AIVO"), "commit": git_commit(root)},
+        "source": {"repository": os.environ.get("GITHUB_REPOSITORY", "sentinel/sentinel"), "commit": git_commit(root)},
         "generatedAt": generated_at(),
         "artifacts": records,
     }

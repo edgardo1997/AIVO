@@ -61,7 +61,7 @@ class SkillEngine:
         params: Dict[str, Any],
         context: Optional[Dict[str, Any]] = None,
     ) -> SkillResult:
-        start = time.time()
+        start = time.monotonic()
         context = context or {}
 
         skill = self._registry.get(skill_id)
@@ -131,7 +131,7 @@ class SkillEngine:
                 overall_success = False
                 break
 
-        duration = (time.time() - start) * 1000
+        duration = (time.monotonic() - start) * 1000
 
         return SkillResult(
             skill_id=skill_id,

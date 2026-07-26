@@ -16,6 +16,8 @@ class ConfigModel(BaseModel):
     model: Optional[str] = None
     strategy: Optional[str] = None
     delete_key: Optional[bool] = None
+    task_type_map: Optional[dict] = None
+    offline_mode: Optional[str] = None
 
 
 class ValidateModelRequest(BaseModel):

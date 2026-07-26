@@ -348,7 +348,16 @@ class IntentEngine:
     def set_grounding_engine(self, engine) -> None:
         self._grounding_engine = engine
 
-    def _emit(self, event_type: str, *, session_id: str = "", request_id: str = "", status: str = "", message: Optional[str] = None, details: Optional[Dict[str, Any]] = None) -> None:
+    def _emit(
+        self,
+        event_type: str,
+        *,
+        session_id: str = "",
+        request_id: str = "",
+        status: str = "",
+        message: Optional[str] = None,
+        details: Optional[Dict[str, Any]] = None,
+    ) -> None:
         if self._event_bus is None:
             return
         event = SentinelEvent.new(
@@ -388,18 +397,44 @@ class IntentEngine:
                 confidence=INTENT_FALLBACK.confidence,
                 raw_input=utterance,
             )
-            self._emit(event_types.INTENT_DETECTED, session_id=sid, request_id=rid, status="completed", details={"action": result.action, "target": result.target, "confidence": result.confidence})
+            self._emit(
+                event_types.INTENT_DETECTED,
+                session_id=sid,
+                request_id=rid,
+                status="completed",
+                details={"action": result.action, "target": result.target, "confidence": result.confidence},
+            )
             return result
         regex_intent = self._parse_with_regex(utterance)
         if regex_intent.confidence >= 0.6 or not self._model_router:
-            self._emit(event_types.INTENT_DETECTED, session_id=sid, request_id=rid, status="completed", details={"action": regex_intent.action, "target": regex_intent.target, "confidence": regex_intent.confidence})
+            self._emit(
+                event_types.INTENT_DETECTED,
+                session_id=sid,
+                request_id=rid,
+                status="completed",
+                details={
+                    "action": regex_intent.action,
+                    "target": regex_intent.target,
+                    "confidence": regex_intent.confidence,
+                },
+            )
             return regex_intent
         if not context and not re.search(
             r"\b(abre|abrir|inicia|iniciar|lanza|lanzar|ejecuta|ejecutar|busca|buscar|mata|matar|open|start|launch|run|find|kill)\b",
             utterance,
             re.IGNORECASE,
         ):
-            self._emit(event_types.INTENT_DETECTED, session_id=sid, request_id=rid, status="completed", details={"action": regex_intent.action, "target": regex_intent.target, "confidence": regex_intent.confidence})
+            self._emit(
+                event_types.INTENT_DETECTED,
+                session_id=sid,
+                request_id=rid,
+                status="completed",
+                details={
+                    "action": regex_intent.action,
+                    "target": regex_intent.target,
+                    "confidence": regex_intent.confidence,
+                },
+            )
             return regex_intent
         llm_intent = self._parse_with_llm(utterance, context)
         if llm_intent and llm_intent.confidence > regex_intent.confidence:
@@ -409,9 +444,25 @@ class IntentEngine:
                 regex_intent.confidence,
                 utterance,
             )
-            self._emit(event_types.INTENT_DETECTED, session_id=sid, request_id=rid, status="completed", details={"action": llm_intent.action, "target": llm_intent.target, "confidence": llm_intent.confidence})
+            self._emit(
+                event_types.INTENT_DETECTED,
+                session_id=sid,
+                request_id=rid,
+                status="completed",
+                details={"action": llm_intent.action, "target": llm_intent.target, "confidence": llm_intent.confidence},
+            )
             return llm_intent
-        self._emit(event_types.INTENT_DETECTED, session_id=sid, request_id=rid, status="completed", details={"action": regex_intent.action, "target": regex_intent.target, "confidence": regex_intent.confidence})
+        self._emit(
+            event_types.INTENT_DETECTED,
+            session_id=sid,
+            request_id=rid,
+            status="completed",
+            details={
+                "action": regex_intent.action,
+                "target": regex_intent.target,
+                "confidence": regex_intent.confidence,
+            },
+        )
         return regex_intent
 
     def _parse_with_regex(self, utterance: str) -> Intent:

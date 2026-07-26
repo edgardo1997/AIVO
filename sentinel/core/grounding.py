@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 class GroundingCategory(Enum):
     """Categorías de información que requieren grounding"""
+
     SYSTEM_STATE = "system_state"  # CPU, RAM, disco, procesos
     FILE_INFO = "file_info"  # Información de archivos
     PROCESS_INFO = "process_info"  # Información de procesos
@@ -30,6 +31,7 @@ class GroundingCategory(Enum):
 @dataclass
 class GroundingRequirement:
     """Define qué información requiere grounding"""
+
     category: GroundingCategory
     required: bool
     freshness_seconds: float  # TTL para datos en segundos
@@ -42,6 +44,7 @@ class GroundingRequirement:
 @dataclass
 class GroundingResult:
     """Resultado de una operación de grounding"""
+
     grounded: bool
     data: Optional[Dict[str, Any]] = None
     source: str = ""  # 'tool', 'cache', 'context_engine'
@@ -115,9 +118,9 @@ class GroundingEngine:
         requirements = []
 
         # Obtener texto del intent
-        text = intent.raw_input.lower() if hasattr(intent, 'raw_input') else ""
-        action = intent.action if hasattr(intent, 'action') else ""
-        target = intent.target if hasattr(intent, 'target') else ""
+        text = intent.raw_input.lower() if hasattr(intent, "raw_input") else ""
+        action = intent.action if hasattr(intent, "action") else ""
+        target = intent.target if hasattr(intent, "target") else ""
 
         # Detectar categoría de grounding basado en el target
         category = self._detect_category(action, target, text)
@@ -127,7 +130,9 @@ class GroundingEngine:
             freshness = self._get_freshness_for_category(category)
 
             # Determinar herramienta específica si es posible
-            tool_id, tool_params = self._get_tool_for_category(category, target, intent.parameters if hasattr(intent, 'parameters') else {})
+            tool_id, tool_params = self._get_tool_for_category(
+                category, target, intent.parameters if hasattr(intent, "parameters") else {}
+            )
 
             requirement = GroundingRequirement(
                 category=category,
@@ -137,7 +142,7 @@ class GroundingEngine:
                 source_preference=["tool", "cache"],
                 tool_id=tool_id,
                 tool_params=tool_params,
-                reason=self._get_reason_for_category(category, target)
+                reason=self._get_reason_for_category(category, target),
             )
             requirements.append(requirement)
 
@@ -194,7 +199,9 @@ class GroundingEngine:
         }
         return freshness_map.get(category, 30.0)
 
-    def _get_tool_for_category(self, category: GroundingCategory, target: str, parameters: Dict[str, Any]) -> tuple[Optional[str], Optional[Dict[str, Any]]]:
+    def _get_tool_for_category(
+        self, category: GroundingCategory, target: str, parameters: Dict[str, Any]
+    ) -> tuple[Optional[str], Optional[Dict[str, Any]]]:
         """Determina la herramienta específica para una categoría"""
         # Mapeo de targets a herramientas
         target_to_tool = {
@@ -243,9 +250,7 @@ class GroundingEngine:
         return reason_map.get(category, "Información verificable requiere grounding")
 
     async def enforce_grounding(
-        self,
-        requirement: GroundingRequirement,
-        context: Optional[Dict[str, Any]] = None
+        self, requirement: GroundingRequirement, context: Optional[Dict[str, Any]] = None
     ) -> GroundingResult:
         """Fuerza la obtención de datos desde fuente real
 
@@ -269,18 +274,14 @@ class GroundingEngine:
                     data=cached_data,
                     source="cache",
                     timestamp=datetime.fromtimestamp(cached_timestamp, timezone.utc).isoformat(),
-                    confidence=0.9
+                    confidence=0.9,
                 )
 
         # No hay caché o está obsoleto, obtener desde herramienta
         if requirement.tool_id and self._tool_gateway:
             try:
                 tool_params = requirement.tool_params or {}
-                tool_result = await self._tool_gateway.execute(
-                    requirement.tool_id,
-                    tool_params,
-                    context=context or {}
-                )
+                tool_result = await self._tool_gateway.execute(requirement.tool_id, tool_params, context=context or {})
 
                 if tool_result.success and tool_result.data:
                     # Cachear resultado
@@ -291,21 +292,15 @@ class GroundingEngine:
                         data=tool_result.data,
                         source="tool",
                         timestamp=datetime.now(timezone.utc).isoformat(),
-                        confidence=1.0
+                        confidence=1.0,
                     )
                 else:
                     return GroundingResult(
-                        grounded=False,
-                        error=tool_result.error or "Tool execution failed",
-                        confidence=0.0
+                        grounded=False, error=tool_result.error or "Tool execution failed", confidence=0.0
                     )
             except Exception as e:
                 logger.error(f"Tool execution failed for grounding: {e}")
-                return GroundingResult(
-                    grounded=False,
-                    error=str(e),
-                    confidence=0.0
-                )
+                return GroundingResult(grounded=False, error=str(e), confidence=0.0)
 
         # Fallback a ContextEngine si está disponible
         if self._context_engine and requirement.category == GroundingCategory.SYSTEM_STATE:
@@ -321,17 +316,13 @@ class GroundingEngine:
                     data=data,
                     source="context_engine",
                     timestamp=datetime.now(timezone.utc).isoformat(),
-                    confidence=0.95
+                    confidence=0.95,
                 )
             except Exception as e:
                 logger.error(f"Context engine failed for grounding: {e}")
 
         # No se pudo obtener grounding
-        return GroundingResult(
-            grounded=False,
-            error="No source available for grounding",
-            confidence=0.0
-        )
+        return GroundingResult(grounded=False, error="No source available for grounding", confidence=0.0)
 
     def validate_freshness(self, data: Dict[str, Any], requirement: GroundingRequirement) -> bool:
         """Valida que los datos sean suficientemente frescos
@@ -348,7 +339,7 @@ class GroundingEngine:
             return False
 
         try:
-            timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+            timestamp = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
             if timestamp.tzinfo is None:
                 timestamp = timestamp.replace(tzinfo=timezone.utc)
 

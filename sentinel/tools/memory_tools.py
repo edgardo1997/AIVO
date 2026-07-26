@@ -8,9 +8,11 @@ logger = logging.getLogger(__name__)
 
 def _get_memory():
     from modules import get_sentinel_memory
+
     memory = get_sentinel_memory()
     if memory is None:
         from modules import get_sentinel_orchestrator
+
         orch = get_sentinel_orchestrator()
         memory = getattr(orch, "_memory", None)
     return memory
@@ -19,9 +21,10 @@ def _get_memory():
 def _audit(action, detail, status, user=""):
     try:
         from modules.audit import _svc as audit_service
+
         audit_service.log_action(action, detail, status, user=user)
     except Exception:
-        pass
+        logger.debug("Memory audit logging failed", exc_info=True)
 
 
 class MemorySessionDeleteTool(Tool):
@@ -51,7 +54,10 @@ class MemorySessionDeleteTool(Tool):
         if not deleted:
             return ToolResult.fail(error="Session not found", tool_id="memory.session.delete")
         _audit("memory_session_delete", params["session_id"], "success", user=params["user_id"])
-        return ToolResult.ok(data={"deleted": True, "session_id": params["session_id"], "records_deleted": deleted}, tool_id="memory.session.delete")
+        return ToolResult.ok(
+            data={"deleted": True, "session_id": params["session_id"], "records_deleted": deleted},
+            tool_id="memory.session.delete",
+        )
 
 
 class EnvironmentMemoryDeleteTool(Tool):

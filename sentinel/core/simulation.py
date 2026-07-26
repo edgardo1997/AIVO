@@ -189,6 +189,24 @@ class SimulationEngine:
             app = params.get("app", params.get("name", ""))
             if app:
                 processes_affected.append(app)
+                # Adjust impact level based on app reputation
+                known_apps = context.get("known_apps", [])
+                if known_apps and any(a.lower() == app.lower() for a in known_apps):
+                    impact_level = "low"
+                else:
+                    deep_ctx = context.get("deep_context", {})
+                    if isinstance(deep_ctx, dict):
+                        installed = deep_ctx.get("installed_apps", [])
+                        app_normalized = app.lower().removesuffix(".exe")
+                        for profile in installed if isinstance(installed, list) else []:
+                            profile_name = str(profile.get("name", "")).lower().removesuffix(".exe")
+                            profile_conf = float(profile.get("confidence", 0) or 0)
+                            if profile_name == app_normalized and profile_conf >= 0.7:
+                                impact_level = "low"
+                                break
+                            if profile_name == app_normalized:
+                                impact_level = "medium"
+                                break
 
         elif tool_id == "ai.config":
             provider = params.get("provider", params.get("model", ""))
@@ -212,12 +230,30 @@ class SimulationEngine:
             if isinstance(hardware, dict):
                 gpu_avail = hardware.get("gpu_available")
                 if tool_id in ("executor.launch", "app.launch") and gpu_avail is False:
-                    if any(kw in description.lower() for kw in ("gpu", "cuda", "render", "3d", "video", "graphics", "machine learning", "ai", "tensor")):
+                    if any(
+                        kw in description.lower()
+                        for kw in (
+                            "gpu",
+                            "cuda",
+                            "render",
+                            "3d",
+                            "video",
+                            "graphics",
+                            "machine learning",
+                            "ai",
+                            "tensor",
+                        )
+                    ):
                         warnings.append("No GPU detected — GPU-dependent launch may fail or use CPU fallback")
                 if tool_id in ("system.gpu", "hardware.intelligence") and gpu_avail is False:
                     warnings.append("No GPU detected on this system")
                 vram = hardware.get("gpu_vram_gb")
-                if vram is not None and isinstance(vram, (int, float)) and vram < 4 and tool_id in ("executor.launch", "app.launch"):
+                if (
+                    vram is not None
+                    and isinstance(vram, (int, float))
+                    and vram < 4
+                    and tool_id in ("executor.launch", "app.launch")
+                ):
                     if any(kw in description.lower() for kw in ("llm", "ai", "model", "stable diffusion", "training")):
                         warnings.append(f"Low GPU VRAM ({vram}GB) — LLM/AI task may be slow or fail")
             if isinstance(installed_apps, list):
@@ -226,7 +262,8 @@ class SimulationEngine:
                     if app_name:
                         found = any(
                             str(a.get("name", "")).casefold().removesuffix(".exe") == app_name
-                            for a in installed_apps if isinstance(a, dict)
+                            for a in installed_apps
+                            if isinstance(a, dict)
                         )
                         if not found:
                             warnings.append(f"App '{app_name}' not found in installed catalog")
@@ -293,16 +330,16 @@ class SimulationEngine:
             if imp.config_changes:
                 details.append(f"config: {', '.join(imp.config_changes[:2])}")
             if imp.warnings:
-                details.append(f"⚠ {'; '.join(imp.warnings[:3])}")
+                details.append(f"WARNING {'; '.join(imp.warnings[:3])}")
             suffix = f" [{'; '.join(details)}]" if details else ""
             parts.append(f"  {imp.step_id}: [{imp.impact_level}] {imp.description}{suffix}")
 
         if overall_risk in ("high", "critical"):
-            parts.append("⚠ Confirmation required due to risk level")
+            parts.append("WARNING Confirmation required due to risk level")
         elif any(i.irreversible for i in impacts):
-            parts.append("⚠ Confirmation required (irreversible actions)")
+            parts.append("WARNING Confirmation required (irreversible actions)")
         else:
-            parts.append("✓ Low risk — can auto-execute")
+            parts.append("OK Low risk - can auto-execute")
 
         return "\n".join(parts)
 

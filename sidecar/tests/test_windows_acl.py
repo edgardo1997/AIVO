@@ -11,7 +11,15 @@ from windows_acl import AclEnforcementError, protect_path, sentinel_storage_path
 class TestSentinelStoragePaths:
     def test_returns_expected_keys(self):
         paths = sentinel_storage_paths()
-        assert set(paths.keys()) == {"runtime", "logs", "updates", "tauri", "sentinel_config", "legacy_config", "policies"}
+        assert set(paths.keys()) == {
+            "runtime",
+            "logs",
+            "updates",
+            "tauri",
+            "sentinel_config",
+            "legacy_config",
+            "policies",
+        }
 
     def test_runtime_path_uses_localappdata(self, monkeypatch):
         monkeypatch.setenv("LOCALAPPDATA", "C:\\TestLocal")
@@ -75,6 +83,7 @@ def test_current_user_sid_raises_on_invalid_sid_format():
 @pytest.mark.security
 def test_protect_path_returns_false_when_acl_disabled(tmp_path, monkeypatch):
     import windows_acl
+
     windows_acl.ACL_ENABLED = False
     target = tmp_path / "test"
     target.mkdir()
@@ -84,6 +93,7 @@ def test_protect_path_returns_false_when_acl_disabled(tmp_path, monkeypatch):
 @pytest.mark.security
 def test_protect_path_returns_false_when_not_required_and_missing(tmp_path):
     import windows_acl
+
     windows_acl.ACL_ENABLED = True
     target = tmp_path / "does-not-exist"
     assert protect_path(target, directory=True, required=False) is False
@@ -92,6 +102,7 @@ def test_protect_path_returns_false_when_not_required_and_missing(tmp_path):
 @pytest.mark.security
 def test_protect_path_raises_when_required_and_missing(tmp_path):
     import windows_acl
+
     windows_acl.ACL_ENABLED = True
     target = tmp_path / "does-not-exist"
     with pytest.raises(AclEnforcementError, match="Cannot protect missing path"):
@@ -102,6 +113,7 @@ def test_protect_path_raises_when_required_and_missing(tmp_path):
 @pytest.mark.skipif(os.name != "nt", reason="Windows ACL integration test")
 def test_acl_limits_directory_to_user_and_system(tmp_path: Path, monkeypatch):
     import windows_acl
+
     windows_acl.ACL_ENABLED = True
     target = tmp_path / "private"
     target.mkdir()
@@ -119,6 +131,7 @@ def test_acl_limits_directory_to_user_and_system(tmp_path: Path, monkeypatch):
 @pytest.mark.skipif(os.name != "nt", reason="Windows ACL command test")
 def test_acl_command_failure_is_fail_closed(tmp_path: Path, monkeypatch):
     import windows_acl
+
     windows_acl.ACL_ENABLED = True
     target = tmp_path / "ordered"
     target.mkdir()

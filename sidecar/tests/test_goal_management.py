@@ -437,8 +437,13 @@ class TestGoalAdminAuth:
         from modules.sentinel_bridge import _require_admin
 
         identity = IdentityContext(
-            user_id="user", username="User", role="user", permissions=frozenset(),
-            authentication_method="test", is_authenticated=True, is_local=True,
+            user_id="user",
+            username="User",
+            role="user",
+            permissions=frozenset(),
+            authentication_method="test",
+            is_authenticated=True,
+            is_local=True,
         )
         with pytest.raises(HTTPException, match="Administrator identity required"):
             _require_admin(self._request(identity))

@@ -179,7 +179,9 @@ class FleetService:
             )
             with urllib.request.urlopen(req, timeout=30) as resp:
                 body = json.loads(resp.read().decode("utf-8"))
-            self.repo.update_sync_log(log_id, {"status": "completed", "completed_at": datetime.now(timezone.utc).isoformat()})
+            self.repo.update_sync_log(
+                log_id, {"status": "completed", "completed_at": datetime.now(timezone.utc).isoformat()}
+            )
             return {"status": "completed", "pushed_keys": list(payload.keys()), "peer_response": body}
         except Exception as e:
             self.repo.update_sync_log(log_id, {"status": "failed", "error": str(e)})
@@ -201,7 +203,9 @@ class FleetService:
             with urllib.request.urlopen(req, timeout=30) as resp:
                 payload = json.loads(resp.read().decode("utf-8"))
             self._apply_sync_payload(payload)
-            self.repo.update_sync_log(log_id, {"status": "completed", "completed_at": datetime.now(timezone.utc).isoformat()})
+            self.repo.update_sync_log(
+                log_id, {"status": "completed", "completed_at": datetime.now(timezone.utc).isoformat()}
+            )
             return {"status": "completed", "pulled_keys": list(payload.keys())}
         except Exception as e:
             self.repo.update_sync_log(log_id, {"status": "failed", "error": str(e)})

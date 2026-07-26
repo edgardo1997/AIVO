@@ -112,11 +112,18 @@ STEP_DEFINITIONS: Dict[str, List[PlanStep]] = {
     ],
     "executor.launch": [
         PlanStep(
+            id="discover",
+            tool_id="app.discovery",
+            description="Discover application path",
+            estimated_impact="low",
+        ),
+        PlanStep(
             id="check",
             tool_id="system.processes",
             description="Check if already running",
             params={"limit": 5},
             estimated_impact="low",
+            depends_on=["discover"],
         ),
         PlanStep(
             id="launch",
@@ -189,7 +196,15 @@ class Planner:
     def set_event_bus(self, event_bus: EventBus) -> None:
         self._event_bus = event_bus
 
-    def _emit(self, event_type: str, *, session_id: str = "", request_id: str = "", status: str = "", details: Optional[Dict[str, Any]] = None) -> None:
+    def _emit(
+        self,
+        event_type: str,
+        *,
+        session_id: str = "",
+        request_id: str = "",
+        status: str = "",
+        details: Optional[Dict[str, Any]] = None,
+    ) -> None:
         if self._event_bus is None:
             return
         event = SentinelEvent.new(
@@ -236,7 +251,12 @@ class Planner:
     def _goal_risk_score(self, goal: GoalDefinition) -> float:
         return {"low": 0.1, "medium": 0.4, "high": 0.7, "critical": 1.0}.get(goal.base_risk.value, 0.3)
 
-    def plan(self, intent: Intent, context: Optional[Dict[str, Any]] = None, app_profiles: Optional[List[Dict[str, Any]]] = None) -> Plan:
+    def plan(
+        self,
+        intent: Intent,
+        context: Optional[Dict[str, Any]] = None,
+        app_profiles: Optional[List[Dict[str, Any]]] = None,
+    ) -> Plan:
         sid = (context or {}).get("session_id", "")
         rid = (context or {}).get("execution_id", "")
         self._emit(event_types.PLANNER_STARTED, session_id=sid, request_id=rid)
@@ -257,6 +277,24 @@ class Planner:
 
         if cap is not None:
             steps_def = [self._step_from_capability(cap)]
+            if target == "executor.launch":
+                inject_discover = PlanStep(
+                    id="discover",
+                    tool_id="app.discovery",
+                    description="Discover application path",
+                    estimated_impact="low",
+                )
+                inject_check = PlanStep(
+                    id="check",
+                    tool_id="system.processes",
+                    description="Check if already running",
+                    params={"limit": 5},
+                    estimated_impact="low",
+                    depends_on=["discover"],
+                )
+                for s in steps_def:
+                    s.depends_on = ["check"]
+                steps_def = [inject_discover, inject_check] + steps_def
         else:
             steps_def = self._definitions.get(target)
 
@@ -297,7 +335,12 @@ class Planner:
                 elif app_name and app_name not in {"browser", "default-browser", "navegador"}:
                     step.description = f"Launch {app_name} (not confirmed by the current application catalog)"
             steps.append(step)
-            self._emit(event_types.PLANNER_STEP_CREATED, session_id=sid, request_id=rid, details={"step_id": step.id, "tool_id": step.tool_id})
+            self._emit(
+                event_types.PLANNER_STEP_CREATED,
+                session_id=sid,
+                request_id=rid,
+                details={"step_id": step.id, "tool_id": step.tool_id},
+            )
 
         risk_score = self._calculate_risk(steps, intent, context)
         total_est = sum(s.estimated_duration_ms or 500 for s in steps if s.estimated_duration_ms)
@@ -317,13 +360,17 @@ class Planner:
             description=desc,
             goal=goal,
         )
-        self._emit(event_types.PLANNER_COMPLETED, session_id=sid, request_id=rid, status="completed", details={"step_count": len(plan.steps)})
+        self._emit(
+            event_types.PLANNER_COMPLETED,
+            session_id=sid,
+            request_id=rid,
+            status="completed",
+            details={"step_count": len(plan.steps)},
+        )
         return plan
 
     def _application_evidence(
-        context: Optional[Dict[str, Any]],
-        app_name: str,
-        app_profiles: Optional[List[Dict[str, Any]]] = None
+        context: Optional[Dict[str, Any]], app_name: str, app_profiles: Optional[List[Dict[str, Any]]] = None
     ) -> Optional[Dict[str, Any]]:
         if not app_name:
             return None

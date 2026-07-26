@@ -2,12 +2,15 @@ import logging
 import hashlib
 import os
 import secrets
+import sys
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Mapping
 
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
+
+from sentinel.core.security_levels import LEVEL_RANK, ROLE_TO_LEVEL
 
 logger = logging.getLogger("sentinel.auth")
 
@@ -23,12 +26,7 @@ class IdentityContext:
     is_local: bool
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
-    _ROLE_TO_LEVEL = {
-        "admin": "admin",
-        "user": "confirm",
-        "viewer": "view",
-        "service": "confirm",
-    }
+    _ROLE_TO_LEVEL = ROLE_TO_LEVEL
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
@@ -115,6 +113,26 @@ class IdentityContext:
         }
 
 
+SENTINEL_ENVIRONMENT = os.environ.get("SENTINEL_ENVIRONMENT", "development").strip().lower()
+
+
+def validate_runtime_security_mode(app_state) -> None:
+    """Validate runtime security mode before accepting requests.
+
+    Production must never run with _test_mode = True.
+    Test/development environments allow it with appropriate warnings.
+    """
+    test_mode = getattr(app_state, "_test_mode", False)
+    env = SENTINEL_ENVIRONMENT
+
+    if env == "production" and test_mode:
+        print("CRITICAL: _test_mode is ACTIVE in PRODUCTION environment. Shutting down.", file=sys.stderr)
+        sys.exit(1)
+
+    if env != "production" and test_mode:
+        logger.warning("_test_mode is active in %s environment. This is NOT safe for production.", env)
+
+
 def request_identity(request: Request) -> IdentityContext:
     identity = getattr(request.state, "identity", None)
     if not isinstance(identity, IdentityContext) or not identity.is_authenticated:
@@ -128,14 +146,6 @@ def require_admin_identity(request: Request) -> IdentityContext:
     if identity.level != "admin":
         raise HTTPException(status_code=403, detail="Administrator identity required")
     return identity
-
-
-LEVEL_RANK = {
-    "admin": 4,
-    "confirm": 3,
-    "auto": 2,
-    "view": 1,
-}
 
 
 def require_level(identity: IdentityContext, minimum: str) -> IdentityContext:
@@ -153,10 +163,12 @@ def require_level(identity: IdentityContext, minimum: str) -> IdentityContext:
 
 
 # Paths that bypass authentication (health checks, monitoring probes, etc.)
-UNAUTHENTICATED_PATHS = frozenset({"/api/health", "/api/info"})
+UNAUTHENTICATED_PATHS = frozenset({"/api/health", "/api/info", "/api/system/live"})
 
 
 async def auth_middleware(request: Request, call_next):
+    validate_runtime_security_mode(request.app.state)
+
     client_host = request.client.host if request.client else ""
     if client_host not in {"127.0.0.1", "::1", "::ffff:127.0.0.1", "testclient", "localhost"}:
         return JSONResponse(
@@ -176,6 +188,11 @@ async def auth_middleware(request: Request, call_next):
 
     test_token = request.headers.get("x-test-token", "")
     if test_token:
+        if SENTINEL_ENVIRONMENT == "production":
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "Test authentication is not allowed in production"},
+            )
         if not getattr(app.state, "_test_mode", False):
             return JSONResponse(
                 status_code=403,
@@ -205,6 +222,11 @@ async def auth_middleware(request: Request, call_next):
             pass
 
     if getattr(app.state, "_test_mode", False):
+        if SENTINEL_ENVIRONMENT == "production":
+            return JSONResponse(
+                status_code=503,
+                content={"detail": "Test mode is not allowed in production"},
+            )
         request.state.identity = IdentityContext.local_identity()
         return await continue_authenticated_request()
 

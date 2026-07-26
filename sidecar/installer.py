@@ -1,4 +1,16 @@
-"""Sentinel Windows installer: service registration, firewall, scheduled task."""
+"""
+DEPRECATED — Sentinel Windows legacy installer.
+
+This module manages the Python sidecar as a Windows service, firewall rule,
+and scheduled task.  As of Fase 10 the Tauri bundler (NSIS + MSI) handles all
+installation for the desktop application.  The sidecar is bundled as a Tauri
+resource and started by the Rust process, not as a standalone service.
+
+This file is kept for one release cycle to support existing installations
+that still reference it.  It will be removed in the next release.
+
+Usage is blocked by default; set SENTINEL_ENABLE_LEGACY_INSTALLER=1 to override.
+"""
 
 import argparse
 import logging
@@ -43,6 +55,7 @@ def _run(cmd: list[str], capture: bool = True, input: str | None = None) -> subp
 
 
 # --- Service ---
+
 
 def _sc_cmd(action: str, *args: str) -> list[str]:
     return ["sc.exe", action, SENTINEL_SERVICE_NAME, *args]
@@ -104,11 +117,23 @@ def service_status() -> dict:
 
 # --- Firewall ---
 
+
 def install_firewall() -> dict:
-    r = _run(["netsh", "advfirewall", "firewall", "add", "rule",
-              f"name={FIREWALL_RULE_NAME}",
-              "dir=in", "action=allow", "protocol=TCP", f"localport={SENTINEL_PORT}",
-              "profile=private,domain"])
+    r = _run(
+        [
+            "netsh",
+            "advfirewall",
+            "firewall",
+            "add",
+            "rule",
+            f"name={FIREWALL_RULE_NAME}",
+            "dir=in",
+            "action=allow",
+            "protocol=TCP",
+            f"localport={SENTINEL_PORT}",
+            "profile=private,domain",
+        ]
+    )
     if r.returncode != 0:
         return {"success": False, "error": f"netsh failed: {r.stderr.strip()}"}
     log.info("Firewall rule added: %s (port %d)", FIREWALL_RULE_NAME, SENTINEL_PORT)
@@ -123,6 +148,7 @@ def uninstall_firewall() -> dict:
 
 
 # --- Scheduled Task (autostart on user login) ---
+
 
 def install_scheduled_task() -> dict:
     python_exe = _python_path()
@@ -152,6 +178,7 @@ def uninstall_scheduled_task() -> dict:
 
 
 # --- Registry (uninstall info) ---
+
 
 def write_uninstall_registry(install_dir: str) -> dict:
     try:
@@ -185,6 +212,7 @@ def remove_uninstall_registry() -> dict:
 
 # --- Full install / uninstall ---
 
+
 def full_install() -> dict:
     results = {}
     install_dir = str(_sentinel_root())
@@ -211,18 +239,32 @@ def full_uninstall() -> dict:
 
 # --- CLI ---
 
+
 def main():
+    if not os.environ.get("SENTINEL_ENABLE_LEGACY_INSTALLER"):
+        print("ERROR: sidecar/installer.py is deprecated (Fase 10).", file=sys.stderr)
+        print("Set SENTINEL_ENABLE_LEGACY_INSTALLER=1 to override.", file=sys.stderr)
+        sys.exit(2)
     parser = argparse.ArgumentParser(description="Sentinel AI Installer")
-    parser.add_argument("action", choices=["install", "uninstall", "status",
-                                           "install-service", "uninstall-service",
-                                           "install-firewall", "uninstall-firewall",
-                                           "start", "stop"],
-                        help="Action to perform")
+    parser.add_argument(
+        "action",
+        choices=[
+            "install",
+            "uninstall",
+            "status",
+            "install-service",
+            "uninstall-service",
+            "install-firewall",
+            "uninstall-firewall",
+            "start",
+            "stop",
+        ],
+        help="Action to perform",
+    )
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
     args = parser.parse_args()
 
-    logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
-                        format="%(levelname)s: %(message)s")
+    logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO, format="%(levelname)s: %(message)s")
 
     if args.action == "install":
         result = full_install()

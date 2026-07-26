@@ -2,9 +2,14 @@ from typing import Any, Dict, Optional
 
 from sentinel.core.tool import Tool, ToolResult, ToolSpec
 from sentinel.core.sandbox import (
-    SandboxLimits, create_sandbox, assign_process,
-    terminate_sandbox, close_sandbox, get_sandbox_info,
-    list_sandboxes, cleanup_all,
+    SandboxLimits,
+    create_sandbox,
+    assign_process,
+    terminate_sandbox,
+    close_sandbox,
+    get_sandbox_info,
+    list_sandboxes,
+    cleanup_all,
 )
 
 _CAT = "sandbox"
@@ -22,9 +27,21 @@ class SandboxCreateTool(Tool):
                 "type": "object",
                 "properties": {
                     "name": {"type": "string", "description": "Optional sandbox name"},
-                    "max_processes": {"type": "integer", "description": "Max process count (0 = unlimited)", "default": 0},
-                    "memory_limit_mb": {"type": "integer", "description": "Memory limit in MB (0 = unlimited)", "default": 0},
-                    "cpu_percent": {"type": "integer", "description": "CPU rate limit %% (0 = unlimited)", "default": 0},
+                    "max_processes": {
+                        "type": "integer",
+                        "description": "Max process count (0 = unlimited)",
+                        "default": 0,
+                    },
+                    "memory_limit_mb": {
+                        "type": "integer",
+                        "description": "Memory limit in MB (0 = unlimited)",
+                        "default": 0,
+                    },
+                    "cpu_percent": {
+                        "type": "integer",
+                        "description": "CPU rate limit %% (0 = unlimited)",
+                        "default": 0,
+                    },
                 },
                 "required": [],
             },
@@ -101,7 +118,9 @@ class SandboxTerminateTool(Tool):
         ok = terminate_sandbox(sb_id)
         if not ok:
             return ToolResult.fail(error=f"Failed to terminate sandbox {sb_id}", tool_id="sandbox.terminate")
-        return ToolResult.ok(data={"sandbox_id": sb_id, "message": "All processes terminated"}, tool_id="sandbox.terminate")
+        return ToolResult.ok(
+            data={"sandbox_id": sb_id, "message": "All processes terminated"}, tool_id="sandbox.terminate"
+        )
 
 
 class SandboxCloseTool(Tool):
@@ -157,14 +176,17 @@ class SandboxInfoTool(Tool):
         info = get_sandbox_info(sb_id)
         if not info:
             return ToolResult.fail(error=f"Sandbox '{sb_id}' not found", tool_id="sandbox.info")
-        return ToolResult.ok(data={
-            "id": info.id,
-            "name": info.name,
-            "created_at": info.created_at,
-            "process_count": info.process_count,
-            "limits": info.limits.__dict__,
-            "is_active": info.is_active,
-        }, tool_id="sandbox.info")
+        return ToolResult.ok(
+            data={
+                "id": info.id,
+                "name": info.name,
+                "created_at": info.created_at,
+                "process_count": info.process_count,
+                "limits": info.limits.__dict__,
+                "is_active": info.is_active,
+            },
+            tool_id="sandbox.info",
+        )
 
 
 class SandboxListTool(Tool):
@@ -181,11 +203,19 @@ class SandboxListTool(Tool):
 
     async def execute(self, params: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> ToolResult:
         boxes = list_sandboxes()
-        return ToolResult.ok(data={
-            "sandboxes": [
-                {"id": b.id, "name": b.name, "created_at": b.created_at,
-                 "process_count": b.process_count, "limits": b.limits.__dict__}
-                for b in boxes
-            ],
-            "count": len(boxes),
-        }, tool_id="sandbox.list")
+        return ToolResult.ok(
+            data={
+                "sandboxes": [
+                    {
+                        "id": b.id,
+                        "name": b.name,
+                        "created_at": b.created_at,
+                        "process_count": b.process_count,
+                        "limits": b.limits.__dict__,
+                    }
+                    for b in boxes
+                ],
+                "count": len(boxes),
+            },
+            tool_id="sandbox.list",
+        )

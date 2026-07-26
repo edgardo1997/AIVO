@@ -20,7 +20,20 @@ export function Proactive() {
     } catch { setLoading(false); }
   }, []);
 
-  useEffect(() => { refresh(); const iv = setInterval(refresh, 10000); return () => clearInterval(iv); }, [refresh]);
+  useEffect(() => {
+    let active = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const tick = async () => {
+      if (!active) return;
+      await refresh();
+      if (active) timer = setTimeout(tick, 10000);
+    };
+    tick();
+    return () => {
+      active = false;
+      if (timer !== null) clearTimeout(timer);
+    };
+  }, [refresh]);
 
   const handleDismiss = async (uid: string) => {
     try {

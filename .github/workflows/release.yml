@@ -14,42 +14,41 @@ concurrency:
   group: release-${{ github.ref_name }}
   cancel-in-progress: false
 
+env:
+  PYTHON_VERSION: "3.12"
+  NODE_VERSION: "22"
+
 jobs:
-  release-windows:
+  # ------------------------------------------------------------------
+  # Unprivileged build — compiles everything, runs quality gates,
+  # audits dependencies.  No signing secrets reach this job.
+  # ------------------------------------------------------------------
+  build:
     runs-on: windows-latest
-    environment: release-signing
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout source
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
-      - name: Require release tag commit from main
-        shell: pwsh
-        run: |
-          if ("${{ github.ref_type }}" -ne "tag") {
-            throw 'Release builds must run from a version tag'
-          }
-          git fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
-          if ($LASTEXITCODE -ne 0) { throw 'Could not fetch the protected main branch' }
-          git merge-base --is-ancestor "${{ github.sha }}" origin/main
-          if ($LASTEXITCODE -ne 0) {
-            throw 'Release tag commit is not contained in origin/main'
-          }
-
-      - uses: actions/setup-python@v5
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
           cache-dependency-path: |
             sidecar/requirements.txt
             sidecar/requirements-dev.txt
 
-      - uses: actions/setup-node@v4
+      - name: Set up Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
 
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Verify release version matches tag
         shell: pwsh
@@ -61,9 +60,9 @@ jobs:
             throw "Tag $tag, package $package and Tauri $tauri must match"
           }
 
-      - name: Install dependencies
+      - name: Install build and audit dependencies
         run: |
-          python -m pip install --upgrade pip pyinstaller pip-audit cyclonedx-bom==7.3.0
+          python -m pip install --upgrade pip pyinstaller==6.12.0 pip-audit==2.8.0 cyclonedx-bom==7.3.0
           pip install -r sidecar/requirements-dev.txt
           npm ci
           npm install --global @cyclonedx/cyclonedx-npm@4.2.1
@@ -72,7 +71,7 @@ jobs:
         run: |
           python -m pip_audit -r sidecar/requirements.txt
           npm audit --audit-level=high
-          cargo install cargo-audit --locked
+          cargo install cargo-audit --version 0.21.2 --locked
           cargo audit --file src-tauri/Cargo.lock
 
       - name: Generate and validate CycloneDX SBOMs
@@ -82,25 +81,23 @@ jobs:
           cyclonedx-npm --output-format JSON --output-file release-metadata/sbom-npm.cdx.json package.json
           cyclonedx-py requirements sidecar/requirements.txt --output-format JSON --output-file release-metadata/sbom-python.cdx.json
           cargo install cargo-cyclonedx --version 0.5.9 --locked
-          # cargo-cyclonedx appends the selected format extension automatically.
           cargo cyclonedx --manifest-path src-tauri/Cargo.toml --format json --override-filename sbom-rust.cdx
           Move-Item src-tauri/sbom-rust.cdx.json release-metadata/sbom-rust.cdx.json
 
       - name: Release preflight quality gates
-        run: |
-          python -m ruff check sentinel sidecar
-          npm run lint
-          cargo test --locked --manifest-path src-tauri/Cargo.toml
-
-      - name: Test application
         env:
           SENTINEL_ENABLE_ACL: "0"
           SENTINEL_ENABLE_FLEET_STARTUP: "0"
           SENTINEL_JWT_SECRET: "ci-jwt-secret-not-for-production"
         run: |
+          python -m ruff check sentinel sidecar
+          npm run lint
+          cargo test --locked --manifest-path src-tauri/Cargo.toml
           python -m pytest -q
           npm test -- --run
-          npm run build
+
+      - name: Build production frontend
+        run: npm run build
 
       - name: Build packaged sidecar
         working-directory: sidecar
@@ -109,6 +106,73 @@ jobs:
       - name: Smoke-test packaged sidecar
         shell: pwsh
         run: ./scripts/smoke-release.ps1
+
+      - name: Build Rust backend (release)
+        run: cargo build --release --locked --manifest-path src-tauri/Cargo.toml
+
+      - name: Upload build artifacts for signing job
+        uses: actions/upload-artifact@v4
+        with:
+          name: sentinel-build-output
+          path: |
+            dist/
+            sidecar/dist/sidecar.exe
+            src-tauri/target/release/sentinel.exe
+            src-tauri/target/release/sentinel.pdb
+            release-metadata/
+          retention-days: 1
+
+  # ------------------------------------------------------------------
+  # Privileged signing + release — only runs on the protected
+  # release-signing environment with access to code-signing keys.
+  # ------------------------------------------------------------------
+  sign-release:
+    runs-on: windows-latest
+    needs: build
+    environment: release-signing
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Set up Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Restore build artifacts from unprivileged job
+        uses: actions/download-artifact@v4
+        with:
+          name: sentinel-build-output
+          path: .
+
+      - name: Verify pre-built artifacts were restored
+        shell: pwsh
+        run: |
+          $required = @(
+            'dist/index.html',
+            'sidecar/dist/sidecar.exe',
+            'src-tauri/target/release/sentinel.exe',
+            'release-metadata/sbom-npm.cdx.json',
+            'release-metadata/sbom-python.cdx.json',
+            'release-metadata/sbom-rust.cdx.json'
+          )
+          foreach ($path in $required) {
+            if (-not (Test-Path $path)) { throw "Required build artifact missing: $path" }
+          }
+
+      - name: Restore Node dependencies
+        run: npm ci
 
       - name: Require updater and Authenticode signing secrets
         shell: pwsh
@@ -137,14 +201,25 @@ jobs:
           Remove-Item -LiteralPath $encoded, $pfx -Force
           if (-not $cert.HasPrivateKey -or $cert.NotAfter -le (Get-Date)) { throw 'Invalid or expired signing certificate' }
           if ('1.3.6.1.5.5.7.3.3' -notin $cert.EnhancedKeyUsageList.ObjectId.Value) { throw 'Certificate lacks Code Signing EKU' }
-          $config = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
-          $windows = [ordered]@{
-            certificateThumbprint = $cert.Thumbprint
-            digestAlgorithm = 'sha256'
-            timestampUrl = 'http://timestamp.digicert.com'
+
+      - name: Configure signing overlay and bundle
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          $cert = Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert | Select-Object -First 1
+          $overlay = @{
+            build = @{ beforeBuildCommand = "" }
+            bundle = @{ windows = @{
+              certificateThumbprint = $cert.Thumbprint
+              digestAlgorithm = "sha256"
+              timestampUrl = "http://timestamp.digicert.com"
+            }}
           }
-          $config.bundle | Add-Member -NotePropertyName windows -NotePropertyValue $windows -Force
-          $config | ConvertTo-Json -Depth 20 | Set-Content src-tauri/tauri.conf.json -Encoding UTF8
+          $overlayPath = Join-Path $env:RUNNER_TEMP "sentinel-signing-overlay.json"
+          $overlay | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $overlayPath -Encoding UTF8
+          echo "SIGNING_OVERLAY=$overlayPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Build, sign and publish installer plus updater manifest
         uses: tauri-apps/tauri-action@v0
@@ -152,6 +227,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          SKIP_SIDECAR_BUILD: "1"
+          CARGO_BUILD_JOBS: "1"
         with:
           tagName: v__VERSION__
           releaseName: Sentinel v__VERSION__
@@ -159,6 +236,7 @@ jobs:
           releaseDraft: true
           prerelease: false
           includeUpdaterJson: true
+          args: --config ${{ env.SIGNING_OVERLAY }}
 
       - name: Verify Authenticode and updater signatures
         shell: pwsh

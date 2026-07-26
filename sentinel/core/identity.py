@@ -41,6 +41,7 @@ def _check_bool(result: int) -> bool:
 
 # --- Windows Identity ---
 
+
 @dataclass
 class WindowsIdentity:
     username: str
@@ -119,7 +120,11 @@ def _is_elevated() -> bool:
             elevation = ctypes.wintypes.DWORD(0)
             size = ctypes.wintypes.DWORD(ctypes.sizeof(elevation))
             ok = _advapi32.GetTokenInformation(
-                token, TokenElevation, ctypes.byref(elevation), size, ctypes.byref(size),
+                token,
+                TokenElevation,
+                ctypes.byref(elevation),
+                size,
+                ctypes.byref(size),
             )
             return ok and elevation.value != 0
         finally:
@@ -143,7 +148,11 @@ def _get_session_id() -> int:
             session = ctypes.wintypes.DWORD(0)
             size = ctypes.wintypes.DWORD(ctypes.sizeof(session))
             ok = _advapi32.GetTokenInformation(
-                token, 12, ctypes.byref(session), size, ctypes.byref(size),  # TokenSessionId = 12
+                token,
+                12,
+                ctypes.byref(session),
+                size,
+                ctypes.byref(size),  # TokenSessionId = 12
             )
             return session.value if ok else 0
         finally:
@@ -168,6 +177,7 @@ def identity_to_dict(identity: WindowsIdentity) -> Dict[str, Any]:
 
 # --- Windows Hello verification ---
 
+
 @dataclass
 class VerificationResult:
     success: bool
@@ -178,11 +188,16 @@ class VerificationResult:
 def verify_with_hello(purpose: str = "") -> VerificationResult:
     try:
         _credui.CredUIPromptForWindowsCredentialsW.argtypes = [
-            ctypes.POINTER(ctypes.c_void_p), ctypes.wintypes.DWORD,
-            ctypes.wintypes.DWORD, ctypes.wintypes.DWORD,
-            ctypes.wintypes.LPCWSTR, ctypes.wintypes.DWORD,
-            ctypes.wintypes.LPCWSTR, ctypes.wintypes.DWORD,
-            ctypes.wintypes.LPCWSTR, ctypes.wintypes.DWORD,
+            ctypes.POINTER(ctypes.c_void_p),
+            ctypes.wintypes.DWORD,
+            ctypes.wintypes.DWORD,
+            ctypes.wintypes.DWORD,
+            ctypes.wintypes.LPCWSTR,
+            ctypes.wintypes.DWORD,
+            ctypes.wintypes.LPCWSTR,
+            ctypes.wintypes.DWORD,
+            ctypes.wintypes.LPCWSTR,
+            ctypes.wintypes.DWORD,
         ]
     except AttributeError:
         return VerificationResult(success=False, method="", error="Windows Hello API not available")
@@ -194,11 +209,18 @@ def verify_with_hello(purpose: str = "") -> VerificationResult:
         save = ctypes.wintypes.BOOL(False)
 
         result = _credui.CredUIPromptForWindowsCredentialsW(
-            None, 0, 0, 0,
-            target_name, 0,
-            None, 0,
-            ctypes.byref(auth_buffer), ctypes.byref(auth_size),
-            ctypes.byref(save), 0x100,  # GENERIC_CRED UI
+            None,
+            0,
+            0,
+            0,
+            target_name,
+            0,
+            None,
+            0,
+            ctypes.byref(auth_buffer),
+            ctypes.byref(auth_size),
+            ctypes.byref(save),
+            0x100,  # GENERIC_CRED UI
         )
         if result == 0:
             _kernel32.CoTaskMemFree(auth_buffer)
@@ -209,6 +231,7 @@ def verify_with_hello(purpose: str = "") -> VerificationResult:
 
 
 # --- Credential Manager ---
+
 
 class CredentialManager:
     def __init__(self, target_prefix: str = "SentinelAI"):
@@ -270,6 +293,7 @@ class CredentialManager:
 
 # --- DPAPI Encryption ---
 
+
 class _DATA_BLOB(ctypes.Structure):
     _fields_ = [
         ("cbData", ctypes.wintypes.DWORD),
@@ -304,7 +328,8 @@ class DataProtection:
                 ctypes.byref(data_in),
                 None,
                 ctypes.byref(entropy_blob) if entropy else None,
-                None, None,
+                None,
+                None,
                 flags,
                 ctypes.byref(data_out),
             )
@@ -330,7 +355,8 @@ class DataProtection:
                 ctypes.byref(data_in),
                 ctypes.byref(p_desc),
                 ctypes.byref(entropy_blob) if entropy else None,
-                None, None,
+                None,
+                None,
                 0,
                 ctypes.byref(data_out),
             )

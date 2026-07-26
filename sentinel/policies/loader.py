@@ -19,6 +19,8 @@ SECURITY_SCHEMA = {
     if k in ("permission_levels", "dangerous_tools", "critical_paths", "emergency_stop", "tool_permissions")
 }
 
+_PERMISSIVE_SCHEMA = {}
+
 logger = logging.getLogger(__name__)
 
 POLICY_DIR = Path(os.path.expanduser("~/.sentinel/policies"))
@@ -127,6 +129,8 @@ def load_yaml_policy(filename: str, schema: Optional[Dict] = None) -> Dict[str, 
             effective_schema = DESTRUCTIVE_PATTERNS_SCHEMA
         elif stem == "security":
             effective_schema = SECURITY_SCHEMA
+        elif stem in ("filesystem_policy", "network_policy", "browser_policy", "ai_policy"):
+            effective_schema = _PERMISSIVE_SCHEMA
         else:
             effective_schema = POLICY_SCHEMA
 

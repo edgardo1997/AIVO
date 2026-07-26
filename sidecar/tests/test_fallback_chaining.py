@@ -210,12 +210,18 @@ class TestFallbackChainingUnit:
     def test_streaming_falls_back_before_any_content_is_emitted(self):
         mr = ModelRouter()
         primary = RouterDecision(
-            provider_id="sentinel_local", model="local", task_type=TaskType.QUICK,
-            strategy="priority", reason="test",
+            provider_id="sentinel_local",
+            model="local",
+            task_type=TaskType.QUICK,
+            strategy="priority",
+            reason="test",
         )
         fallback = RouterDecision(
-            provider_id="ollama", model="fallback", task_type=TaskType.QUICK,
-            strategy="fallback", reason="test",
+            provider_id="ollama",
+            model="fallback",
+            task_type=TaskType.QUICK,
+            strategy="fallback",
+            reason="test",
         )
         mr.select = lambda *_args, **_kwargs: primary
         mr._build_fallback_chain = lambda *_args, **_kwargs: [primary, fallback]
@@ -236,12 +242,18 @@ class TestFallbackChainingUnit:
     def test_streaming_never_mixes_providers_after_content(self):
         mr = ModelRouter()
         primary = RouterDecision(
-            provider_id="sentinel_local", model="local", task_type=TaskType.QUICK,
-            strategy="priority", reason="test",
+            provider_id="sentinel_local",
+            model="local",
+            task_type=TaskType.QUICK,
+            strategy="priority",
+            reason="test",
         )
         fallback = RouterDecision(
-            provider_id="ollama", model="fallback", task_type=TaskType.QUICK,
-            strategy="fallback", reason="test",
+            provider_id="ollama",
+            model="fallback",
+            task_type=TaskType.QUICK,
+            strategy="fallback",
+            reason="test",
         )
         mr.select = lambda *_args, **_kwargs: primary
         mr._build_fallback_chain = lambda *_args, **_kwargs: [primary, fallback]

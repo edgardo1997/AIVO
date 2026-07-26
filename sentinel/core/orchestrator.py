@@ -1,5 +1,7 @@
 import asyncio
 import inspect
+import json
+import os
 from dataclasses import dataclass, field, asdict
 from typing import Any, Dict, List, Optional, Tuple
 from datetime import datetime, timezone
@@ -19,7 +21,7 @@ from .cost_tracker import CostTracker
 from .performance_tracker import PerformanceTracker
 from .plan_cache import PlanCache
 from .recovery import RetryHandler, FallbackHandler, RollbackManager, RecoveryPolicy, RetryExhaustedError
-from .rate_limiter import RateLimiter, RateLimitDecision, DEFAULT_LIMITS
+from .rate_limiter import RateLimiter, RateLimitDecision, DEFAULT_LIMITS, load_rate_limit_config
 from .multi_agent import MultiAgentOrchestrator
 from .offline_queue import OfflineQueue, QueueItem
 from .network_monitor import NetworkMonitor
@@ -29,6 +31,19 @@ from .event_bus import EventBus
 from . import event_types
 
 logger = logging.getLogger(__name__)
+
+
+CONSERVATIVE_MODE = os.environ.get("SENTINEL_CONSERVATIVE_MODE", "0") == "1"
+CONSERVATIVE_BLOCKED_TOOLS = frozenset(
+    {
+        "filesystem.write",
+        "filesystem.delete",
+        "executor.command",
+        "executor.launch",
+        "executor.kill",
+        "executor.restart",
+    }
+)
 
 
 INTENT_TO_TASK: Dict[str, TaskType] = {
@@ -120,12 +135,7 @@ class ExecutionResult:
 
     @property
     def approved(self) -> bool:
-        return bool(
-            self.tool_result
-            and self.tool_result.success
-            and self.grounding_satisfied
-            and not self.error
-        )
+        return bool(self.tool_result and self.tool_result.success and self.grounding_satisfied and not self.error)
 
 
 class Orchestrator:
@@ -141,6 +151,8 @@ class Orchestrator:
         audit_service: Optional[Any] = None,
         profile_manager: Optional[Any] = None,
         deep_context_engine: Optional[Any] = None,
+        risk_classifier: Optional[Any] = None,
+        consent_service: Optional[Any] = None,
         simulation_engine: Optional[Any] = None,
         model_feedback_store: Optional[ModelFeedbackStore] = None,
         cost_tracker: Optional[CostTracker] = None,
@@ -161,18 +173,30 @@ class Orchestrator:
         environment_learning: Optional[Any] = None,
         presentation_layer: Optional[Any] = None,
         event_bus: Optional[EventBus] = None,
+        event_store: Optional[Any] = None,
         process_timeout: Optional[float] = 60.0,
+        rate_limit_config: Optional[Dict[str, int]] = None,
     ):
         self._process_timeout = process_timeout
         self._intent_engine = intent_engine
         self._tool_gateway = tool_gateway
         self._planner = planner or Planner()
         self._event_bus = event_bus
+        self._event_store = event_store
         if event_bus:
             if self._intent_engine:
                 self._intent_engine.set_event_bus(event_bus)
             if self._planner:
                 self._planner.set_event_bus(event_bus)
+            if event_store is not None:
+
+                async def _save_to_event_store(event):
+                    try:
+                        event_store.save(event)
+                    except Exception:
+                        logger.debug("Event store persistence failed", exc_info=True)
+
+                event_bus.subscribe("*", _save_to_event_store)
         self._decision_engine = decision_engine
         self._model_router = model_router
         self._context_engine = context_engine
@@ -180,12 +204,15 @@ class Orchestrator:
         self._audit_service = audit_service
         self._profile_manager = profile_manager
         self._deep_context = deep_context_engine
+        self._risk_classifier = risk_classifier
+        self._consent_service = consent_service
         self._simulation = simulation_engine
         self._feedback = model_feedback_store or ModelFeedbackStore()
         self._cost_tracker = cost_tracker
         self._perf_tracker = performance_tracker or PerformanceTracker()
         self._plan_cache = plan_cache
         self._rate_limiter = rate_limiter
+        self._rate_limit_config = rate_limit_config
         self._multi_agent = multi_agent_orchestrator
         self._offline_queue = offline_queue
         self._network_monitor = network_monitor
@@ -218,7 +245,19 @@ class Orchestrator:
         self._fallback_handler = FallbackHandler()
         self._rollback_manager = RollbackManager()
 
-    async def _emit(self, event_type: str, *, component: str = "", session_id: str = "", request_id: str = "", status: str = "", tool: Optional[str] = None, message: Optional[str] = None, details: Optional[Dict[str, Any]] = None, duration: Optional[float] = None) -> None:
+    async def _emit(
+        self,
+        event_type: str,
+        *,
+        component: str = "",
+        session_id: str = "",
+        request_id: str = "",
+        status: str = "",
+        tool: Optional[str] = None,
+        message: Optional[str] = None,
+        details: Optional[Dict[str, Any]] = None,
+        duration: Optional[float] = None,
+    ) -> None:
         event_bus = getattr(self, "_event_bus", None)
         if event_bus is None:
             return
@@ -238,6 +277,13 @@ class Orchestrator:
     def _enforce_pipeline(self, method_name: str = "process") -> None:
         if not self._pipeline_enforced:
             logger.warning("Pipeline enforcement disabled for %s", method_name)
+
+    def set_rate_limit_config(self, config: Dict[str, int]) -> None:
+        self._rate_limit_config = config
+
+    def set_consent_service(self, service: Any) -> None:
+        """Conectar ConsentService post-construcción (necesario por orden de inicialización en main.py)."""
+        self._consent_service = service
 
     def close(self) -> None:
         """Release resources owned by this orchestrator instance."""
@@ -291,7 +337,14 @@ class Orchestrator:
             return self._attach_advisory(result)
         except Exception as exc:
             logger.exception("Pipeline failed: %s", exc)
-            await self._emit(event_types.PIPELINE_FAILED, component="pipeline", session_id=session_id, request_id="", status="failed", message=str(exc))
+            await self._emit(
+                event_types.PIPELINE_FAILED,
+                component="pipeline",
+                session_id=session_id,
+                request_id="",
+                status="failed",
+                message=str(exc),
+            )
             raise
 
     def classify_intent(self, utterance: str) -> Intent:
@@ -303,14 +356,25 @@ class Orchestrator:
         plan: Plan,
         context: Dict[str, Any],
         simulation_result: Optional[Any] = None,
+        risk_classification: Optional[Any] = None,
     ) -> DecisionResult:
         """Support the async engine while preserving legacy test/integration doubles."""
         evaluate_async = getattr(self._decision_engine, "evaluate_async", None)
         if callable(evaluate_async):
-            candidate = evaluate_async(plan, context, simulation_result=simulation_result)
+            try:
+                candidate = evaluate_async(
+                    plan, context, simulation_result=simulation_result, risk_classification=risk_classification
+                )
+            except TypeError:
+                candidate = evaluate_async(plan, context, simulation_result=simulation_result)
             if inspect.isawaitable(candidate):
                 return await candidate
-        return self._decision_engine.evaluate(plan, context, simulation_result=simulation_result)
+        try:
+            return self._decision_engine.evaluate(
+                plan, context, simulation_result=simulation_result, risk_classification=risk_classification
+            )
+        except TypeError:
+            return self._decision_engine.evaluate(plan, context, simulation_result=simulation_result)
 
     async def _process_impl(
         self,
@@ -327,18 +391,59 @@ class Orchestrator:
         start = datetime.now(timezone.utc)
         context: Dict[str, Any] = {"execution_id": execution_id, "session_id": session_id}
         if skip_simulation:
-            # Private marker for the replay of a plan already approved through
-            # Sentinel's signed pending-action flow.
+            # Verificar ConsentManager antes de autorizar bypass
+            if self._consent_service is not None and identity is not None:
+                user_id = identity.get("user_id") if isinstance(identity, dict) else None
+                if user_id and override_plan and override_plan.steps:
+                    tool_id = override_plan.steps[0].tool_id
+                    grant = self._consent_service.check_existing_consent(user_id, tool_id)
+                    if grant is None:
+                        logger.warning(
+                            "No ConsentGrant found for %s/%s — fallback to pending action approval", user_id, tool_id
+                        )
             context["_orchestrator_approval"] = True
         if identity is not None:
             context["identity"] = identity
 
         if self._rate_limiter:
             try:
-                global_limit = DEFAULT_LIMITS.get("global", 60)
-                dec = self._rate_limiter.allow("global", limit=global_limit)
+                rc = self._rate_limit_config or {}
+                user_id = identity.get("user_id") if isinstance(identity, dict) else None
+                user_tier = identity.get("tier", "free") if isinstance(identity, dict) else "free"
+                tiers = []
+                tier_global_key = f"tier:{user_tier}:global"
+                global_limit = rc.get(tier_global_key) or rc.get("global", DEFAULT_LIMITS.get("global", 1000))
+                tiers.append(("global", global_limit))
+                if session_id:
+                    tier_session_key = f"tier:{user_tier}:session"
+                    session_limit = rc.get(tier_session_key) or rc.get("session", DEFAULT_LIMITS.get("session", 50))
+                    tiers.append((f"session:{session_id}", session_limit))
+                if user_id:
+                    tier_user_key = f"tier:{user_tier}:user"
+                    user_limit = rc.get(tier_user_key) or rc.get("user", DEFAULT_LIMITS.get("user", 100))
+                    tiers.append((f"user:{user_id}", user_limit))
+                dec = self._rate_limiter.check_hierarchy(tiers, tier_label=user_tier)
                 if not dec.allowed:
-                    logger.warning("Rate limit exceeded for global key (retry_after=%.0fs)", dec.retry_after)
+                    denied_tier = tiers[-1][0] if tiers else "unknown"
+                    for k, _ in reversed(tiers):
+                        c = self._rate_limiter.check(k, limit=1)
+                        if not c.allowed:
+                            denied_tier = k
+                            break
+                    logger.warning(
+                        "Rate limit exceeded for %s (retry_after=%.0fs, tier=%s)",
+                        denied_tier,
+                        dec.retry_after,
+                        user_tier,
+                    )
+                    tier_base = denied_tier.split(":")[0] if ":" in denied_tier else denied_tier
+                    tier_label = tier_base.capitalize()
+                    if tier_base == "global":
+                        err_msg = f"Rate limit exceeded. Retry after {dec.retry_after}s"
+                    elif tier_base in ("user", "session"):
+                        err_msg = f"{tier_label} rate limit exceeded. Retry after {dec.retry_after}s"
+                    else:
+                        err_msg = f"Rate limit exceeded. Retry after {dec.retry_after}s"
                     return ExecutionResult(
                         plan=ExecutionPlan(
                             intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=utterance),
@@ -351,48 +456,53 @@ class Orchestrator:
                             tool_params={},
                             task_type=TaskType.QUICK,
                         ),
-                        error=f"Rate limit exceeded. Retry after {dec.retry_after}s",
+                        error=err_msg,
                         rate_limited=True,
                         retry_after=dec.retry_after,
                     )
-                if session_id:
-                    session_limit = DEFAULT_LIMITS.get("session", 20)
-                    dec = self._rate_limiter.allow(f"session:{session_id}", limit=session_limit)
-                    if not dec.allowed:
-                        logger.warning("Rate limit exceeded for session %s", session_id)
-                        return ExecutionResult(
-                            plan=ExecutionPlan(
-                                intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=utterance),
-                                plan=Plan(
-                                    steps=[],
-                                    intent=Intent(
-                                        action="", target="", parameters={}, confidence=0.0, raw_input=utterance
-                                    ),
-                                    description="",
-                                ),
-                                tool_id="",
-                                tool_params={},
-                                task_type=TaskType.QUICK,
-                            ),
-                            error=f"Session rate limit exceeded. Retry after {dec.retry_after}s",
-                            rate_limited=True,
-                            retry_after=dec.retry_after,
-                        )
             except Exception as e:
                 logger.warning("Rate limiter check failed: %s", e)
 
+        if (
+            identity is None
+            or not isinstance(identity, dict)
+            or not identity.get("is_authenticated")
+            or not identity.get("user_id")
+        ):
+            logger.warning("Missing authenticated identity in process() call — ToolGateway will enforce at execution")
+
         if self._context_engine:
-            await self._emit(event_types.CONTEXT_LOADING, component="context_engine", session_id=session_id, request_id=execution_id)
+            await self._emit(
+                event_types.CONTEXT_LOADING, component="context_engine", session_id=session_id, request_id=execution_id
+            )
             try:
                 sys_ctx = await self._context_engine.collect(include_processes=False)
                 context["system"] = sys_ctx.to_dict()
                 context["system_summary"] = sys_ctx.summary()
-                await self._emit(event_types.CONTEXT_LOADED, component="context_engine", session_id=session_id, request_id=execution_id, status="completed")
+                await self._emit(
+                    event_types.CONTEXT_LOADED,
+                    component="context_engine",
+                    session_id=session_id,
+                    request_id=execution_id,
+                    status="completed",
+                )
             except Exception as e:
                 logger.warning("Context collection failed: %s", e)
-                await self._emit(event_types.CONTEXT_LOADED, component="context_engine", session_id=session_id, request_id=execution_id, status="failed")
+                await self._emit(
+                    event_types.CONTEXT_LOADED,
+                    component="context_engine",
+                    session_id=session_id,
+                    request_id=execution_id,
+                    status="failed",
+                )
 
-        user_id = identity.get("user_id") if isinstance(identity, dict) else getattr(identity, "user_id", None)
+        user_id = (
+            identity.get("user_id")
+            if isinstance(identity, dict)
+            else getattr(identity, "user_id", None)
+            if identity is not None
+            else None
+        )
 
         if session_id and self._memory:
             try:
@@ -534,12 +644,12 @@ class Orchestrator:
     ) -> ExecutionResult:
         """Shared pipeline logic: validation -> simulation -> decision -> execution -> grounding -> memory -> advisory."""
         session_id = context.get("session_id")
-        await self._emit(event_types.PIPELINE_STARTED, component="pipeline", session_id=session_id, request_id=execution_id)
+        await self._emit(
+            event_types.PIPELINE_STARTED, component="pipeline", session_id=session_id, request_id=execution_id
+        )
 
-        # Validation
+        # Validation (structural only — grounding moved after security pipeline)
         validation_error = self._validate_executable_plan(intent, plan)
-        if not validation_error:
-            validation_error = self._validate_grounding_plan(intent, plan)
         if validation_error:
             tool_result = ToolResult.fail(error=validation_error, tool_id=intent.target or "planner")
             result = ExecutionResult(plan=exec_plan, tool_result=tool_result, error=validation_error)
@@ -567,13 +677,47 @@ class Orchestrator:
             except Exception as e:
                 logger.warning("Simulation failed: %s", e)
 
-        # Decision
+        # Risk Classification (contextual, antes de la decisión)
+        risk_classification = None
+        if self._risk_classifier is not None:
+            try:
+                from .risk_classifier import RiskClassifier
+
+                risk_classification = self._risk_classifier.classify(
+                    intent, plan, context, simulation_result=simulation_result
+                )
+                logger.info(
+                    "RiskClassifier: level=%s score=%.2f for %s/%s",
+                    risk_classification.level.value if risk_classification else "?",
+                    risk_classification.score if risk_classification else 0,
+                    intent.action,
+                    intent.target,
+                )
+            except Exception as e:
+                logger.warning("RiskClassifier failed: %s", e)
+
+        # Decision (RiskClassification es fuente primaria)
         decision: Optional[DecisionResult] = None
         if self._decision_engine:
-            await self._emit(event_types.POLICY_VALIDATING, component="policy_engine", session_id=session_id, request_id=execution_id)
-            decision = await self._evaluate_decision(plan, context, simulation_result=simulation_result)
-            decision_value = decision.decision if isinstance(decision.decision, str) else getattr(decision.decision, "value", str(decision.decision))
-            await self._emit(event_types.POLICY_VALIDATED, component="policy_engine", session_id=session_id, request_id=execution_id, status="completed", details={"decision": decision_value})
+            await self._emit(
+                event_types.POLICY_VALIDATING, component="policy_engine", session_id=session_id, request_id=execution_id
+            )
+            decision = await self._evaluate_decision(
+                plan, context, simulation_result=simulation_result, risk_classification=risk_classification
+            )
+            decision_value = (
+                decision.decision
+                if isinstance(decision.decision, str)
+                else getattr(decision.decision, "value", str(decision.decision))
+            )
+            await self._emit(
+                event_types.POLICY_VALIDATED,
+                component="policy_engine",
+                session_id=session_id,
+                request_id=execution_id,
+                status="completed",
+                details={"decision": decision_value},
+            )
             safe_read_only_shortcut = self._decision_engine.should_skip_decision(intent) and not (
                 simulation_result and simulation_result.requires_confirmation
             )
@@ -581,7 +725,7 @@ class Orchestrator:
                 decision = DecisionResult(
                     decision=Decision.APPROVE,
                     plan=plan,
-                    reason="Read-only query approved without interactive confirmation.",
+                    reason="Consulta de solo lectura aprobada sin confirmación interactiva.",
                     context_factors=decision.context_factors,
                     base_risk_score=decision.base_risk_score,
                     context_modifier=decision.context_modifier,
@@ -607,7 +751,7 @@ class Orchestrator:
                 decision=decision,
                 simulated=True,
                 blocked=False,
-                error=f"Execution rejected: {decision.reason}",
+                error="No puedo ejecutar esta acción porque excede el nivel de riesgo permitido.",
             )
             self._store_memory(execution_id, start, raw_input, intent, plan, decision, context, result)
             return self._attach_advisory(result)
@@ -636,8 +780,27 @@ class Orchestrator:
             )
             if self._memory:
                 self._memory.store_pending_action(pending)
+
+            # Registrar solicitud de consentimiento (único punto de auditoría)
+            if self._consent_service is not None:
+                identity = context.get("identity")
+                user_id = identity.get("user_id") if isinstance(identity, dict) else None
+                if user_id:
+                    self._consent_service.record_request(
+                        user_id=user_id,
+                        tool_id=exec_plan.tool_id,
+                        action_id=action_id,
+                        risk_level=str(risk_classification.level.value) if risk_classification else "unknown",
+                    )
+
             sim_summary = simulation_result.summary if simulation_result else decision.reason
             logger.warning("Execution BLOCKED: %s (action_id=%s)", reason, action_id)
+            user_message = "Necesito tu autorización para continuar con esta acción."
+            if simulation_result:
+                for imp in simulation_result.impacts:
+                    if imp.tool_id == "executor.launch" and imp.processes_affected:
+                        user_message = f"Necesito tu autorización para abrir {imp.processes_affected[0]}."
+                        break
             result = ExecutionResult(
                 plan=exec_plan,
                 decision=decision,
@@ -645,7 +808,21 @@ class Orchestrator:
                 blocked=True,
                 action_id=action_id,
                 simulation_summary=sim_summary,
-                error=f"Execution blocked: {reason}",
+                error=user_message,
+            )
+            self._store_memory(execution_id, start, raw_input, intent, plan, decision, context, result)
+            return self._attach_advisory(result)
+
+        # Grounding validation (after security pipeline — grounding can block but never replace security)
+        grounding_validation_error = self._validate_grounding_plan(intent, plan)
+        if grounding_validation_error:
+            logger.warning("Grounding requirements cannot be satisfied: %s", grounding_validation_error)
+            result = ExecutionResult(
+                plan=exec_plan,
+                decision=decision,
+                simulated=False,
+                blocked=False,
+                error="No se pudo verificar la información necesaria antes de ejecutar.",
             )
             self._store_memory(execution_id, start, raw_input, intent, plan, decision, context, result)
             return self._attach_advisory(result)
@@ -678,8 +855,7 @@ class Orchestrator:
                 )
                 if not grounding_satisfied:
                     failed_reqs = [
-                        r.category.value for r in getattr(intent, "grounding_requirements", [])
-                        if r.required
+                        r.category.value for r in getattr(intent, "grounding_requirements", []) if r.required
                     ]
                     logger.warning("Pre-execution grounding FAILED for: %s", failed_reqs)
                     result = ExecutionResult(
@@ -687,7 +863,7 @@ class Orchestrator:
                         decision=decision,
                         simulated=False,
                         blocked=False,
-                        error=f"Required grounding failed: {failed_reqs}",
+                        error="No se pudo verificar la información necesaria antes de ejecutar.",
                         grounding_results=grounding_results,
                         grounding_satisfied=False,
                         step_results=grounding_step_results,
@@ -697,20 +873,15 @@ class Orchestrator:
                     return self._attach_advisory(result)
                 logger.info("Pre-execution grounding PASSED for intent %s/%s", intent.action, intent.target)
             else:
-                failed = [
-                    {"tool_id": sr.tool_id, "error": sr.error}
-                    for sr in grounding_step_results if not sr.success
-                ]
+                failed = [{"tool_id": sr.tool_id, "error": sr.error} for sr in grounding_step_results if not sr.success]
                 logger.warning("Pre-execution grounding tool(s) FAILED: %s", failed)
-                grounding_results, _ = self._verify_grounding_results(
-                    intent, grounding_step_results, dry_run=dry_run
-                )
+                grounding_results, _ = self._verify_grounding_results(intent, grounding_step_results, dry_run=dry_run)
                 result = ExecutionResult(
                     plan=exec_plan,
                     decision=decision,
                     simulated=False,
                     blocked=False,
-                    error=f"Grounding execution failed: {failed}",
+                    error="Error al ejecutar las verificaciones previas necesarias.",
                     grounding_results=grounding_results,
                     grounding_satisfied=False,
                     step_results=grounding_step_results,
@@ -720,7 +891,13 @@ class Orchestrator:
                 return self._attach_advisory(result)
 
         # Execution: run non-grounding plan steps (grounding already verified)
-        await self._emit(event_types.EXECUTION_STARTED, component="execution", session_id=session_id, request_id=execution_id, details={"step_count": len(plan.steps)})
+        await self._emit(
+            event_types.EXECUTION_STARTED,
+            component="execution",
+            session_id=session_id,
+            request_id=execution_id,
+            details={"step_count": len(plan.steps)},
+        )
         grounding_executed_ids = {sr.step_id for sr in grounding_step_results}
         step_results: List[StepResult] = []
         step_results.extend(grounding_step_results)
@@ -729,9 +906,7 @@ class Orchestrator:
         rollback_actions: List[Dict[str, Any]] = []
 
         grounding_pre_verified = bool(grounding_step_ids and not dry_run)
-        levels = self._planner.resolve_dependencies(
-            Plan(steps=plan.steps, intent=intent, description="Main execution")
-        )
+        levels = self._planner.resolve_dependencies(Plan(steps=plan.steps, intent=intent, description="Main execution"))
         if plan.steps and not levels and not step_results:
             tool_result = ToolResult.fail(error="Invalid plan dependency graph", tool_id="planner")
         for level in levels:
@@ -798,9 +973,7 @@ class Orchestrator:
             tool_result.duration_ms = sum(s.duration_ms or 0 for s in step_results if s.duration_ms)
 
         # Grounding verification (post-execution audit)
-        grounding_results, grounding_satisfied = self._verify_grounding_results(
-            intent, step_results, dry_run=dry_run
-        )
+        grounding_results, grounding_satisfied = self._verify_grounding_results(intent, step_results, dry_run=dry_run)
         result = ExecutionResult(
             plan=exec_plan,
             decision=decision,
@@ -813,13 +986,34 @@ class Orchestrator:
             grounding_satisfied=grounding_satisfied,
         )
         if not dry_run and not grounding_satisfied and not result.error and not grounding_pre_verified:
-            result.error = "Required grounding evidence was not produced"
+            result.error = "No se pudo obtener la información necesaria para ejecutar la acción."
         if not dry_run:
-            await self._emit(event_types.AUDIT_STARTED, component="audit", session_id=session_id, request_id=execution_id)
+            await self._emit(
+                event_types.AUDIT_STARTED, component="audit", session_id=session_id, request_id=execution_id
+            )
             self._store_memory(execution_id, start, raw_input, intent, plan, decision, context, result)
-            await self._emit(event_types.AUDIT_COMPLETED, component="audit", session_id=session_id, request_id=execution_id, status="completed")
-        await self._emit(event_types.EXECUTION_COMPLETED, component="execution", session_id=session_id, request_id=execution_id, status="completed" if not result.error else "failed", duration=(datetime.now(timezone.utc) - start).total_seconds())
-        await self._emit(event_types.PIPELINE_COMPLETED, component="pipeline", session_id=session_id, request_id=execution_id, status="completed" if not result.error else "failed")
+            await self._emit(
+                event_types.AUDIT_COMPLETED,
+                component="audit",
+                session_id=session_id,
+                request_id=execution_id,
+                status="completed",
+            )
+        await self._emit(
+            event_types.EXECUTION_COMPLETED,
+            component="execution",
+            session_id=session_id,
+            request_id=execution_id,
+            status="completed" if not result.error else "failed",
+            duration=(datetime.now(timezone.utc) - start).total_seconds(),
+        )
+        await self._emit(
+            event_types.PIPELINE_COMPLETED,
+            component="pipeline",
+            session_id=session_id,
+            request_id=execution_id,
+            status="completed" if not result.error else "failed",
+        )
         return self._attach_advisory(result)
 
     def _grounding_step_ids(self, intent: Intent) -> set:
@@ -861,10 +1055,15 @@ class Orchestrator:
         dry_run: bool = False,
         skip_simulation: bool = False,
     ) -> ExecutionResult:
+        """Execute a tool directly through the full pipeline.
+
+        Consolida en process() para garantizar identical validaciones
+        (timeout, advisory, presentation) que la ruta principal.
+        """
         self._enforce_pipeline("execute_direct")
         raw_input = utterance or f"execute {tool_id}"
         override_plan = self._tool_to_override_plan(tool_id, params, utterance)
-        return await self._process_impl(
+        return await self.process(
             raw_input,
             identity=identity,
             session_id=None,
@@ -886,6 +1085,7 @@ class Orchestrator:
         if has_presentation and result.presentation is None:
             try:
                 from sentinel.presentation import PresentationMode
+
                 mode = PresentationMode.USER
                 result.presentation = self._presentation.present(result, mode)
             except Exception as exc:
@@ -903,7 +1103,10 @@ class Orchestrator:
         context: Dict[str, Any],
         result: ExecutionResult,
     ) -> None:
-        duration_ms = (datetime.now(timezone.utc) - start).total_seconds() * 1000
+        duration_ms = max(
+            (datetime.now(timezone.utc) - start).total_seconds() * 1000,
+            0.001,
+        )
         session_id = context.get("session_id")
         system_summary = dict(context.get("system_summary", {}))
         if result.rollback_actions:
@@ -1013,11 +1216,39 @@ class Orchestrator:
                 data={
                     "simulated": True,
                     "tool_id": step.tool_id,
-                    "params": dict(step.params),
                     "description": step.description,
                     "model_decision": step_context.get("model_decision"),
                 },
             )
+        if CONSERVATIVE_MODE and step.tool_id in CONSERVATIVE_BLOCKED_TOOLS:
+            return StepResult(
+                step_id=step.id,
+                tool_id=step.tool_id,
+                success=False,
+                error="Esta acci\u00f3n est\u00e1 bloqueada por configuraci\u00f3n de seguridad.",
+                data={"blocked_by": "conservative_mode", "tool_id": step.tool_id},
+            )
+
+        rate_limiter = getattr(self, "_rate_limiter", None)
+        rate_limit_config = getattr(self, "_rate_limit_config", None)
+        if rate_limiter and rate_limit_config:
+            tool_cat = step.tool_id.split(".")[0] if "." in step.tool_id else step.tool_id
+            tool_limit_key = f"tool:{tool_cat}"
+            tool_limit = rate_limit_config.get(tool_limit_key)
+            if tool_limit is not None:
+                identity = step_context.get("identity") or {}
+                user_tier = identity.get("tier", "free") if isinstance(identity, dict) else "free"
+                dec = rate_limiter.allow(f"tool:{tool_cat}:{step.tool_id}", limit=tool_limit, tier=user_tier)
+                if not dec.allowed:
+                    logger.warning("Tool rate limit exceeded for %s (retry_after=%.0fs)", step.tool_id, dec.retry_after)
+                    return StepResult(
+                        step_id=step.id,
+                        tool_id=step.tool_id,
+                        success=False,
+                        error=f"Rate limit exceeded for tool category '{tool_cat}'. Retry after {dec.retry_after}s",
+                        data={"rate_limited": True, "retry_after": dec.retry_after, "tool_category": tool_cat},
+                    )
+
         step_params = dict(step.params)
         if step.tool_id == "executor.command":
             step_params.setdefault("command", intent.parameters.get("command", ""))
@@ -1040,13 +1271,27 @@ class Orchestrator:
             attempted_tools.append(tid)
             session_id = context.get("session_id")
             execution_id = context.get("execution_id", "")
-            await self._emit(event_types.TOOL_STARTED, component="tool_gateway", session_id=session_id, request_id=execution_id, tool=tid)
+            await self._emit(
+                event_types.TOOL_STARTED,
+                component="tool_gateway",
+                session_id=session_id,
+                request_id=execution_id,
+                tool=tid,
+            )
             result = await self._tool_gateway.execute(
                 tool_id=tid,
                 params=step_params,
                 context=step_context,
             )
-            await self._emit(event_types.TOOL_FINISHED, component="tool_gateway", session_id=session_id, request_id=execution_id, tool=tid, status="completed" if result.success else "failed", duration=result.duration_ms / 1000.0 if result.duration_ms else None)
+            await self._emit(
+                event_types.TOOL_FINISHED,
+                component="tool_gateway",
+                session_id=session_id,
+                request_id=execution_id,
+                tool=tid,
+                status="completed" if result.success else "failed",
+                duration=result.duration_ms / 1000.0 if result.duration_ms else None,
+            )
             return result
 
         policy = step.recovery_policy or RecoveryPolicy.default_for(step.tool_id)
@@ -1158,13 +1403,8 @@ class Orchestrator:
     def _validate_grounding_plan(intent: Intent, plan: Plan) -> Optional[str]:
         planned_tools = {step.tool_id for step in plan.steps}
         for requirement in intent.grounding_requirements:
-            if requirement.required and (
-                not requirement.tool_id or requirement.tool_id not in planned_tools
-            ):
-                return (
-                    "The plan cannot satisfy required grounding for "
-                    f"{requirement.category.value}"
-                )
+            if requirement.required and (not requirement.tool_id or requirement.tool_id not in planned_tools):
+                return f"The plan cannot satisfy required grounding for {requirement.category.value}"
         return None
 
     @staticmethod
@@ -1190,8 +1430,7 @@ class Orchestrator:
                 (
                     result
                     for result in step_results
-                    if result.tool_id == requirement.tool_id
-                    or result.executed_tool_id == requirement.tool_id
+                    if result.tool_id == requirement.tool_id or result.executed_tool_id == requirement.tool_id
                 ),
                 None,
             )
@@ -1208,9 +1447,9 @@ class Orchestrator:
                     "timestamp": matching.timestamp if matching else "",
                     "freshness_seconds": requirement.freshness_seconds,
                     "reason": requirement.reason,
-                    "error": None if grounded or dry_run else (
-                        matching.error if matching else "Required tool result is missing"
-                    ),
+                    "error": None
+                    if grounded or dry_run
+                    else (matching.error if matching else "Required tool result is missing"),
                 }
             )
         return evidence, satisfied
@@ -1221,7 +1460,7 @@ class Orchestrator:
         if intent.confidence < 0.6:
             return None
         if not plan.steps:
-            return "The planner produced no executable steps"
+            return "No se pudo generar un plan de acción ejecutable."
         required = {
             "executor.command": "command",
             "executor.launch": "app_name",
@@ -1230,7 +1469,7 @@ class Orchestrator:
         if required and intent.parameters.get(required) is None:
             return f"{required} is required for {intent.target}"
         if any(not step.tool_id for step in plan.steps):
-            return "The planner produced a step without a tool"
+            return "El plan de acción contiene un paso sin herramienta asignada."
         return None
 
     @staticmethod
@@ -1347,9 +1586,9 @@ class Orchestrator:
                     tool_params={},
                     task_type=TaskType.QUICK,
                 ),
-                error="No memory backend available for approval",
+                error="El sistema de aprobación no está disponible en este momento.",
             )
-        record = self._memory.get_pending_action(action_id)
+        record = self._memory.consume_pending_action(action_id)
         if record is None:
             return ExecutionResult(
                 plan=ExecutionPlan(
@@ -1379,7 +1618,6 @@ class Orchestrator:
                 ),
                 error="Approval identity does not match the user who requested the action",
             )
-        self._memory.remove_pending_action(action_id)
 
         if not modified_steps:
             return ExecutionResult(
@@ -1462,9 +1700,9 @@ class Orchestrator:
                     tool_params={},
                     task_type=TaskType.QUICK,
                 ),
-                error="No memory backend available for approval",
+                error="El sistema de aprobación no está disponible en este momento.",
             )
-        record = self._memory.get_pending_action(action_id)
+        record = self._memory.consume_pending_action(action_id)
         if record is None:
             return ExecutionResult(
                 plan=ExecutionPlan(
@@ -1494,8 +1732,20 @@ class Orchestrator:
                 ),
                 error="Approval identity does not match the user who requested the action",
             )
-        self._memory.remove_pending_action(action_id)
+        tool_id = (
+            record.params.get("plan", {}).get("steps", [{}])[0].get("tool_id", record.tool_id)
+            if record.params.get("plan")
+            else record.tool_id
+        )
+        user_id = (approver_identity or {}).get("user_id", "unknown")
         if not approved:
+            if self._consent_service is not None:
+                self._consent_service.record_decision(
+                    action_id=action_id,
+                    user_id=user_id,
+                    tool_id=tool_id,
+                    approved=False,
+                )
             return ExecutionResult(
                 plan=ExecutionPlan(
                     intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=""),
@@ -1509,9 +1759,16 @@ class Orchestrator:
                     tool_params={},
                     task_type=TaskType.QUICK,
                 ),
-                error=f"Execution rejected by user: {record.reason}",
+                error="La acción fue rechazada por el usuario.",
             )
         logger.info("Execution APPROVED: %s (action_id=%s)", record.reason, action_id)
+        if self._consent_service is not None:
+            self._consent_service.record_decision(
+                action_id=action_id,
+                user_id=user_id,
+                tool_id=tool_id,
+                approved=True,
+            )
         utterance = record.params.get("utterance", "")
         identity = record.params.get("identity")
         session_id = record.params.get("session_id")
@@ -1521,6 +1778,7 @@ class Orchestrator:
                 plan=self._build_exec_plan(stored_plan.intent, stored_plan, {}),
                 error="Stored approval plan is empty or invalid",
             )
+
         return await self.process(
             utterance,
             identity=identity,
@@ -1599,7 +1857,7 @@ class Orchestrator:
                     tool_params={},
                     task_type=TaskType.QUICK,
                 ),
-                error="Multi-agent orchestrator not configured",
+                error="La ejecución multi-agente no está configurada.",
             )
 
         if self._rate_limiter:
@@ -1736,7 +1994,7 @@ class Orchestrator:
                     tool_params={},
                     task_type=TaskType.QUICK,
                 ),
-                error="Offline queue not configured",
+                error="La cola de ejecución offline no está configurada.",
             )
 
         item = self._offline_queue.enqueue(

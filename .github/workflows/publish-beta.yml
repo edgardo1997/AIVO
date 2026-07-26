@@ -1,0 +1,116 @@
+name: Publish Sentinel private beta
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing signed draft release tag
+        required: true
+        type: string
+      rollback_tag:
+        description: Previously verified release used for rollback
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  attestations: read
+
+concurrency:
+  group: private-beta-publication
+  cancel-in-progress: false
+
+jobs:
+  validate-and-publish:
+    runs-on: windows-latest
+    environment: private-beta
+    env:
+      BETA_TAG: ${{ inputs.tag }}
+      ROLLBACK_TAG: ${{ inputs.rollback_tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Validate immutable version inputs
+        shell: pwsh
+        run: |
+          $pattern = '^v[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$'
+          if ($env:BETA_TAG -notmatch $pattern -or $env:ROLLBACK_TAG -notmatch $pattern) {
+            throw 'Beta and rollback tags must be valid immutable version tags'
+          }
+          if ($env:BETA_TAG -eq $env:ROLLBACK_TAG) {
+            throw 'Rollback tag must identify a different release'
+          }
+
+      - name: Require protected beta approval
+        shell: pwsh
+        env:
+          PRIVATE_BETA_APPROVED: ${{ secrets.PRIVATE_BETA_APPROVED }}
+        run: |
+          if ($env:PRIVATE_BETA_APPROVED -ne 'approved-private-beta') {
+            throw 'Protected private-beta environment approval is missing'
+          }
+
+      - name: Require independent pentest approval
+        run: |
+          pip install cryptography==49.0.0
+          python scripts/verify_pentest_gate.py `
+            --attestation security/pentest/approval.json `
+            --assessors security/pentest/trusted-assessors.json `
+            --version ($env:BETA_TAG -replace '^v','')
+
+      - name: Download candidate and rollback artifacts
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $candidate = Join-Path $env:RUNNER_TEMP 'candidate'
+          $rollback = Join-Path $env:RUNNER_TEMP 'rollback'
+          New-Item -ItemType Directory -Force $candidate, $rollback | Out-Null
+          gh release download $env:BETA_TAG --dir $candidate
+          gh release download $env:ROLLBACK_TAG --dir $rollback
+          echo "CANDIDATE_DIR=$candidate" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          echo "ROLLBACK_DIR=$rollback" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Verify candidate and rollback integrity
+        shell: pwsh
+        run: |
+          foreach ($directory in $env:CANDIDATE_DIR, $env:ROLLBACK_DIR) {
+            python scripts/release_metadata.py verify-downloaded `
+              --manifest (Join-Path $directory 'release-manifest.json') `
+              --asset-dir $directory
+            $installers = Get-ChildItem -LiteralPath $directory -File |
+              Where-Object Extension -in '.exe','.msi'
+            if (-not $installers) { throw "No rollback-capable installer in $directory" }
+            foreach ($installer in $installers) {
+              if ((Get-AuthenticodeSignature $installer.FullName).Status -ne 'Valid') {
+                throw "Invalid Authenticode signature: $($installer.Name)"
+              }
+            }
+          }
+
+      - name: Verify build provenance
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          foreach ($artifact in (Get-ChildItem -LiteralPath $env:CANDIDATE_DIR -File -Include *.exe,*.msi)) {
+            gh attestation verify $artifact.FullName `
+              --repo "${{ github.repository }}" `
+              --signer-workflow "${{ github.repository }}/.github/workflows/release.yml" `
+              --source-ref "refs/tags/$env:BETA_TAG"
+          }
+
+      - name: Publish as private beta prerelease
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release edit $env:BETA_TAG --draft=false --prerelease

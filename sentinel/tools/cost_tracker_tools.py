@@ -8,6 +8,7 @@ logger = logging.getLogger(__name__)
 
 def _get_ct():
     from modules import get_sentinel_orchestrator
+
     orch = get_sentinel_orchestrator()
     return getattr(orch, "cost_tracker", None)
 
@@ -40,14 +41,17 @@ class BudgetCreateTool(Tool):
         if ct is None:
             return ToolResult.fail(error="Cost tracker not available", tool_id="budget.create")
         from sentinel.core.cost_tracker import BudgetConfig
-        ct.set_budget(BudgetConfig(
-            name=params["name"],
-            max_cost_usd=float(params.get("max_cost_usd", 0)),
-            period=params.get("period", "monthly"),
-            provider_id=params.get("provider_id"),
-            max_tokens=params.get("max_tokens"),
-            enabled=params.get("enabled", True),
-        ))
+
+        ct.set_budget(
+            BudgetConfig(
+                name=params["name"],
+                max_cost_usd=float(params.get("max_cost_usd", 0)),
+                period=params.get("period", "monthly"),
+                provider_id=params.get("provider_id"),
+                max_tokens=params.get("max_tokens"),
+                enabled=params.get("enabled", True),
+            )
+        )
         return ToolResult.ok(data={"success": True, "name": params["name"]}, tool_id="budget.create")
 
 

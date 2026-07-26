@@ -8,6 +8,7 @@ logger = logging.getLogger(__name__)
 
 def _get_orch():
     from modules import get_sentinel_orchestrator
+
     return get_sentinel_orchestrator()
 
 
@@ -96,9 +97,13 @@ class ModelCircuitBreakerResetTool(Tool):
         orch = _get_orch()
         mr = getattr(orch, "_model_router", None)
         if mr is None:
-            return ToolResult.ok(data={"reset": 0, "provider_id": params.get("provider_id")}, tool_id="circuit_breaker.reset_model")
+            return ToolResult.ok(
+                data={"reset": 0, "provider_id": params.get("provider_id")}, tool_id="circuit_breaker.reset_model"
+            )
         total = mr.circuit_breaker.reset(provider_id=params.get("provider_id"))
-        return ToolResult.ok(data={"reset": total, "provider_id": params.get("provider_id")}, tool_id="circuit_breaker.reset_model")
+        return ToolResult.ok(
+            data={"reset": total, "provider_id": params.get("provider_id")}, tool_id="circuit_breaker.reset_model"
+        )
 
 
 class ToolCircuitBreakerResetTool(Tool):
@@ -130,7 +135,10 @@ class ToolCircuitBreakerResetTool(Tool):
         else:
             h = getattr(orch, "_hardening", None)
             count = h.circuit_breaker.reset(resource_id) if h else 0
-        return ToolResult.ok(data={"resource_type": resource_type, "resource_id": resource_id, "circuits_reset": count}, tool_id="circuit_breaker.reset_tool")
+        return ToolResult.ok(
+            data={"resource_type": resource_type, "resource_id": resource_id, "circuits_reset": count},
+            tool_id="circuit_breaker.reset_tool",
+        )
 
 
 class OfflineQueueSyncTool(Tool):
@@ -175,6 +183,7 @@ class OfflineQueueClearTool(Tool):
         if q is None:
             return ToolResult.ok(data={"cleared": 0}, tool_id="offline_queue.clear")
         from sentinel.core.offline_queue import QueueStatus
+
         st = QueueStatus(params["status"]) if params.get("status") else None
         count = q.clear(status=st)
         return ToolResult.ok(data={"cleared": count}, tool_id="offline_queue.clear")
@@ -190,8 +199,14 @@ class AlertAcknowledgeTool(Tool):
             parameters={
                 "type": "object",
                 "properties": {
-                    "alert_id": {"type": "string", "description": "Specific alert ID, or empty to acknowledge by source"},
-                    "source": {"type": "string", "description": "Source to acknowledge all for (used when alert_id is empty)"},
+                    "alert_id": {
+                        "type": "string",
+                        "description": "Specific alert ID, or empty to acknowledge by source",
+                    },
+                    "source": {
+                        "type": "string",
+                        "description": "Source to acknowledge all for (used when alert_id is empty)",
+                    },
                 },
                 "required": [],
             },
@@ -244,7 +259,10 @@ class AlertClearTool(Tool):
             parameters={
                 "type": "object",
                 "properties": {
-                    "acknowledged_only": {"type": "boolean", "description": "Only clear acknowledged alerts (default true)"},
+                    "acknowledged_only": {
+                        "type": "boolean",
+                        "description": "Only clear acknowledged alerts (default true)",
+                    },
                 },
                 "required": [],
             },
@@ -290,22 +308,56 @@ class SimulateApproveTool(Tool):
             approver_identity=context.get("identity", {}),
         )
         from sentinel.presentation import PresentationLayer, PresentationMode
+
         pres = PresentationLayer()
         plan = result.plan
-        return ToolResult.ok(data={
-            "presentation": pres.present(result, PresentationMode.USER),
-            "blocked": result.blocked,
-            "approved": result.approved,
-            "action_id": result.action_id,
-            "error": result.error,
-            "simulation_summary": result.simulation_summary,
-            "decision": result.decision.decision if result.decision else None,
-            "decision_reason": result.decision.reason if result.decision else None,
-            "intent": {"action": plan.intent.action, "target": plan.intent.target, "parameters": plan.intent.parameters, "confidence": plan.intent.confidence, "raw_input": plan.intent.raw_input},
-            "tool_result": {"success": result.tool_result.success if result.tool_result else None, "data": result.tool_result.data if result.tool_result else None, "error": result.tool_result.error if result.tool_result else None, "requires_confirmation": result.tool_result.requires_confirmation if result.tool_result else False, "duration_ms": result.tool_result.duration_ms if result.tool_result else None} if result.tool_result else None,
-            "step_results": [{"step_id": s.step_id, "tool_id": s.tool_id, "success": s.success, "data": s.data, "error": s.error, "duration_ms": s.duration_ms, "attempts": s.attempts, "recovery_strategy": s.recovery_strategy, "executed_tool_id": s.executed_tool_id, "status": s.status} for s in result.step_results] if result.step_results else None,
-            "rollback_actions": result.rollback_actions,
-        }, tool_id="simulate.approve")
+        return ToolResult.ok(
+            data={
+                "presentation": pres.present(result, PresentationMode.USER),
+                "blocked": result.blocked,
+                "approved": result.approved,
+                "action_id": result.action_id,
+                "error": result.error,
+                "simulation_summary": result.simulation_summary,
+                "decision": result.decision.decision if result.decision else None,
+                "decision_reason": result.decision.reason if result.decision else None,
+                "intent": {
+                    "action": plan.intent.action,
+                    "target": plan.intent.target,
+                    "parameters": plan.intent.parameters,
+                    "confidence": plan.intent.confidence,
+                    "raw_input": plan.intent.raw_input,
+                },
+                "tool_result": {
+                    "success": result.tool_result.success if result.tool_result else None,
+                    "data": result.tool_result.data if result.tool_result else None,
+                    "error": result.tool_result.error if result.tool_result else None,
+                    "requires_confirmation": result.tool_result.requires_confirmation if result.tool_result else False,
+                    "duration_ms": result.tool_result.duration_ms if result.tool_result else None,
+                }
+                if result.tool_result
+                else None,
+                "step_results": [
+                    {
+                        "step_id": s.step_id,
+                        "tool_id": s.tool_id,
+                        "success": s.success,
+                        "data": s.data,
+                        "error": s.error,
+                        "duration_ms": s.duration_ms,
+                        "attempts": s.attempts,
+                        "recovery_strategy": s.recovery_strategy,
+                        "executed_tool_id": s.executed_tool_id,
+                        "status": s.status,
+                    }
+                    for s in result.step_results
+                ]
+                if result.step_results
+                else None,
+                "rollback_actions": result.rollback_actions,
+            },
+            tool_id="simulate.approve",
+        )
 
 
 class SimulateModifyAndApproveTool(Tool):
@@ -335,16 +387,36 @@ class SimulateModifyAndApproveTool(Tool):
             approver_identity=context.get("identity", {}),
         )
         from sentinel.presentation import PresentationLayer, PresentationMode
+
         pres = PresentationLayer()
-        return ToolResult.ok(data={
-            "presentation": pres.present(result, PresentationMode.USER),
-            "blocked": result.blocked,
-            "approved": result.approved,
-            "action_id": result.action_id,
-            "error": result.error,
-            "step_results": [{"step_id": s.step_id, "tool_id": s.tool_id, "success": s.success, "data": s.data, "error": s.error, "duration_ms": s.duration_ms, "attempts": s.attempts, "recovery_strategy": s.recovery_strategy, "executed_tool_id": s.executed_tool_id, "status": s.status} for s in result.step_results] if result.step_results else None,
-            "rollback_actions": result.rollback_actions,
-        }, tool_id="simulate.modify_and_approve")
+        return ToolResult.ok(
+            data={
+                "presentation": pres.present(result, PresentationMode.USER),
+                "blocked": result.blocked,
+                "approved": result.approved,
+                "action_id": result.action_id,
+                "error": result.error,
+                "step_results": [
+                    {
+                        "step_id": s.step_id,
+                        "tool_id": s.tool_id,
+                        "success": s.success,
+                        "data": s.data,
+                        "error": s.error,
+                        "duration_ms": s.duration_ms,
+                        "attempts": s.attempts,
+                        "recovery_strategy": s.recovery_strategy,
+                        "executed_tool_id": s.executed_tool_id,
+                        "status": s.status,
+                    }
+                    for s in result.step_results
+                ]
+                if result.step_results
+                else None,
+                "rollback_actions": result.rollback_actions,
+            },
+            tool_id="simulate.modify_and_approve",
+        )
 
 
 class ProcessOfflineTool(Tool):
@@ -373,11 +445,14 @@ class ProcessOfflineTool(Tool):
             identity=context.get("identity", {}),
             session_id=params.get("session_id"),
         )
-        return ToolResult.ok(data={
-            "queued": result.action_id is not None,
-            "item_id": result.action_id,
-            "error": result.error,
-        }, tool_id="process.offline")
+        return ToolResult.ok(
+            data={
+                "queued": result.action_id is not None,
+                "item_id": result.action_id,
+                "error": result.error,
+            },
+            tool_id="process.offline",
+        )
 
 
 class SkillSuggestTool(Tool):
@@ -466,6 +541,7 @@ class AdvisoryFeedbackTool(Tool):
 
     async def execute(self, params: Dict[str, Any], context: Dict[str, Any]) -> ToolResult:
         from modules import get_sentinel_orchestrator
+
         orch = get_sentinel_orchestrator()
         svc = getattr(orch, "_advisory", None)
         if svc is None:

@@ -4,6 +4,7 @@ from sentinel.core.tool import Tool, ToolResult, ToolSpec
 
 def _get_vault():
     from modules import get_sentinel_vault
+
     return get_sentinel_vault()
 
 
@@ -35,6 +36,7 @@ class VaultCreateTool(Tool):
     async def execute(self, params: Dict[str, Any], context: Dict[str, Any]) -> ToolResult:
         try:
             from sentinel.core.vault import VaultEntry
+
             vault = _get_vault()
             if vault is None:
                 return ToolResult.fail(error="Vault not available", tool_id="vault.create")

@@ -24,7 +24,14 @@ class HardwarePowerListTool(Tool):
         result = power_manager.list_plans()
         if not result.success:
             return ToolResult.fail(error=result.error or "Failed to list power plans", tool_id="hardware.power.list")
-        return ToolResult.ok(data={"plans": [{"guid": p.guid, "name": p.name, "active": p.active} for p in result.plans], "active_guid": result.active_guid, "active_name": result.active_name}, tool_id="hardware.power.list")
+        return ToolResult.ok(
+            data={
+                "plans": [{"guid": p.guid, "name": p.name, "active": p.active} for p in result.plans],
+                "active_guid": result.active_guid,
+                "active_name": result.active_name,
+            },
+            tool_id="hardware.power.list",
+        )
 
 
 class HardwarePowerStatusTool(Tool):
@@ -42,8 +49,12 @@ class HardwarePowerStatusTool(Tool):
     async def execute(self, params: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> ToolResult:
         result = power_manager.get_active_plan()
         if not result.success:
-            return ToolResult.fail(error=result.error or "Failed to get active power plan", tool_id="hardware.power.status")
-        return ToolResult.ok(data={"active_guid": result.active_guid, "active_name": result.active_name}, tool_id="hardware.power.status")
+            return ToolResult.fail(
+                error=result.error or "Failed to get active power plan", tool_id="hardware.power.status"
+            )
+        return ToolResult.ok(
+            data={"active_guid": result.active_guid, "active_name": result.active_name}, tool_id="hardware.power.status"
+        )
 
 
 class HardwarePowerSetTool(Tool):
@@ -73,8 +84,13 @@ class HardwarePowerSetTool(Tool):
             return ToolResult.fail(error="plan parameter is required", tool_id="hardware.power.set")
         result = power_manager.set_active_plan(plan)
         if not result.success:
-            return ToolResult.fail(error=result.error or f"Failed to set power plan to {plan}", tool_id="hardware.power.set")
-        return ToolResult.ok(data={"active_guid": result.active_guid, "active_name": result.active_name, "previous": ""}, tool_id="hardware.power.set")
+            return ToolResult.fail(
+                error=result.error or f"Failed to set power plan to {plan}", tool_id="hardware.power.set"
+            )
+        return ToolResult.ok(
+            data={"active_guid": result.active_guid, "active_name": result.active_name, "previous": ""},
+            tool_id="hardware.power.set",
+        )
 
 
 class ProcessListTool(Tool):
@@ -110,15 +126,25 @@ class ProcessListTool(Tool):
         )
         if not result.success:
             return ToolResult.fail(error=result.error or "Failed to list processes", tool_id="process.list")
-        return ToolResult.ok(data={
-            "processes": [
-                {"pid": p.pid, "name": p.name, "exe": p.exe, "status": p.status,
-                 "cpu_percent": p.cpu_percent, "memory_mb": round(p.memory_mb, 1),
-                 "username": p.username, "is_system": p.is_system}
-                for p in result.processes
-            ],
-            "count": len(result.processes),
-        }, tool_id="process.list")
+        return ToolResult.ok(
+            data={
+                "processes": [
+                    {
+                        "pid": p.pid,
+                        "name": p.name,
+                        "exe": p.exe,
+                        "status": p.status,
+                        "cpu_percent": p.cpu_percent,
+                        "memory_mb": round(p.memory_mb, 1),
+                        "username": p.username,
+                        "is_system": p.is_system,
+                    }
+                    for p in result.processes
+                ],
+                "count": len(result.processes),
+            },
+            tool_id="process.list",
+        )
 
 
 class ProcessKillTool(Tool):
@@ -254,7 +280,9 @@ class ProcessPriorityTool(Tool):
             return ToolResult.fail(error="priority parameter is required", tool_id="process.priority")
         result = process_manager.set_priority(target, priority)
         if not result.success:
-            return ToolResult.fail(error=result.error or f"Failed to set priority for '{target}'", tool_id="process.priority")
+            return ToolResult.fail(
+                error=result.error or f"Failed to set priority for '{target}'", tool_id="process.priority"
+            )
         return ToolResult.ok(data={"message": result.message, "errors": result.error}, tool_id="process.priority")
 
 
@@ -273,7 +301,9 @@ class GpuListTool(Tool):
     async def execute(self, params: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> ToolResult:
         result = gpu_manager.list_gpus()
         if not result.success:
-            return ToolResult.ok(data={"gpus": [], "message": result.error or "No GPU information available"}, tool_id="gpu.list")
+            return ToolResult.ok(
+                data={"gpus": [], "message": result.error or "No GPU information available"}, tool_id="gpu.list"
+            )
         return ToolResult.ok(data={"gpus": [g.__dict__ for g in result.gpus]}, tool_id="gpu.list")
 
 
@@ -333,7 +363,9 @@ class GpuProfileTool(Tool):
         idx = params.get("index", 0)
         result = gpu_manager.set_gpu_profile(profile, idx)
         if not result.success:
-            return ToolResult.fail(error=result.error or f"Failed to apply GPU profile '{profile}'", tool_id="gpu.profile")
+            return ToolResult.fail(
+                error=result.error or f"Failed to apply GPU profile '{profile}'", tool_id="gpu.profile"
+            )
         return ToolResult.ok(data={"message": result.message, "errors": result.error}, tool_id="gpu.profile")
 
 
@@ -363,7 +395,9 @@ class GpuPowerLimitTool(Tool):
         idx = params.get("index", 0)
         result = gpu_manager.set_power_limit(watts, idx)
         if not result.success:
-            return ToolResult.fail(error=result.error or f"Failed to set power limit to {watts}W", tool_id="gpu.power_limit")
+            return ToolResult.fail(
+                error=result.error or f"Failed to set power limit to {watts}W", tool_id="gpu.power_limit"
+            )
         return ToolResult.ok(data={"message": result.message}, tool_id="gpu.power_limit")
 
 

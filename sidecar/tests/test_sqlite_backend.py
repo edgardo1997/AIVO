@@ -54,7 +54,12 @@ def make_db():
             reason TEXT DEFAULT '',
             created_at TEXT NOT NULL,
             ttl_seconds INTEGER DEFAULT 600,
-            confirmed INTEGER DEFAULT 0
+            confirmed INTEGER DEFAULT 0,
+            risk_level TEXT DEFAULT 'low',
+            plan_id TEXT,
+            params_hash TEXT,
+            identity_hash TEXT,
+            redacted INTEGER DEFAULT 0
         );
         CREATE TABLE IF NOT EXISTS user_preferences (
             session_id TEXT NOT NULL,

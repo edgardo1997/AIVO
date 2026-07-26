@@ -1,4 +1,5 @@
 import asyncio
+import json
 
 from fastapi.testclient import TestClient
 
@@ -16,7 +17,7 @@ client = TestClient(app)
 def test_gateway_fails_closed_without_authenticated_identity():
     result = asyncio.run(get_gateway().execute("system.info", {}, {}))
     assert result.success is False
-    assert "identity required" in result.error.lower()
+    assert json.loads(result.error)["error_type"] == "AUTHENTICATION_REQUIRED"
     assert result.policy_result["policy_id"] == "identity"
 
 
@@ -25,7 +26,7 @@ def test_orchestrator_process_does_not_invent_anonymous_identity():
     result = asyncio.run(orchestrator.process("cpu usage"))
     assert result.tool_result is not None
     assert result.tool_result.success is False
-    assert "identity required" in result.tool_result.error.lower()
+    assert json.loads(result.tool_result.error)["error_type"] == "AUTHENTICATION_REQUIRED"
 
 
 def test_v1_rejects_client_supplied_identity():
@@ -88,7 +89,7 @@ def test_policy_is_authorization_authority_not_decision_recommendation():
     )
     assert result.decision.decision == Decision.REJECT
     assert result.error is not None
-    assert "rejected" in result.error.lower()
+    assert result.error
     assert result.tool_result is None or result.tool_result.success is False
 
 

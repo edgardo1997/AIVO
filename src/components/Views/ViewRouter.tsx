@@ -4,6 +4,7 @@ import { Alertas } from "../Alertas/Alertas";
 import { Audit } from "../Audit/Audit";
 import { Console } from "../Console/Console";
 import { Dashboard } from "../Dashboard/Dashboard";
+import { LiveDashboard } from "../LiveDashboard/LiveDashboard";
 import { Execute } from "../Execute/Execute";
 import { FeedbackCosts } from "../FeedbackCosts/FeedbackCosts";
 import { Files } from "../Files/Files";
@@ -25,6 +26,7 @@ import { Vault } from "../Vault/Vault";
 
 export type ViewKey =
   | "dashboard"
+  | "livedashboard"
   | "monitor"
   | "sentinel"
   | "files"
@@ -62,6 +64,7 @@ export const viewGroups: ViewGroup[] = [
     label: "Sistema",
     items: [
       { key: "dashboard", label: "Panel", icon: "◇", description: "Métricas y acceso rápido" },
+      { key: "livedashboard", label: "Live", icon: "◉", description: "Sistema en vivo" },
       { key: "monitor", label: "Monitor", icon: "◎", description: "CPU, memoria, disco en tiempo real" },
       { key: "console", label: "Consola", icon: "⌘", description: "Ejecutar comandos" },
       { key: "execute", label: "Ejecutor", icon: "▶", description: "Acciones directas" },
@@ -72,31 +75,31 @@ export const viewGroups: ViewGroup[] = [
     id: "data",
     label: "Datos",
     items: [
-      { key: "files", label: "Archivos", icon: "📁", description: "Explorar y gestionar" },
-      { key: "knowledge", label: "Conocimiento", icon: "📖", description: "Base documental" },
-      { key: "vault", label: "Bóveda", icon: "🔐", description: "Secretos cifrados" },
+      { key: "files", label: "Archivos", icon: "▣", description: "Explorar y gestionar" },
+      { key: "knowledge", label: "Conocimiento", icon: "◇", description: "Base documental" },
+      { key: "vault", label: "Bóveda", icon: "◈", description: "Secretos cifrados" },
       { key: "memory", label: "Memoria", icon: "◉", description: "Contexto e historial" },
-      { key: "reports", label: "Reportes", icon: "📊", description: "Exportar informes" },
+      { key: "reports", label: "Reportes", icon: "▤", description: "Exportar informes" },
     ],
   },
   {
     id: "admin",
     label: "Administración",
     items: [
-      { key: "admin", label: "Admin", icon: "⚙", description: "Configuración general" },
-      { key: "agents", label: "Agentes", icon: "🤖", description: "Agentes especializados" },
-      { key: "fleet", label: "Flota", icon: "🌐", description: "Dispositivos y sync" },
-      { key: "plugins", label: "Plugins", icon: "🔌", description: "Extensiones y marketplace" },
+      { key: "admin", label: "Admin", icon: "⊙", description: "Configuración general" },
+      { key: "agents", label: "Agentes", icon: "◑", description: "Agentes especializados" },
+      { key: "fleet", label: "Flota", icon: "◎", description: "Dispositivos y sync" },
+      { key: "plugins", label: "Plugins", icon: "▤", description: "Extensiones y marketplace" },
       { key: "triggers", label: "Disparadores", icon: "⚡", description: "Reglas automáticas" },
       { key: "policies", label: "Políticas", icon: "△", description: "YAML y permisos" },
-      { key: "profile", label: "Perfil", icon: "👤", description: "Usuario y sesión" },
+      { key: "profile", label: "Perfil", icon: "◉", description: "Usuario y sesión" },
     ],
   },
   {
     id: "security",
     label: "Seguridad",
     items: [
-      { key: "permissions", label: "Permisos", icon: "🔒", description: "Niveles de autoridad" },
+      { key: "permissions", label: "Permisos", icon: "△", description: "Niveles de autoridad" },
       { key: "audit", label: "Auditoría", icon: "◈", description: "Registro verificable" },
       { key: "alertas", label: "Alertas", icon: "⚠", description: "Notificaciones activas" },
       { key: "proactive", label: "Proactivo", icon: "✦", description: "Sugerencias inteligentes" },
@@ -114,7 +117,7 @@ export const viewGroups: ViewGroup[] = [
     id: "help",
     label: "Ayuda",
     items: [
-      { key: "help", label: "Ayuda", icon: "❓", description: "Documentación" },
+      { key: "help", label: "Ayuda", icon: "?", description: "Documentación" },
     ],
   },
 ];
@@ -131,6 +134,7 @@ export function ViewRouter({ view, onNavigate }: { view: ViewKey; onNavigate?: (
     case "audit": return <Audit />;
     case "console": return <Console />;
     case "dashboard": return <Dashboard onTabChange={(tab) => onNavigate?.(tab)} />;
+    case "livedashboard": return <LiveDashboard />;
     case "execute": return <Execute />;
     case "feedback": return <FeedbackCosts />;
     case "files": return <Files />;

@@ -271,7 +271,10 @@ class FleetSyncPushTool(Tool):
             parameters={
                 "type": "object",
                 "properties": {
-                    "peer_url": {"type": "string", "description": "Remote peer base URL (e.g. http://192.168.1.100:8765)"},
+                    "peer_url": {
+                        "type": "string",
+                        "description": "Remote peer base URL (e.g. http://192.168.1.100:8765)",
+                    },
                     "token": {"type": "string", "description": "Pairing token for authentication"},
                     "config_keys": {
                         "type": "array",

@@ -1,3 +1,5 @@
+import asyncio
+import ctypes
 import logging
 import os
 import re
@@ -12,6 +14,11 @@ from sentinel.core.tool import Tool, ToolResult, ToolSpec, ToolStatus
 log = logging.getLogger("sentinel.executor_service")
 
 from sentinel.policies.loader import load_or_default, PolicyStore
+
+# ── Concurrency limit ──────────────────────────────────────────────────────
+# Prevents resource exhaustion from unbounded subprocess launches.
+MAX_CONCURRENT_PROCESSES = 5
+_process_semaphore = threading.BoundedSemaphore(MAX_CONCURRENT_PROCESSES)
 
 SHELL_METACHARS = re.compile(r"[&|;`$%@()\[\]{}<>]")
 ALLOWED_SAFE_CMDS = {
@@ -174,7 +181,7 @@ class ExecutorService(Tool):
                             tool_id="executor.command",
                         )
 
-            result = self.execute_sync(command, timeout, confirmed, action_id)
+            result = await asyncio.to_thread(self.execute_sync, command, timeout, confirmed, action_id)
             if result.get("needs_confirm"):
                 tr = ToolResult.needs_confirm(
                     reason=result.get("reason", "Requires confirmation"),
@@ -206,7 +213,8 @@ class ExecutorService(Tool):
 
     async def execute_launch(self, params: Dict[str, Any], context: Dict[str, Any]) -> ToolResult:
         try:
-            result = self.launch_app(
+            result = await asyncio.to_thread(
+                self.launch_app,
                 params["app_name"],
                 params.get("args", ""),
                 elevated=bool(params.get("elevated", False)),
@@ -220,7 +228,7 @@ class ExecutorService(Tool):
 
     async def execute_kill(self, params: Dict[str, Any], context: Dict[str, Any]) -> ToolResult:
         try:
-            result = self.kill_process(params["pid"])
+            result = await asyncio.to_thread(self.kill_process, params["pid"])
             return ToolResult.ok(data=result, tool_id="executor.kill")
         except Exception as e:
             return ToolResult.fail(error=str(e), tool_id="executor.kill")
@@ -230,7 +238,7 @@ class ExecutorService(Tool):
 
     async def execute_restart(self, params: Dict[str, Any], context: Dict[str, Any]) -> ToolResult:
         try:
-            result = self.restart_process(params["process_name"], params.get("args", ""))
+            result = await asyncio.to_thread(self.restart_process, params["process_name"], params.get("args", ""))
             return ToolResult.ok(data=result, tool_id="executor.restart")
         except Exception as e:
             return ToolResult.fail(error=str(e), tool_id="executor.restart")
@@ -331,14 +339,20 @@ class ExecutorService(Tool):
         raise HTTPException(403, "Command blocked: executable is not installed or explicitly resolvable")
 
     def _run_with_timeout(self, cmd_args: list, timeout: int) -> subprocess.CompletedProcess:
-        proc = subprocess.Popen(cmd_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        acquired = _process_semaphore.acquire(timeout=30)
+        if not acquired:
+            raise RuntimeError(f"Too many concurrent processes ({MAX_CONCURRENT_PROCESSES} max); try again later")
         try:
-            stdout, stderr = proc.communicate(timeout=timeout)
-            return subprocess.CompletedProcess(proc.args, proc.returncode, stdout, stderr)
-        except subprocess.TimeoutExpired:
-            self._kill_process_tree(proc.pid)
-            stdout, stderr = proc.communicate()
-            raise subprocess.TimeoutExpired(proc.args, timeout, stdout, stderr)
+            proc = subprocess.Popen(cmd_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            try:
+                stdout, stderr = proc.communicate(timeout=timeout)
+                return subprocess.CompletedProcess(proc.args, proc.returncode, stdout, stderr)
+            except subprocess.TimeoutExpired:
+                self._kill_process_tree(proc.pid)
+                stdout, stderr = proc.communicate()
+                raise subprocess.TimeoutExpired(proc.args, timeout, stdout, stderr)
+        finally:
+            _process_semaphore.release()
 
     def _kill_process_tree(self, pid: int):
         try:
@@ -378,29 +392,95 @@ class ExecutorService(Tool):
 
         try:
             app_path = self._resolve_windows_app(app_name)
+            profile = None
+            if not app_path:
+                from sentinel.core.application_knowledge import get_application_knowledge
+
+                profile = get_application_knowledge().lookup(app_name)
+                if profile and profile.executable:
+                    app_path = profile.executable
             if not app_path:
                 raise FileNotFoundError(f"Application '{app_name}' is not installed")
+            is_store_app = (profile is not None and profile.source == "store_app") or (
+                not os.path.isfile(app_path) and "!" in app_path
+            )
             if elevated:
                 if os.name != "nt":
                     raise RuntimeError("Elevated launch is only supported on Windows")
-                import ctypes
-
-                result = ctypes.windll.shell32.ShellExecuteW(None, "runas", app_path, args or None, None, 1)
+                target = f"shell:AppsFolder\\{app_path}" if is_store_app else app_path
+                result = ctypes.windll.shell32.ShellExecuteW(None, "runas", target, args or None, None, 1)
                 if result <= 32:
                     raise RuntimeError(f"Windows rejected the elevated launch request (code {result})")
                 self._log_action("app_launch_elevation_requested", app_name, "success")
+                from sentinel.core.application_knowledge import get_application_knowledge
+
+                get_application_knowledge().mark_launched(app_name)
                 return {
                     "success": True,
                     "message": f"Windows accepted the elevation request for {app_name}",
                     "app": app_name,
                     "elevation_requested": True,
                 }
-            parsed_args = shlex.split(args, posix=False) if args else []
-            process = subprocess.Popen(
-                [app_path, *parsed_args], shell=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-            )
+            if is_store_app:
+                subprocess.Popen(
+                    ["explorer.exe", f"shell:AppsFolder\\{app_path}"],
+                    shell=False,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                self._log_action("app_launched", f"{app_name} (store app)", "success")
+                from sentinel.core.application_knowledge import get_application_knowledge
+
+                get_application_knowledge().mark_launched(app_name)
+                return {"success": True, "message": f"Launched {app_name}", "app": app_name}
+
+            # Console apps: use Windows Terminal new-tab to ensure visibility
+            _console_apps = {"powershell", "cmd", "pwsh", "wt"}
+            app_basename = os.path.basename(app_path).lower().replace(".exe", "")
+            if app_basename in _console_apps:
+                wt_path = shutil.which("wt.exe") or shutil.which("wt")
+                if wt_path and os.path.isfile(wt_path):
+                    wt_cmd = f'new-tab -p "{app_name}" "{app_path}" {args or ""}'.strip()
+                    ctypes.windll.shell32.ShellExecuteW(None, "open", wt_path, wt_cmd, None, 1)
+                else:
+                    ctypes.windll.shell32.ShellExecuteW(None, "open", app_path, args or None, None, 1)
+                # Focus the existing Windows Terminal window
+                try:
+                    user32 = ctypes.WinDLL("user32")
+                    hwnd = user32.FindWindowW("CASCADIA_HOSTING_WINDOW_CLASS", None)
+                    if hwnd:
+                        user32.SetForegroundWindow(hwnd)
+                        user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+                except Exception:
+                    pass
+                self._log_action("app_launched", f"{app_name} (console)", "success")
+                from sentinel.core.application_knowledge import get_application_knowledge
+
+                get_application_knowledge().mark_launched(app_name)
+                return {
+                    "success": True,
+                    "message": f"Launched {app_name} (nueva pestaña en Windows Terminal)",
+                    "app": app_name,
+                }
+
+            # Default: ShellExecuteW with visible window
+            result = ctypes.windll.shell32.ShellExecuteW(None, "open", app_path, args or None, None, 1)
+            if result <= 32:
+                self._log_action("launch_invoke_error", f"{app_name}: ShellExecuteW code {result}", "error")
+                parsed_args = shlex.split(args, posix=False) if args else []
+                process = subprocess.Popen(
+                    [app_path, *parsed_args], shell=False, creationflags=subprocess.CREATE_NEW_CONSOLE
+                )
+                self._log_action("app_launched", f"{app_name} (fallback Popen)", "success")
+                from sentinel.core.application_knowledge import get_application_knowledge
+
+                get_application_knowledge().mark_launched(app_name)
+                return {"success": True, "message": f"Launched {app_name}", "app": app_name, "pid": process.pid}
             self._log_action("app_launched", f"{app_name} {args}", "success")
-            return {"success": True, "message": f"Launched {app_name}", "app": app_name, "pid": process.pid}
+            from sentinel.core.application_knowledge import get_application_knowledge
+
+            get_application_knowledge().mark_launched(app_name)
+            return {"success": True, "message": f"Launched {app_name}", "app": app_name}
         except Exception as e:
             self._log_action("app_launch_error", f"{app_name}: {str(e)}", "error")
             raise HTTPException(status_code=500, detail=str(e))
@@ -408,11 +488,27 @@ class ExecutorService(Tool):
     @staticmethod
     def _resolve_windows_app(app_name: str) -> Optional[str]:
         aliases = {
-            "edge": "msedge", "brave": "brave", "chrome": "chrome", "firefox": "firefox",
-            "calculadora": "calc", "calculator": "calc", "bloc de notas": "notepad",
-            "notepad": "notepad", "explorador": "explorer", "explorador de archivos": "explorer",
-            "file explorer": "explorer", "administrador de tareas": "taskmgr", "task manager": "taskmgr",
-            "paint": "mspaint", "terminal": "wt", "powershell": "powershell", "cmd": "cmd",
+            "edge": "msedge",
+            "brave": "brave",
+            "chrome": "chrome",
+            "firefox": "firefox",
+            "calculadora": "calc",
+            "calculator": "calc",
+            "calc": "calc",
+            "bloc de notas": "notepad",
+            "notepad": "notepad",
+            "explorador": "explorer",
+            "explorador de archivos": "explorer",
+            "file explorer": "explorer",
+            "administrador de tareas": "taskmgr",
+            "task manager": "taskmgr",
+            "paint": "mspaint",
+            "terminal": "wt",
+            "powershell": "powershell",
+            "cmd": "cmd",
+            "word": "winword",
+            "excel": "excel",
+            "powerpoint": "powerpnt",
         }
         executable = aliases.get(app_name.lower(), app_name)
         if not executable.lower().endswith(".exe"):
@@ -423,6 +519,7 @@ class ExecutorService(Tool):
         if os.name == "nt":
             try:
                 import winreg
+
                 subkey = rf"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\{executable}"
                 for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
                     try:

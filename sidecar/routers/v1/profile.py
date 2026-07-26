@@ -1,4 +1,5 @@
 """Async profile endpoints using ToolGateway for authorization."""
+
 import logging
 from typing import Any, Dict
 
@@ -62,7 +63,9 @@ async def list_preferences(request: Request):
 
     identity = request_identity(request).to_dict()
     user_id = _identity_user(identity)
-    result = await get_gateway().execute("profile.preference", {"action": "list", "user_id": user_id}, {"identity": identity})
+    result = await get_gateway().execute(
+        "profile.preference", {"action": "list", "user_id": user_id}, {"identity": identity}
+    )
     if not result.success:
         return {"preferences": []}
     return result.data

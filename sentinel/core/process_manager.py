@@ -12,12 +12,26 @@ log = logging.getLogger(__name__)
 _SYSTEM_PIDS: set[int] = set()
 _psutil = None
 
-SYSTEM_PROCESS_NAMES = frozenset({
-    "System", "smss.exe", "csrss.exe", "wininit.exe", "services.exe",
-    "lsass.exe", "svchost.exe", "winlogon.exe", "explorer.exe",
-    "conhost.exe", "fontdrvhost.exe", "dwm.exe", "SecurityHealthService.exe",
-    "MsMpEng.exe", "NisSrv.exe", "spoolsv.exe",
-})
+SYSTEM_PROCESS_NAMES = frozenset(
+    {
+        "System",
+        "smss.exe",
+        "csrss.exe",
+        "wininit.exe",
+        "services.exe",
+        "lsass.exe",
+        "svchost.exe",
+        "winlogon.exe",
+        "explorer.exe",
+        "conhost.exe",
+        "fontdrvhost.exe",
+        "dwm.exe",
+        "SecurityHealthService.exe",
+        "MsMpEng.exe",
+        "NisSrv.exe",
+        "spoolsv.exe",
+    }
+)
 
 PROCESS_PRIORITIES = {
     "idle": 64,
@@ -64,6 +78,7 @@ def _get_psutil():
     global _psutil
     if _psutil is None:
         import psutil as _psutil_mod
+
         _psutil = _psutil_mod
     return _psutil
 
@@ -92,11 +107,20 @@ def _build_process_list(procs) -> List[ProcessInfo]:
                 prio = p.nice() if hasattr(p, "nice") else ""
             except (psutil_mod.NoSuchProcess, psutil_mod.AccessDenied, psutil_mod.ZombieProcess):
                 cmd, status, cpu, mem, user, prio = "", "", 0.0, 0.0, "", ""
-            results.append(ProcessInfo(
-                pid=pid, name=name, exe=exe, cmdline=cmd,
-                status=status, cpu_percent=cpu, memory_mb=mem,
-                username=user, is_system=is_sys, priority=str(prio),
-            ))
+            results.append(
+                ProcessInfo(
+                    pid=pid,
+                    name=name,
+                    exe=exe,
+                    cmdline=cmd,
+                    status=status,
+                    cpu_percent=cpu,
+                    memory_mb=mem,
+                    username=user,
+                    is_system=is_sys,
+                    priority=str(prio),
+                )
+            )
         except (psutil_mod.NoSuchProcess, psutil_mod.AccessDenied):
             continue
     return results
@@ -185,6 +209,7 @@ def kill_process(target: str, force: bool = True) -> ProcessResult:
 def _open_process_handle(pid: int, access: int):
     import ctypes
     from ctypes import wintypes
+
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
     kernel32.OpenProcess.restype = wintypes.HANDLE
@@ -194,6 +219,7 @@ def _open_process_handle(pid: int, access: int):
 def _close_handle(handle):
     import ctypes
     from ctypes import wintypes
+
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
     kernel32.CloseHandle.restype = wintypes.BOOL
@@ -203,6 +229,7 @@ def _close_handle(handle):
 def _nt_process_action(pid: int, suspend: bool) -> bool:
     import ctypes
     from ctypes import wintypes
+
     PROCESS_SUSPEND_RESUME = 0x0800
 
     handle = _open_process_handle(pid, PROCESS_SUSPEND_RESUME)
@@ -306,9 +333,10 @@ def set_priority(target: str, priority: str) -> ProcessResult:
     for pid in pids:
         try:
             r = subprocess.run(
-                ["powershell", "-Command",
-                 f"(Get-Process -Id {pid}).PriorityClass = '{wmic_name}'"],
-                capture_output=True, text=True, timeout=10,
+                ["powershell", "-Command", f"(Get-Process -Id {pid}).PriorityClass = '{wmic_name}'"],
+                capture_output=True,
+                text=True,
+                timeout=10,
             )
             if r.returncode == 0:
                 changed.append(pid)

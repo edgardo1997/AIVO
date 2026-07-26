@@ -6,6 +6,7 @@ log = logging.getLogger("sentinel.proactive")
 router = APIRouter(prefix="/api/proactive")
 _svc = ProactiveService()
 
+
 def wire_dependencies(permissions_svc=None, audit_svc=None):
     pass
 

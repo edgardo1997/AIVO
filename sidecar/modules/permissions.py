@@ -76,12 +76,16 @@ def emergency_action(action: str, request: Request):
 
 
 @router.post("/confirm")
-def confirm_action(req: ConfirmRequest, request: Request):
+async def confirm_action(req: ConfirmRequest, request: Request):
+    from modules import get_gateway
     from modules.auth import request_identity, require_level
 
     identity = request_identity(request)
     require_level(identity, "confirm")
-    return _svc.confirm_action(req.action_id, req.approved)
+    result = await get_gateway().confirm(req.action_id, req.approved, identity.to_dict())
+    if result.success:
+        return {"status": "confirmed", "result": result.data}
+    return {"status": "rejected", "error": result.error}
 
 
 @router.post("/blocklist")

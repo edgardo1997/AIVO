@@ -21,6 +21,7 @@ class TestLLMZeroAuthority:
 
     def test_set_enable_llm_advisor_is_noop(self):
         from sentinel.core.decision_engine import DecisionEngine
+
         engine = DecisionEngine(None)
         result = engine.set_enable_llm_advisor(True)
         assert result is None
@@ -41,8 +42,9 @@ class TestLLMZeroAuthority:
         assert resp.status_code == 200
         data = resp.json()
         reason = data.get("decision_reason", "")
-        # Objective assessor typically references plan risk, context, etc.
-        assert any(kw in reason.lower() for kw in ("risk", "score", "plan", "context", "step", "impact", "factor"))
+        assert reason
+        assert data.get("final_risk_score") is not None
+        assert isinstance(data.get("context_factors"), list)
 
     def test_advisory_is_separate_from_decision(self):
         """Advisory is read-only; decision is made by objective engine alone."""

@@ -63,8 +63,7 @@ async def init_async_db():
         version = int((await conn.execute(text("PRAGMA user_version"))).scalar_one())
         if version != LATEST_SCHEMA_VERSION:
             raise RuntimeError(
-                f"Database schema version {version} does not match the required "
-                f"version {LATEST_SCHEMA_VERSION}."
+                f"Database schema version {version} does not match the required version {LATEST_SCHEMA_VERSION}."
             )
         result = await conn.execute(
             text(

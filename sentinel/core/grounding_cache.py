@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class CacheEntry:
     """Entrada en el caché de grounding"""
+
     data: Any
     timestamp: float
     ttl_seconds: float
@@ -71,11 +72,7 @@ class GroundingCache:
 
         ttl_seconds = ttl if ttl is not None else self._default_ttl
         entry = CacheEntry(
-            data=value,
-            timestamp=time.time(),
-            ttl_seconds=ttl_seconds,
-            access_count=0,
-            last_accessed=None
+            data=value, timestamp=time.time(), ttl_seconds=ttl_seconds, access_count=0, last_accessed=None
         )
         self._cache[key] = entry
         logger.debug(f"Cached: {key} (TTL: {ttl_seconds}s)")

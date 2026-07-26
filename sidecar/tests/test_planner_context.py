@@ -104,13 +104,7 @@ class TestPlanStepParams:
             parameters={"app_name": "Chrome", "elevated": False},
             raw_input="abre Chrome",
         )
-        context = {
-            "deep_context": {
-                "installed_apps": [
-                    {"name": "Chrome", "source": "app_paths", "confidence": 0.98}
-                ]
-            }
-        }
+        context = {"deep_context": {"installed_apps": [{"name": "Chrome", "source": "app_paths", "confidence": 0.98}]}}
 
         plan = planner.plan(intent, context)
 

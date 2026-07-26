@@ -94,10 +94,18 @@ class PluginManifest(BaseModel):
     signature_ed25519: str = ""
 
 
-ALLOWED_PERMISSIONS = frozenset({
-    "filesystem.read", "filesystem.write", "network", "subprocess",
-    "registry", "audio", "display", "notifications",
-})
+ALLOWED_PERMISSIONS = frozenset(
+    {
+        "filesystem.read",
+        "filesystem.write",
+        "network",
+        "subprocess",
+        "registry",
+        "audio",
+        "display",
+        "notifications",
+    }
+)
 
 
 class PluginsService:
@@ -458,6 +466,7 @@ class PluginsService:
             info = self._metadata.get(plugin_id)
         if not info:
             from fastapi import HTTPException
+
             raise HTTPException(404, "Plugin not found")
         plugin_path = Path(info["path"])
         buf = tempfile.SpooledTemporaryFile(max_size=10 * 1024 * 1024)
@@ -468,7 +477,9 @@ class PluginsService:
         buf.seek(0)
         return buf.read()
 
-    def install_from_zip(self, zip_bytes: bytes, plugin_id: str = "", *, require_trusted_publisher: bool = False) -> dict:
+    def install_from_zip(
+        self, zip_bytes: bytes, plugin_id: str = "", *, require_trusted_publisher: bool = False
+    ) -> dict:
         from fastapi import HTTPException
 
         if len(zip_bytes) > MAX_PLUGIN_ARCHIVE_BYTES:

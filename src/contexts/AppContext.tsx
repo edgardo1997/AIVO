@@ -1,4 +1,4 @@
-import { createContext, useContext, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useCallback, useEffect, useState, type ReactNode } from "react";
 import { api } from "../api";
 
 type Mode = "user" | "developer";
@@ -43,9 +43,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [sidecarStatus, setSidecarStatus] = useState<AppState["sidecarStatus"]>("disconnected");
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [mode, setMode] = useState<Mode>(readInitialMode);
-  const healthTimer = useRef<ReturnType<typeof setInterval> | null>(null);
-  const permTimer = useRef<ReturnType<typeof setInterval> | null>(null);
-
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "D") {
@@ -110,13 +107,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    checkHealth();
-    refreshPermissionLevel();
-    healthTimer.current = setInterval(checkHealth, 10000);
-    permTimer.current = setInterval(refreshPermissionLevel, 5000);
+    let active = true;
+    let healthTimer: ReturnType<typeof setTimeout> | null = null;
+    let permTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const tickHealth = async () => {
+      if (!active) return;
+      await checkHealth();
+      if (active) healthTimer = setTimeout(tickHealth, 10000);
+    };
+    const tickPerm = async () => {
+      if (!active) return;
+      await refreshPermissionLevel();
+      if (active) permTimer = setTimeout(tickPerm, 5000);
+    };
+
+    tickHealth();
+    tickPerm();
     return () => {
-      if (healthTimer.current) clearInterval(healthTimer.current);
-      if (permTimer.current) clearInterval(permTimer.current);
+      active = false;
+      if (healthTimer !== null) clearTimeout(healthTimer);
+      if (permTimer !== null) clearTimeout(permTimer);
     };
   }, [checkHealth, refreshPermissionLevel]);
 
@@ -146,7 +157,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
 // oxlint-disable-next-line react-refresh/only-export-components
 export function useAppState(): AppState {
   const ctx = useContext(AppContext);
-  if (!ctx) throw new Error("useAppState must be used within AppProvider");
+  if (!ctx) {
+    return {
+      permissionLevel: "confirm",
+      emergencyStop: false,
+      sidecarStatus: "disconnected" as const,
+      notifications: [],
+      mode: "user" as Mode,
+      setMode: () => {},
+      toggleMode: () => {},
+      addNotification: () => {},
+      removeNotification: () => {},
+      refreshPermissionLevel: async () => {},
+      checkHealth: async () => {},
+    };
+  }
   return ctx;
 }
 

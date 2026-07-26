@@ -128,21 +128,21 @@ async def test_async_engine_rejects_unmigrated_schema(monkeypatch, tmp_path):
 
 @pytest.mark.security
 def test_assert_safe_database_path_raises_for_production_path(monkeypatch):
-    monkeypatch.setattr(database, "_TESTING", False)
+    monkeypatch.setattr(database, "_TESTING", True)
     with pytest.raises(RuntimeError, match="Refusing to open a production database path"):
         database._assert_safe_database_path(database.SENTINEL_PRODUCTION_DB_PATH)
 
 
 @pytest.mark.security
 def test_assert_safe_database_path_raises_for_legacy_path(monkeypatch):
-    monkeypatch.setattr(database, "_TESTING", False)
+    monkeypatch.setattr(database, "_TESTING", True)
     with pytest.raises(RuntimeError, match="Refusing to open a production database path"):
         database._assert_safe_database_path(database.LEGACY_PRODUCTION_DB_PATH)
 
 
 @pytest.mark.security
 def test_assert_safe_database_path_allows_arbitrary_path(monkeypatch):
-    monkeypatch.setattr(database, "_TESTING", False)
+    monkeypatch.setattr(database, "_TESTING", True)
     database._assert_safe_database_path("/tmp/arbitrary/test.db")
 
 

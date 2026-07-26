@@ -107,18 +107,17 @@ class TestIdentityContext:
 class TestLEVEL_RANK:
     def test_admin_highest(self):
         assert LEVEL_RANK["admin"] == 4
-        assert LEVEL_RANK["admin"] > LEVEL_RANK["user"]
+        assert LEVEL_RANK["admin"] > LEVEL_RANK["confirm"]
 
-    def test_user_above_confirm(self):
-        assert LEVEL_RANK["user"] == 3
-        assert LEVEL_RANK["user"] > LEVEL_RANK["confirm"]
+    def test_confirm_above_auto(self):
+        assert LEVEL_RANK["confirm"] == 3
+        assert LEVEL_RANK["confirm"] > LEVEL_RANK["auto"]
 
-    def test_confirm_equals_auto(self):
-        assert LEVEL_RANK["confirm"] == 2
+    def test_auto_above_view(self):
         assert LEVEL_RANK["auto"] == 2
+        assert LEVEL_RANK["auto"] > LEVEL_RANK["view"]
 
-    def test_viewer_equals_view_lowest(self):
-        assert LEVEL_RANK["viewer"] == 1
+    def test_view_lowest(self):
         assert LEVEL_RANK["view"] == 1
 
 
@@ -131,8 +130,8 @@ class TestCheckLevel:
     def test_admin_meets_any_lower(self):
         identity = IdentityContext.local_identity()
         check_level(identity, "view")
+        check_level(identity, "auto")
         check_level(identity, "confirm")
-        check_level(identity, "user")
 
     def test_viewer_meets_view(self):
         identity = IdentityContext(
@@ -279,7 +278,8 @@ class TestAuthMiddlewareIntegration:
         client = TestClient(app)
         resp = client.get("/api/health")
         assert resp.status_code == 200
-        assert resp.json() == {"status": "ok"}
+        payload = resp.json()
+        assert payload["status"] == "healthy"
 
     def test_middleware_with_info_endpoint(self):
         from main import app
@@ -398,7 +398,7 @@ class TestIdentityFactory:
         assert identity.user_id == "service:backup-svc"
         assert identity.username == "backup-svc"
         assert identity.role == "service"
-        assert identity.level == "confirm"
+        assert identity.level == "auto"
         assert identity.permissions == frozenset({"system.read", "audit.read"})
         assert identity.authentication_method == "internal"
         assert identity.is_authenticated is True

@@ -4,11 +4,21 @@ import os
 import sys
 import hashlib
 import multiprocessing
+import socket
 import threading
+import time as time_mod
 from contextlib import asynccontextmanager
 from logging.handlers import RotatingFileHandler
+from datetime import datetime, timezone
 
 multiprocessing.freeze_support()
+
+# ── Resolve PYTHONPATH internally (FASE 1.4) ──
+_PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+_SIDECAR_DIR = os.path.abspath(os.path.dirname(__file__))
+for _p in (_SIDECAR_DIR, _PROJECT_ROOT):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 from windows_acl import protect_path, secure_runtime_directories, sentinel_storage_paths
 
@@ -123,6 +133,7 @@ def _ensure_session_token():
         log.warning("Error leyendo .env: %s", e)
     if not token:
         import secrets
+
         token = "sentinel-" + secrets.token_hex(32)
         try:
             existing = ""
@@ -138,6 +149,7 @@ def _ensure_session_token():
             log.warning("No se pudo guardar el token de sesión en .env: %s", e)
     os.environ["SENTINEL_SESSION_TOKEN"] = token
 
+
 _ensure_session_token()
 
 
@@ -146,7 +158,7 @@ def _create_app() -> FastAPI:
     application = FastAPI(
         title="Sentinel Sidecar",
         description="Local trust layer for AI orchestration, policy-gated execution, and audit.",
-        version="1.0.0",
+        version="1.0.0-rc.1",
         docs_url="/docs" if docs_enabled else None,
         redoc_url="/redoc" if docs_enabled else None,
         openapi_url="/openapi.json" if docs_enabled else None,
@@ -196,6 +208,9 @@ from modules.error_recovery import router as recovery_router
 from modules.proactive import router as proactive_router
 from modules.ai_provider import router as ai_provider_router
 from routers.events import router as events_router
+from routers.system_live import router as system_live_router
+from routers.consent import router as consent_router
+
 
 def _register_routes(application: FastAPI) -> None:
     for router, prefix, tags in (
@@ -214,6 +229,8 @@ def _register_routes(application: FastAPI) -> None:
         (v1_triggers_router, "/v1", ["v1"]),
         (v1_profile_router, "/v1", ["v1"]),
         (events_router, "", ["events"]),
+        (system_live_router, "", ["system"]),
+        (consent_router, "", ["consent"]),
     ):
         application.include_router(router, prefix=prefix, tags=tags)
 
@@ -300,6 +317,8 @@ from modules import ai_provider as ai_mod
 from modules import fleet as fleet_mod
 from modules import filesystem as filesystem_mod
 from modules import profile as profile_mod
+from services.consent_service import ConsentService
+from routers.consent import wire_dependencies as wire_consent_router
 
 # Initialize shared ToolGateway, register all tools, attach policies
 from modules import (
@@ -331,6 +350,7 @@ from modules import (
     register_vault_tools,
     register_goal_tools,
     register_process_tools,
+    register_chat_tools,
     register_conversation_tools,
     register_memory_tools,
     register_cost_tools,
@@ -346,6 +366,7 @@ from routers.v1.triggers import setup as triggers_v1_setup
 _runtime_lock = threading.Lock()
 _runtime_initialized = False
 _runtime_initialization_error: Exception | None = None
+_runtime_status = "starting"
 gw = None
 cap_registry = None
 agent_registry = None
@@ -403,6 +424,7 @@ def _register_gateway_components(runtime_gateway, runtime_capabilities, runtime_
         register_vault_tools,
         register_goal_tools,
         register_process_tools,
+        register_chat_tools,
         register_conversation_tools,
         register_memory_tools,
         register_cost_tools,
@@ -415,6 +437,24 @@ def _register_gateway_components(runtime_gateway, runtime_capabilities, runtime_
     init_policies(runtime_gateway)
 
 
+def _config_migrate_audit(filepath: str, database) -> None:
+    try:
+        from repositories.audit_repository import AuditRepository
+
+        repo = AuditRepository(db=database)
+        repo.append(
+            {
+                "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                "action": "config_migrated",
+                "details": f"source={os.path.basename(filepath)} destination=sqlite",
+                "status": "info",
+                "user": "system",
+            }
+        )
+    except Exception as exc:
+        log.warning("Could not log config_migrated audit event: %s", exc)
+
+
 def _wire_repositories_and_migrate_configs() -> None:
     for service, key in (
         (audit_mod._svc, None),
@@ -425,16 +465,21 @@ def _wire_repositories_and_migrate_configs() -> None:
         repository = service.repo
         repository._db = db
         if key and getattr(repository, "filepath", None) and os.path.exists(repository.filepath):
+            existing = db.config_get_json(key)
+            if existing:
+                continue
             try:
                 with open(repository.filepath, encoding="utf-8") as config_file:
                     db.config_set_json(key, json.load(config_file))
+                if key == "ai_config" and repository.filepath:
+                    _config_migrate_audit(repository.filepath, db)
             except Exception:
                 log.exception("Failed to migrate %s config from %s", key, repository.filepath)
 
 
 def initialize_runtime() -> None:
     """Register runtime dependencies exactly once after authentication/startup."""
-    global _runtime_initialized, _runtime_initialization_error, gw, cap_registry, agent_registry
+    global _runtime_initialized, _runtime_initialization_error, _runtime_status, gw, cap_registry, agent_registry
     if _runtime_initialized:
         return
     if _runtime_initialization_error is not None:
@@ -446,17 +491,33 @@ def initialize_runtime() -> None:
         if _runtime_initialization_error is not None:
             raise RuntimeError("Sentinel runtime initialization previously failed") from _runtime_initialization_error
         try:
+            _runtime_status = "initializing"
             _wire_runtime_dependencies()
+            _wire_repositories_and_migrate_configs()
             runtime_gateway = get_gateway()
             runtime_capabilities = CapabilityRegistry()
             runtime_agents = _build_agent_registry()
             _register_gateway_components(runtime_gateway, runtime_capabilities, runtime_agents)
-            _wire_repositories_and_migrate_configs()
+
+            from sentinel.core.application_knowledge import get_application_knowledge
+
+            consent_svc = ConsentService(knowledge_service=get_application_knowledge())
+            consent_svc.set_audit_service(audit_mod._svc)
+            wire_consent_router(consent_svc)
+
+            # Conectar ConsentService al orquestador (única autoridad de consentimiento)
+            from modules import get_sentinel_orchestrator
+
+            orch = get_sentinel_orchestrator()
+            if orch is not None:
+                orch.set_consent_service(consent_svc)
+                log.info("ConsentService wired into Orchestrator")
 
             gw = runtime_gateway
             cap_registry = runtime_capabilities
             agent_registry = runtime_agents
             _runtime_initialized = True
+            _runtime_status = "ready"
             log.info(
                 "Sentinel runtime initialized (%d tools, %d capabilities)",
                 len(runtime_gateway.list_active()),
@@ -464,15 +525,50 @@ def initialize_runtime() -> None:
             )
         except Exception as exc:
             _runtime_initialization_error = exc
+            _runtime_status = "failed"
             log.exception("Sentinel runtime initialization failed")
             raise
 
 
 app.state.runtime_initializer = initialize_runtime
 
+
 @app.get("/api/health", tags=["system"])
 def health():
-    return {"status": "ok"}
+    db_ok = False
+    gw_ok = False
+    mr_ok = False
+    try:
+        db_ok = db is not None
+    except Exception:
+        pass
+    try:
+        gw_ok = gw is not None and len(gw.list_active()) > 0
+    except Exception:
+        pass
+    try:
+        mr_ok = ai_mod._svc._router is not None
+    except Exception:
+        pass
+    failed = []
+    if not db_ok:
+        failed.append("database")
+    if not gw_ok:
+        failed.append("gateway")
+    if not mr_ok:
+        failed.append("router")
+    status = "healthy" if not failed else "degraded"
+    if _runtime_status == "failed":
+        status = "failed"
+    return {
+        "status": status,
+        "version": "1.0.0-rc.1",
+        "runtime": _runtime_status,
+        "database": "connected" if db_ok else "disconnected",
+        "gateway": f"{len(gw.list_active()) if gw_ok else 0} tools" if gw_ok else "unavailable",
+        "router": "initialized" if mr_ok else "unavailable",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 @app.get("/api/info", tags=["system"])
@@ -480,7 +576,7 @@ def info(request: Request):
     identity = getattr(request.state, "identity", None)
     result: dict[str, object] = {
         "name": "Sentinel Sidecar",
-        "version": "1.0.0",
+        "version": "1.0.0-rc.1",
     }
     if identity and identity.is_authenticated:
         result["modules"] = [
@@ -498,5 +594,48 @@ def info(request: Request):
     return result
 
 
+def _check_port(host: str, port: int) -> dict:
+    """Check if port is available. Returns {'free': True} or info about occupant."""
+    try:
+        with socket.create_connection((host, port), timeout=2):
+            import urllib.request
+
+            try:
+                req = urllib.request.Request(f"http://{host}:{port}/api/health")
+                resp = urllib.request.urlopen(req, timeout=3)
+                body = json.loads(resp.read().decode())
+                if body.get("status") in ("healthy", "degraded"):
+                    return {"free": False, "sentinel": True, "status": body.get("status")}
+            except Exception:
+                pass
+            return {"free": False, "sentinel": False, "status": "unknown"}
+    except (socket.timeout, ConnectionRefusedError, OSError):
+        return {"free": True}
+
+
 if __name__ == "__main__":
-    uvicorn.run(app, host="127.0.0.1", port=8765)
+    host = os.environ.get("SENTINEL_HOST", "127.0.0.1")
+    port = int(os.environ.get("SENTINEL_PORT", "8765"))
+    port_check = _check_port(host, port)
+    if not port_check["free"]:
+        if port_check.get("sentinel"):
+            log.info("Port %s already occupied by a running Sentinel sidecar — reusing.", port)
+            sys.exit(0)
+        else:
+            log.warning("Port %s occupied by unknown process — will attempt to start anyway.", port)
+    import uvicorn
+
+    _BIND_RETRIES = 10
+    _BIND_DELAY = 3.0
+    for attempt in range(1, _BIND_RETRIES + 1):
+        try:
+            with socket.create_connection((host, port), timeout=1):
+                log.warning(
+                    "Port %d still in TIME_WAIT, retry %d/%d in %.0fs...", port, attempt, _BIND_RETRIES, _BIND_DELAY
+                )
+                time_mod.sleep(_BIND_DELAY)
+                continue
+        except (socket.timeout, ConnectionRefusedError, OSError):
+            pass
+        break
+    uvicorn.run(app, host=host, port=port)

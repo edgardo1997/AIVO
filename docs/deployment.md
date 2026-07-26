@@ -27,6 +27,16 @@ La aplicación falla de forma cerrada si Windows no puede aplicar una ACL requer
 
 No expongas el puerto 8765 mediante proxy, Docker `-p`, túneles o interfaces de red. Sentinel es una plataforma local.
 
+## Canales de distribución
+
+| Canal | Acceso | Requisitos |
+|-------|--------|------------|
+| **Interno** | Desarrolladores del repositorio | Tag vX.Y.Z, CI/CD release |
+| **Beta privada** | Usuarios autorizados | Pentest independiente aprobado, release firmado, publicación manual |
+| **Pública general** | Todos | Beta estable sin pérdida de datos ni bypass de autorización, rollback verificado, publicación vía `publish-general.yml` |
+
+El paso de interno → beta requiere `trusted-assessors.json` poblado y un pentest con hallazgos cero. El paso de beta → público requiere el secret de entorno `GENERAL_PUBLICATION_APPROVED=approved-after-independent-pentest`.
+
 ## Proceso de release
 
 1. Actualiza la versión en `package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml` y `/api/info`.
@@ -35,6 +45,25 @@ No expongas el puerto 8765 mediante proxy, Docker `-p`, túneles o interfaces de
 4. Crea el tag `vX.Y.Z`.
 5. GitHub Actions valida versiones, ejecuta todas las pruebas, firma los artefactos y crea un release borrador.
 6. Verifica instalador, desinstalación, actualización y checksums antes de publicar el borrador.
+
+## Modo conservador
+
+Para entornos de producción donde se minimiza el riesgo de escritura o ejecución:
+
+```powershell
+$env:SENTINEL_CONSERVATIVE_MODE = "1"
+```
+
+Cuando está activo, las siguientes herramientas son bloqueadas antes de la ejecución:
+
+- `filesystem.write`
+- `filesystem.delete`
+- `executor.command`
+- `executor.launch`
+- `executor.kill`
+- `executor.restart`
+
+Las herramientas de solo lectura (`system.cpu`, `system.info`, `app.discovery`, `audit.*`, etc.) continúan funcionando normalmente.
 
 ## Firma de distribución
 

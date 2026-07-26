@@ -1,0 +1,62 @@
+# Sentinel Rate Limiter Configuration
+# Hierarchical limits: global -> user -> session -> tool category.
+# Each tier is checked in order; the first exceeded limit blocks the request.
+# Modify values here without touching code.
+
+global:
+  requests_per_minute: 1000
+
+user:
+  default: 100
+
+session:
+  default: 50
+
+# User tier limits — free vs premium subscribers
+# The orchestrator selects the appropriate tier based on the user's subscription level.
+tiers:
+  free:
+    global: 30
+    user: 10
+    session: 5
+  premium:
+    global: 200
+    user: 100
+    session: 50
+
+# Token Bucket configuration for burst control
+token_bucket:
+  default:
+    capacity: 20
+    rate: 5.0
+  premium:
+    capacity: 100
+    rate: 20.0
+
+tools:
+  # Tool-category-specific limits override the general tiers.
+  # Keys match tool_id prefixes (e.g. "kb.search" matches "kb").
+  kb:
+    requests_per_minute: 120
+  pipeline:
+    requests_per_minute: 60
+  web:
+    requests_per_minute: 60
+  browser:
+    requests_per_minute: 30
+  filesystem:
+    requests_per_minute: 60
+  executor:
+    requests_per_minute: 30
+  system:
+    requests_per_minute: 200
+  ai:
+    requests_per_minute: 30
+  ide:
+    requests_per_minute: 30
+  document:
+    requests_per_minute: 60
+  image:
+    requests_per_minute: 60
+  integration:
+    requests_per_minute: 60

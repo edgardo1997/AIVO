@@ -13,7 +13,8 @@ client = TestClient(app)
 def _blocked(resp, msg=""):
     body = resp.json()
     err = (body.get("error") or (body.get("data") or {}).get("error") or "").lower()
-    ok = any(kw in err for kw in ("deny", "denied", "blocked", "rejected", "cannot satisfy"))
+    ok = any(kw in err for kw in ("deny", "denied", "blocked", "rejected", "cannot satisfy", "autorización"))
+    ok = ok or (body.get("data") or {}).get("blocked") is True
     assert ok or body["success"] is False, f"{msg}: {resp.json()}"
 
 

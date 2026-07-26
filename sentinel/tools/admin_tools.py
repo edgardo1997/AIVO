@@ -30,6 +30,7 @@ class ConfigSetTool(Tool):
     async def execute(self, params: Dict[str, Any], context: Dict[str, Any]) -> ToolResult:
         try:
             from repositories.database import DatabaseManager
+
             db = DatabaseManager()
             key = params["key"]
             raw = params.get("value")
@@ -64,6 +65,7 @@ class ConfigDeleteTool(Tool):
     async def execute(self, params: Dict[str, Any], context: Dict[str, Any]) -> ToolResult:
         try:
             from repositories.database import DatabaseManager
+
             db = DatabaseManager()
             key = params["key"]
             db.config_delete(key)

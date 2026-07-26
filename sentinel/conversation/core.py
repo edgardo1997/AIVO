@@ -57,7 +57,9 @@ class SentinelCoreConversation:
 
     @staticmethod
     def _language(message: str) -> str:
-        return "es" if re.search(r"[áéíóúñ¿¡]|\b(hola|que|qué|puedes|ayuda|estado|sistema)\b", message.lower()) else "en"
+        return (
+            "es" if re.search(r"[áéíóúñ¿¡]|\b(hola|que|qué|puedes|ayuda|estado|sistema)\b", message.lower()) else "en"
+        )
 
     @staticmethod
     def _status(copy: Dict[str, str], capabilities: Dict[str, Any]) -> str:

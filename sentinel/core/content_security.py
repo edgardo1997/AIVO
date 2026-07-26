@@ -1,7 +1,5 @@
 """Security controls for model-bound, attacker-controlled content."""
 
-from __future__ import annotations
-
 import re
 from dataclasses import dataclass
 

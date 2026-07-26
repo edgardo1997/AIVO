@@ -12,9 +12,9 @@ def _get_svc():
     global _svc
     if _svc is None:
         from services.fleet_service import FleetService
+
         _svc = FleetService()
     return _svc
-
 
 
 class RegisterDeviceRequest(BaseModel):

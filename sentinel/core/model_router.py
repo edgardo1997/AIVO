@@ -9,6 +9,7 @@ import time
 
 from .circuit_breaker import CircuitBreaker
 from .hardware_intelligence import HardwareProfile, ModelCapabilityManager, get_model_capabilities
+from .provider_health import HealthState
 
 logger = logging.getLogger(__name__)
 
@@ -43,10 +44,8 @@ BUILTIN_PROVIDERS = [
         requires_key=True,
         default_model="deepseek/deepseek-v4-flash:free",
         priority=10,
-        config={
-            "base_url": "https://api.deepseek.com/v1"
-        },
-        fallback_chain=["nvidia", "sentinel_local"]
+        config={"base_url": "https://api.deepseek.com/v1"},
+        fallback_chain=["nvidia", "sentinel_local"],
     ),
     ProviderSpec(
         id="nvidia-nemotron",
@@ -55,10 +54,8 @@ BUILTIN_PROVIDERS = [
         requires_key=True,
         default_model="nvidia/nemotron-3-super-120b-a12b",
         priority=20,
-        config={
-            "base_url": "https://integrate.api.nvidia.com/v1"
-        },
-        fallback_chain=["sentinel_local"]
+        config={"base_url": "https://integrate.api.nvidia.com/v1"},
+        fallback_chain=["sentinel_local"],
     ),
     ProviderSpec(
         id="openrouter",
@@ -91,10 +88,8 @@ BUILTIN_PROVIDERS = [
         requires_key=True,
         default_model="gpt-4o",
         priority=12,
-        config={
-            "base_url": "https://models.inference.ai.azure.com"
-        },
-        fallback_chain=["sentinel_local"]
+        config={"base_url": "https://models.inference.ai.azure.com"},
+        fallback_chain=["sentinel_local"],
     ),
     ProviderSpec(
         id="openai",
@@ -115,11 +110,18 @@ BUILTIN_PROVIDERS = [
     ProviderSpec(
         id="sentinel_local",
         name="Sentinel Local",
-        task_types=[TaskType.LOCAL, TaskType.QUICK, TaskType.REASONING, TaskType.ANALYSIS, TaskType.CODE, TaskType.CREATIVE],
+        task_types=[
+            TaskType.LOCAL,
+            TaskType.QUICK,
+            TaskType.REASONING,
+            TaskType.ANALYSIS,
+            TaskType.CODE,
+            TaskType.CREATIVE,
+        ],
         requires_key=False,
         is_local=True,
         default_model="Qwen3-1.7B-Q8_0.gguf",
-        priority=50, # Prioridad más baja - último fallback
+        priority=50,  # Prioridad más baja - último fallback
         config={"hardware": {"working_set_gb": 3.0, "minimum_cpu_cores": 2}},
     ),
     ProviderSpec(
@@ -159,6 +161,7 @@ BUILTIN_PROVIDERS = [
 ]
 
 ROUTING_STRATEGIES = ["priority", "cost", "local_first", "smart", "manual"]
+OFFLINE_MODES = ["off", "auto", "force_local"]
 
 PROVIDER_URLS: Dict[str, str] = {
     "openrouter": "https://openrouter.ai/api/v1",
@@ -252,7 +255,11 @@ def classify_provider_error(exception: Exception, provider_id: str) -> Dict[str,
     if code == 401 or "401" in msg or "unauthorized" in msg.lower() or "invalid_api_key" in msg.lower():
         return {"category": "invalid_auth", "status_code": 401, "message": "Invalid or missing API key"}
     if code == 403 or "403" in msg or "forbidden" in msg.lower():
-        return {"category": "invalid_auth", "status_code": 403, "message": "API key lacks access to the requested model"}
+        return {
+            "category": "invalid_auth",
+            "status_code": 403,
+            "message": "API key lacks access to the requested model",
+        }
     if code == 429 or "429" in msg or "rate limit" in msg.lower() or "too many requests" in msg.lower():
         return {"category": "rate_limited", "status_code": 429, "message": "Rate limited by provider"}
     if code == 404 or "404" in msg or "model not found" in msg.lower():
@@ -309,6 +316,9 @@ class ModelRouter:
         self._routing_history: List[Dict[str, Any]] = []
         self._task_type_map: Dict[TaskType, str] = {}
         self._capability_manager = capability_manager or get_model_capabilities()
+        self._offline_mode: str = "auto"
+        self._health_checker = None
+        self._offline_reason: Optional[str] = None
 
         for p in BUILTIN_PROVIDERS if providers is None else providers:
             self._providers[p.id] = p
@@ -404,6 +414,37 @@ class ModelRouter:
             raise KeyError(f"Provider '{provider_id}' not found")
         self._preferred_provider = provider_id or None
 
+    def set_offline_mode(self, mode: str) -> None:
+        if mode not in OFFLINE_MODES:
+            raise ValueError(f"offline_mode must be one of {OFFLINE_MODES}")
+        self._offline_mode = mode
+        if mode == "force_local":
+            self._offline_reason = "offline_mode_forced"
+        else:
+            self._offline_reason = None
+
+    def get_offline_mode(self) -> str:
+        return self._offline_mode
+
+    def set_health_checker(self, checker) -> None:
+        self._health_checker = checker
+
+    def is_offline(self) -> bool:
+        if self._offline_mode == "force_local":
+            self._offline_reason = "offline_mode_forced"
+            return True
+        if self._offline_mode == "off":
+            self._offline_reason = None
+            return False
+        if self._health_checker is not None:
+            offline = not self._health_checker.internet_online
+            if offline:
+                self._offline_reason = "no_internet"
+            else:
+                self._offline_reason = None
+            return offline
+        return False
+
     def set_default_fallback_chain(self, chain: List[str]) -> None:
         self._default_fallback_chain = chain
 
@@ -417,6 +458,15 @@ class ModelRouter:
 
     def set_task_type_map(self, mapping: Dict[TaskType, str]) -> None:
         self._task_type_map = dict(mapping)
+
+    def set_task_type_map_from_dict(self, mapping: Dict[str, str]) -> None:
+        resolved = {}
+        for k, v in mapping.items():
+            try:
+                resolved[TaskType(k)] = v
+            except ValueError:
+                logger.warning("Ignoring unknown task type '%s' in task_type_map", k)
+        self._task_type_map = resolved
 
     def fallback_stats(self) -> Dict[str, Any]:
         return {
@@ -481,7 +531,7 @@ class ModelRouter:
                 break
         return result
 
-    def _record_fallback(self, provider_id: str) -> None:
+    def _record_fallback(self, provider_id: str, category: str = "unknown") -> None:
         self._fallback_stats[provider_id] = self._fallback_stats.get(provider_id, 0) + 1
 
     def select(self, task_type: TaskType, context: Optional[Dict[str, Any]] = None) -> RouterDecision:
@@ -495,9 +545,7 @@ class ModelRouter:
                 for provider in self._providers.values()
                 if task_type in provider.task_types
             }
-            raise RuntimeError(
-                f"No available provider supports task type '{task_type.value}'. Exclusions: {snapshot}"
-            )
+            raise RuntimeError(f"No available provider supports task type '{task_type.value}'. Exclusions: {snapshot}")
 
         if self._preferred_provider:
             candidates.sort(
@@ -521,6 +569,8 @@ class ModelRouter:
         }
         hardware = self._hardware_trace(candidates, context)
         reason = f"Selected {best.id} for {task_type.value} (strategy={self._strategy}, priority={best.priority}, availability=verified)"
+        if self._offline_reason:
+            reason += f", offline={self._offline_reason}"
         logger.info(reason)
 
         return self._record_decision(
@@ -530,19 +580,24 @@ class ModelRouter:
                 task_type=task_type,
                 strategy=self._strategy,
                 reason=reason,
-                selection_trace={"eligible": [p.id for p in candidates], "excluded": excluded, "hardware": hardware},
+                selection_trace={
+                    "eligible": [p.id for p in candidates],
+                    "excluded": excluded,
+                    "hardware": hardware,
+                    "offline_reason": self._offline_reason,
+                },
             )
         )
 
-    def _filter_candidates(
-        self, task_type: TaskType, context: Optional[Dict[str, Any]] = None
-    ) -> List[ProviderSpec]:
+    def _filter_candidates(self, task_type: TaskType, context: Optional[Dict[str, Any]] = None) -> List[ProviderSpec]:
+        offline = self.is_offline()
         return [
             p
             for p in self._providers.values()
             if task_type in p.task_types
             and self.provider_availability(p.id).available
             and self._hardware_allows(p, context)
+            and (not offline or p.is_local)
         ]
 
     @staticmethod
@@ -569,9 +624,7 @@ class ModelRouter:
         assessment = self._hardware_assessment(provider, context)
         return not assessment or assessment.get("compatible") is not False
 
-    def _candidate_exclusion_reason(
-        self, provider: ProviderSpec, context: Optional[Dict[str, Any]]
-    ) -> str:
+    def _candidate_exclusion_reason(self, provider: ProviderSpec, context: Optional[Dict[str, Any]]) -> str:
         availability = self.provider_availability(provider.id)
         if not availability.available:
             return availability.reason
@@ -580,9 +633,7 @@ class ModelRouter:
             return f"hardware_incompatible: {assessment.get('reason')}"
         return "not_eligible"
 
-    def _hardware_trace(
-        self, candidates: List[ProviderSpec], context: Optional[Dict[str, Any]]
-    ) -> Dict[str, Any]:
+    def _hardware_trace(self, candidates: List[ProviderSpec], context: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         return {
             provider.id: assessment
             for provider in candidates
@@ -616,6 +667,9 @@ class ModelRouter:
 
         def dynamic_score(p: ProviderSpec) -> float:
             score = float(p.priority)
+
+            if self._preferred_provider and p.id == self._preferred_provider:
+                score += 60
 
             if task_type in (TaskType.LOCAL, TaskType.QUICK) and p.is_local:
                 score += 20
@@ -673,7 +727,7 @@ class ModelRouter:
             cost = self._cost_tracker.get_model_price(best.id, best.default_model)
             factors += f" cost_usd_per_1k=${cost:.6f}"
         reason = f"Smart-selected {best.id} for {task_type.value} (score={dynamic_score(best):.0f}, {factors})"
-        logger.info(reason)
+        logger.debug(reason)
 
         return self._record_decision(
             RouterDecision(
@@ -795,11 +849,26 @@ class ModelRouter:
             per_call_timeout = min(remaining, LOCAL_CALL_TIMEOUT if provider.is_local else CALL_TIMEOUT)
             try:
                 result = self._call_provider(
-                    candidate, provider, messages, model_override,
+                    candidate,
+                    provider,
+                    messages,
+                    model_override,
                     timeout=per_call_timeout,
                 )
                 elapsed_total = time.monotonic() - start_time
                 self._circuit_breaker.record_success(candidate.provider_id)
+                if self._cost_tracker and result.get("usage"):
+                    usage = result["usage"]
+                    self._cost_tracker.record_cost(
+                        provider_id=candidate.provider_id,
+                        model=candidate.model,
+                        task_type=task_type,
+                        prompt_tokens=usage.get("prompt_tokens", 0),
+                        completion_tokens=usage.get("completion_tokens", 0),
+                    )
+                offline_fallback = (
+                    candidate.provider_id != primary_id and self._offline_reason is not None and provider.is_local
+                )
                 result["selection"] = {
                     "primary": primary_id,
                     "used": candidate.provider_id,
@@ -810,8 +879,15 @@ class ModelRouter:
                     "total_fallbacks_tried": idx,
                     "elapsed": format_elapsed(elapsed_total),
                 }
+                if offline_fallback:
+                    result["selection"]["offline_fallback"] = True
+                    result["selection"]["offline_reason"] = self._offline_reason
+                    result["selection"]["fallback_explanation"] = (
+                        f"Internet no disponible ({self._offline_reason}). "
+                        f"Usando modelo local ({candidate.provider_id}) como fallback."
+                    )
                 if candidate.provider_id != primary_id:
-                    self._record_fallback(candidate.provider_id)
+                    self._record_fallback(candidate.provider_id, "success_after_fallback")
                     self._fallback_history.append(
                         {
                             "primary": primary_id,
@@ -819,11 +895,15 @@ class ModelRouter:
                             "model": candidate.model,
                             "attempt": idx + 1,
                             "elapsed": elapsed_total,
+                            "category": "success_after_fallback",
                         }
                     )
                 logger.info(
                     "Chat success: provider=%s model=%s attempt=%d/%d elapsed=%s",
-                    candidate.provider_id, candidate.model, idx + 1, len(candidates),
+                    candidate.provider_id,
+                    candidate.model,
+                    idx + 1,
+                    len(candidates),
                     format_elapsed(elapsed_total),
                 )
                 return result
@@ -831,10 +911,24 @@ class ModelRouter:
                 classification = classify_provider_error(e, candidate.provider_id)
                 last_error = f"[{classification['category']}] {classification['message']}"
                 self._circuit_breaker.record_failure(candidate.provider_id)
+                self._fallback_history.append(
+                    {
+                        "primary": primary_id,
+                        "used": candidate.provider_id,
+                        "attempt": idx + 1,
+                        "category": classification.get("category", "unknown"),
+                        "message": classification.get("message", ""),
+                        "elapsed": time.monotonic() - start_time,
+                    }
+                )
                 logger.warning(
                     "Provider %s failed (attempt %d/%d, budget_remaining=%.0fs): [%s] %s",
-                    candidate.provider_id, idx + 1, len(candidates), remaining,
-                    classification["category"], classification["message"],
+                    candidate.provider_id,
+                    idx + 1,
+                    len(candidates),
+                    remaining,
+                    classification["category"],
+                    classification["message"],
                 )
                 if remaining < 5.0 and idx < len(candidates) - 1:
                     logger.warning("Timeout budget exhausted, stopping fallback chain")
@@ -864,9 +958,7 @@ class ModelRouter:
         """
         context = context or {}
         decision = self.select(task_type, context=context)
-        candidates = self._filter_open_providers(
-            self._build_fallback_chain(decision, task_type, context=context)
-        )
+        candidates = self._filter_open_providers(self._build_fallback_chain(decision, task_type, context=context))
         if not candidates:
             raise RuntimeError(f"All providers unavailable for {task_type.value}")
 
@@ -876,6 +968,7 @@ class ModelRouter:
         start_time = time.monotonic()
         budget_remaining = TOTAL_TIMEOUT_BUDGET
 
+        offline_fallback_happened = False
         for index, candidate in enumerate(candidates):
             provider = self._providers.get(candidate.provider_id)
             if provider is None:
@@ -883,17 +976,50 @@ class ModelRouter:
             elapsed = time.monotonic() - start_time
             remaining = max(10.0, budget_remaining - elapsed)
             emitted_content = False
+            is_offline_fallback = (
+                candidate.provider_id != primary_id
+                and self._offline_reason is not None
+                and provider.is_local
+                and not offline_fallback_happened
+            )
+            if is_offline_fallback:
+                offline_fallback_happened = True
+                yield {
+                    "type": "offline_fallback",
+                    "primary": primary_id,
+                    "used": candidate.provider_id,
+                    "reason": self._offline_reason,
+                    "explanation": (
+                        f"Internet no disponible ({self._offline_reason}). "
+                        f"Usando modelo local ({candidate.provider_id}) como fallback."
+                    ),
+                }
             try:
+                stream_events: List[Dict[str, Any]] = []
                 for event in self._call_provider_stream(
-                    candidate, provider, messages, model_override,
+                    candidate,
+                    provider,
+                    messages,
+                    model_override,
                     timeout_budget=remaining,
                 ):
                     if event["type"] == "delta" and event.get("text"):
                         emitted_content = True
+                    stream_events.append(event)
                     yield event
                 self._circuit_breaker.record_success(candidate.provider_id)
+                metrics = next((e for e in stream_events if e["type"] == "metrics"), None)
+                if self._cost_tracker and metrics:
+                    self._cost_tracker.record_cost(
+                        provider_id=candidate.provider_id,
+                        model=candidate.model,
+                        task_type=task_type,
+                        prompt_tokens=0,
+                        completion_tokens=metrics.get("estimated_tokens", 0),
+                        estimated=True,
+                    )
                 if candidate.provider_id != primary_id:
-                    self._record_fallback(candidate.provider_id)
+                    self._record_fallback(candidate.provider_id, "success_after_fallback")
                     self._fallback_history.append(
                         {
                             "primary": primary_id,
@@ -902,27 +1028,54 @@ class ModelRouter:
                             "attempt": index + 1,
                             "streaming": True,
                             "elapsed": time.monotonic() - start_time,
+                            "category": "success_after_fallback",
                         }
                     )
                 elapsed_total = time.monotonic() - start_time
                 logger.info(
                     "Stream success: provider=%s model=%s attempt=%d/%d elapsed=%s",
-                    candidate.provider_id, candidate.model, index + 1, len(candidates),
+                    candidate.provider_id,
+                    candidate.model,
+                    index + 1,
+                    len(candidates),
                     format_elapsed(elapsed_total),
                 )
                 return
             except Exception as error:
-                classification = classify_provider_error(error, candidate.provider_id) if not emitted_content else {"category": "stream_interrupted", "message": str(error)}
+                classification = (
+                    classify_provider_error(error, candidate.provider_id)
+                    if not emitted_content
+                    else {"category": "stream_interrupted", "message": str(error)}
+                )
                 last_classification = classification
                 last_error = f"[{classification['category']}] {classification['message']}"
                 self._circuit_breaker.record_failure(candidate.provider_id)
+                self._fallback_history.append(
+                    {
+                        "primary": primary_id,
+                        "used": candidate.provider_id,
+                        "attempt": index + 1,
+                        "streaming": True,
+                        "category": classification.get("category", "unknown"),
+                        "message": classification.get("message", ""),
+                        "elapsed": time.monotonic() - start_time,
+                    }
+                )
                 logger.warning(
                     "Stream provider %s failed (attempt %d/%d, budget=%.0fs): [%s] %s",
-                    candidate.provider_id, index + 1, len(candidates), remaining,
-                    classification["category"], classification["message"],
+                    candidate.provider_id,
+                    index + 1,
+                    len(candidates),
+                    remaining,
+                    classification["category"],
+                    classification["message"],
                 )
                 if emitted_content:
-                    yield {"type": "error", "category": "stream_interrupted", "message": f"Provider {candidate.provider_id} interrupted the response"}
+                    yield {
+                        "type": "error",
+                        "category": "stream_interrupted",
+                        "message": f"Provider {candidate.provider_id} interrupted the response",
+                    }
                     return
 
         yield {
@@ -954,8 +1107,7 @@ class ModelRouter:
             for message in provider_messages:
                 if message.get("role") == "system":
                     message["content"] = (
-                        str(message.get("content", ""))
-                        + "\nUse only the supplied Sentinel context for device facts. "
+                        str(message.get("content", "")) + "\nUse only the supplied Sentinel context for device facts. "
                         "Do not expose chain-of-thought. /no_think"
                     )
                     break
@@ -969,8 +1121,13 @@ class ModelRouter:
             first_token_to = min(first_token_to, budget * 0.5)
             stream_idle_to = min(stream_idle_to, budget * 0.3)
 
+        import httpx
+
         client = OpenAI(
-            base_url=base_url, api_key=api_key, timeout=first_token_to, max_retries=0,
+            base_url=base_url,
+            api_key=api_key,
+            timeout=httpx.Timeout(connect=connect_to, read=first_token_to, write=connect_to, pool=connect_to),
+            max_retries=0,
         )
 
         request_options: Dict[str, Any] = {}
@@ -1016,7 +1173,8 @@ class ModelRouter:
             # Check stream idle timeout
             if now - last_chunk_time > stream_idle_to:
                 yield {
-                    "type": "error", "category": "stream_idle_timeout",
+                    "type": "error",
+                    "category": "stream_idle_timeout",
                     "message": f"No data for {stream_idle_to:.0f}s",
                     "provider": decision.provider_id,
                 }
@@ -1057,8 +1215,7 @@ class ModelRouter:
             for message in provider_messages:
                 if message.get("role") == "system":
                     message["content"] = (
-                        str(message.get("content", ""))
-                        + "\nUse only the supplied Sentinel context for device facts. "
+                        str(message.get("content", "")) + "\nUse only the supplied Sentinel context for device facts. "
                         "Do not expose chain-of-thought. /no_think"
                     )
                     break
@@ -1133,14 +1290,35 @@ class ModelRouter:
         provider = self._providers.get(provider_id)
         if not provider:
             return {"available": False, "error": f"Unknown provider '{provider_id}'"}
+        base_url = provider.config.get("base_url") or PROVIDER_URLS.get(provider_id, "")
+        if not base_url:
+            return {"available": False, "error": "no_base_url", "provider": provider_id}
         try:
             import httpx
 
-            base_url = provider.config.get("base_url") or PROVIDER_URLS.get(provider_id, "")
             api_key = self._key_map.get(provider_id, "")
             headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
             r = httpx.get(f"{base_url}/models", headers=headers, timeout=timeout)
+            if r.status_code == 401:
+                return {"available": False, "error": "invalid_api_key", "status_code": 401, "provider": provider_id}
+            if r.status_code == 403:
+                return {"available": False, "error": "key_lacks_access", "status_code": 403, "provider": provider_id}
+            if r.status_code == 429:
+                return {"available": False, "error": "rate_limited", "status_code": 429, "provider": provider_id}
+            if r.status_code >= 500:
+                return {
+                    "available": False,
+                    "error": f"provider_error_{r.status_code}",
+                    "status_code": r.status_code,
+                    "provider": provider_id,
+                }
             return {"available": r.is_success, "status_code": r.status_code, "provider": provider_id}
+        except (httpx.ConnectError, httpx.ConnectTimeout):
+            return {"available": False, "error": "connection_failed", "provider": provider_id}
+        except (httpx.ReadTimeout, httpx.PoolTimeout, httpx.WriteTimeout):
+            return {"available": False, "error": "timeout", "provider": provider_id}
+        except httpx.HTTPError as e:
+            return {"available": False, "error": str(e), "provider": provider_id}
         except Exception as e:
             return {"available": False, "error": str(e), "provider": provider_id}
 
@@ -1172,4 +1350,5 @@ class ModelRouter:
             "task_type_map": {k.value: v for k, v in self._task_type_map.items()},
             "max_fallbacks": self._max_fallbacks,
             "fallback_strategy": self._fallback_strategy,
+            "offline_mode": self._offline_mode,
         }

@@ -30,6 +30,7 @@ class TestDetectType:
         assert _detect_type(pathlib.Path("config.yaml")) == "text"
         assert _detect_type(pathlib.Path("data.csv")) == "csv"
         assert _detect_type(pathlib.Path("data.json")) == "json"
+
     def test_code_files(self):
         import pathlib
 
@@ -70,7 +71,12 @@ class TestPipelineApiErrors:
         monkeypatch.setattr(sentinel_bridge, "get_orchestrator", lambda: orchestrator)
 
         import asyncio
-        result = asyncio.run(get_gateway().execute("pipeline.ingest", {"path": "document.txt"}, {"identity": {"user_id": "test", "role": "admin"}}))
+
+        result = asyncio.run(
+            get_gateway().execute(
+                "pipeline.ingest", {"path": "document.txt"}, {"identity": {"user_id": "test", "role": "admin"}}
+            )
+        )
 
         assert not result.success
         assert "secret" not in (result.error or "")

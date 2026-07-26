@@ -257,6 +257,7 @@ def get_topic(topic_id: str):
     topic = HELP_TOPICS.get(topic_id)
     if not topic:
         from fastapi import HTTPException
+
         raise HTTPException(status_code=404, detail="Topic not found")
     return topic
 

@@ -22,18 +22,31 @@ class PolicyEngine:
     def set_event_bus(self, event_bus: EventBus) -> None:
         self._event_bus = event_bus
 
-    def _emit(self, event_type: str, *, tool_id: str = "", session_id: str = "", request_id: str = "", status: str = "", details: Optional[Dict[str, Any]] = None) -> None:
+    def _emit(
+        self,
+        event_type: str,
+        *,
+        tool_id: str = "",
+        session_id: str = "",
+        request_id: str = "",
+        status: str = "",
+        details: Optional[Dict[str, Any]] = None,
+    ) -> None:
         if self._event_bus is None:
             return
-        asyncio.ensure_future(self._event_bus.emit(SentinelEvent.new(
-            event_type=event_type,
-            session_id=session_id or "",
-            request_id=request_id or "",
-            component="policy_engine",
-            status=status,
-            tool=tool_id,
-            details=details,
-        )))
+        asyncio.ensure_future(
+            self._event_bus.emit(
+                SentinelEvent.new(
+                    event_type=event_type,
+                    session_id=session_id or "",
+                    request_id=request_id or "",
+                    component="policy_engine",
+                    status=status,
+                    tool=tool_id,
+                    details=details,
+                )
+            )
+        )
 
     def _on_policy_reload(self) -> None:
         logger.info("Policy files changed, policies will use updated YAML config on next evaluate()")
@@ -91,10 +104,25 @@ class PolicyEngine:
                 reason=f"No policy covers permissions {required_permissions}",
                 context={"tool_id": tool_id, "permissions": required_permissions},
             )
+            self._emit_audit(tool_id, sid, rid, result, required_permissions)
             if result.effect == PolicyEffect.DENY:
-                self._emit(event_types.POLICY_DENIED, tool_id=tool_id, session_id=sid, request_id=rid, status="denied", details={"policy_id": "_default", "reason": result.reason})
+                self._emit(
+                    event_types.POLICY_DENIED,
+                    tool_id=tool_id,
+                    session_id=sid,
+                    request_id=rid,
+                    status="denied",
+                    details={"policy_id": "_default", "reason": result.reason},
+                )
             else:
-                self._emit(event_types.POLICY_VALIDATED, tool_id=tool_id, session_id=sid, request_id=rid, status="completed", details={"effect": result.effect.value})
+                self._emit(
+                    event_types.POLICY_VALIDATED,
+                    tool_id=tool_id,
+                    session_id=sid,
+                    request_id=rid,
+                    status="completed",
+                    details={"effect": result.effect.value},
+                )
             return result
 
         evaluation_context = dict(context)
@@ -109,7 +137,15 @@ class PolicyEngine:
                     tool_id,
                     result.reason,
                 )
-                self._emit(event_types.POLICY_DENIED, tool_id=tool_id, session_id=sid, request_id=rid, status="denied", details={"policy_id": result.policy_id, "reason": result.reason})
+                self._emit_audit(tool_id, sid, rid, result, required_permissions)
+                self._emit(
+                    event_types.POLICY_DENIED,
+                    tool_id=tool_id,
+                    session_id=sid,
+                    request_id=rid,
+                    status="denied",
+                    details={"policy_id": result.policy_id, "reason": result.reason},
+                )
                 return result
 
         confirm_results = [result for result in evaluated if result.effect == PolicyEffect.REQUIRE_CONFIRM]
@@ -122,7 +158,15 @@ class PolicyEngine:
                 context={"confirmations": [r.context for r in confirm_results]},
             )
             logger.info("Policy requires confirm for tool %s", tool_id)
-            self._emit(event_types.POLICY_VALIDATED, tool_id=tool_id, session_id=sid, request_id=rid, status="completed", details={"effect": combined.effect.value})
+            self._emit_audit(tool_id, sid, rid, combined, required_permissions)
+            self._emit(
+                event_types.POLICY_VALIDATED,
+                tool_id=tool_id,
+                session_id=sid,
+                request_id=rid,
+                status="completed",
+                details={"effect": combined.effect.value},
+            )
             return combined
 
         logger.info("All policies ALLOW for tool %s", tool_id)
@@ -131,5 +175,40 @@ class PolicyEngine:
             policy_id="_all",
             reason="All policies allowed",
         )
-        self._emit(event_types.POLICY_VALIDATED, tool_id=tool_id, session_id=sid, request_id=rid, status="completed", details={"effect": result.effect.value})
+        self._emit_audit(tool_id, sid, rid, result, required_permissions)
+        self._emit(
+            event_types.POLICY_VALIDATED,
+            tool_id=tool_id,
+            session_id=sid,
+            request_id=rid,
+            status="completed",
+            details={"effect": result.effect.value},
+        )
         return result
+
+    def _emit_audit(
+        self, tool_id: str, session_id: str, request_id: str, result: PolicyResult, permissions: List[str]
+    ) -> None:
+        self._emit(
+            event_types.POLICY_AUDIT_DECISION,
+            tool_id=tool_id,
+            session_id=session_id,
+            request_id=request_id,
+            status=result.effect.value,
+            details={
+                "policy_id": result.policy_id,
+                "effect": result.effect.value,
+                "reason": result.reason,
+                "permissions": permissions,
+                "context": result.context,
+            },
+        )
+
+    def audit_summary(self) -> Dict[str, Any]:
+        ids = [pid for pid in self._policies]
+        return {
+            "total_policies": len(self._policies),
+            "policy_ids": ids,
+            "default_effect": self._default_effect.value,
+            "permission_map": {k: len(v) for k, v in self._permission_map.items()},
+        }

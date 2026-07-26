@@ -85,7 +85,7 @@ class TestDecisionEngineWithContext:
         result = engine.evaluate(plan)
 
         assert result.decision == Decision.REJECT
-        assert "Read-only" in result.reason
+        assert "solo lectura" in result.reason.lower()
 
     def test_admin_mode_auto_approves_high_but_reversible_action(self):
         engine = DecisionEngine(get_permission_level=lambda: "admin")
@@ -135,7 +135,7 @@ class TestDecisionEngineWithContext:
         plan = _make_plan(risk=0.8)
         ctx = {"system_summary": {"cpu_percent": 95}}
         result = engine.evaluate(plan, ctx)
-        assert result.decision == Decision.REJECT
+        assert result.decision == Decision.REQUIRE_CONFIRM
         assert "cpu_critical" in result.context_factors
 
     def test_require_confirm_includes_context_factors(self):
@@ -211,14 +211,14 @@ class TestContextAwareRiskScoring:
             f"Context modifier pushed risk to require confirm, got {result.decision}"
         )
 
-    def test_context_modifier_pushes_to_reject(self):
+    def test_context_modifier_pushes_to_require_confirm(self):
         engine = DecisionEngine(get_permission_level=lambda: "view")
         plan = _make_plan(risk=0.10)
         ctx = {"system_summary": {"memory_percent": 95}}
         result = engine.evaluate(plan, ctx)
         assert result.final_risk_score == 0.25
-        assert result.decision == Decision.REJECT, (
-            "View level rejects at risk > 0.10, context pushed base 0.10 to 0.25 > 0.10"
+        assert result.decision == Decision.REQUIRE_CONFIRM, (
+            "View level requires confirm at risk > 0.10, context pushed base 0.10 to 0.25 > 0.10"
         )
 
     def test_no_modifier_unrelated_factors(self):

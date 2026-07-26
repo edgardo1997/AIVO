@@ -16,18 +16,19 @@ _TESTING = False
 # Retry configuration for SQLITE_BUSY / locked database
 _MAX_RETRIES = 5
 _BASE_RETRY_DELAY = 0.05  # 50ms
-_MAX_RETRY_DELAY = 1.0    # 1s
-_RETRY_BACKOFF = 2.0      # exponential backoff multiplier
+_MAX_RETRY_DELAY = 1.0  # 1s
+_RETRY_BACKOFF = 2.0  # exponential backoff multiplier
 
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
+
 SENTINEL_DATA_DIR = os.path.abspath(os.path.expanduser("~/.sentinel"))
 SENTINEL_PRODUCTION_DB_PATH = os.path.join(SENTINEL_DATA_DIR, "sentinel.db")
 LEGACY_PRODUCTION_DB_PATH = os.path.abspath(os.path.expanduser("~/.aivo.db"))
 PRODUCTION_DB_PATH = SENTINEL_PRODUCTION_DB_PATH
-LATEST_SCHEMA_VERSION = 4
+LATEST_SCHEMA_VERSION = 7
 
 
 def _schema_version(conn: sqlite3.Connection) -> int:
@@ -102,24 +103,16 @@ def migrate_legacy_database(
 
 
 def _assert_safe_database_path(db_path: str) -> None:
-    """Fail closed if a test process attempts to open the production database.
-
-    In production this always runs to prevent accidental database corruption.
-    During testing the check is skipped because conftest.py already guarantees
-    SENTINEL_DB_PATH points to an isolated temporary database.
-    """
-    if _TESTING:
+    """Fail closed if a test process attempts to open production storage."""
+    if not _TESTING:
         return
-    candidate = os.path.normcase(_normalize_path(db_path))
-    protected_paths = {
-        os.path.normcase(SENTINEL_PRODUCTION_DB_PATH),
-        os.path.normcase(LEGACY_PRODUCTION_DB_PATH),
+    normalized = _normalize_path(db_path)
+    protected = {
+        _normalize_path(SENTINEL_PRODUCTION_DB_PATH),
+        _normalize_path(LEGACY_PRODUCTION_DB_PATH),
     }
-    if candidate in protected_paths:
-        raise RuntimeError(
-            "Refusing to open a production database path in this process. "
-            "Set SENTINEL_DB_PATH to an isolated database."
-        )
+    if normalized in protected:
+        raise RuntimeError(f"Refusing to open a production database path during tests: {normalized}")
 
 
 class DatabaseManager:
@@ -180,20 +173,18 @@ class DatabaseManager:
             conn = self._get_conn()
             with self._write_lock:
                 result = conn.execute(
-                    "DELETE FROM episodic_memory WHERE expires_at IS NOT NULL AND expires_at <= ?",
-                    (now,)
+                    "DELETE FROM episodic_memory WHERE expires_at IS NOT NULL AND expires_at <= ?", (now,)
                 )
                 counts["episodic_memory"] = result.rowcount
 
                 result = conn.execute(
-                    "DELETE FROM environment_changes WHERE expires_at IS NOT NULL AND expires_at <= ?",
-                    (now,)
+                    "DELETE FROM environment_changes WHERE expires_at IS NOT NULL AND expires_at <= ?", (now,)
                 )
                 counts["environment_changes"] = result.rowcount
 
                 result = conn.execute(
                     "DELETE FROM pending_actions WHERE datetime(created_at, '+' || ttl_seconds || ' seconds') <= ?",
-                    (now,)
+                    (now,),
                 )
                 counts["pending_actions"] = result.rowcount
 
@@ -588,15 +579,15 @@ class DatabaseManager:
 
     MIGRATIONS = {
         4: "Add version column to conversation_threads for merge-by-version",
+        5: "Add risk_level, plan_id, params_hash, identity_hash, redacted to pending_actions",
+        6: "Repair legacy config timestamp and synchronize schema version",
+        7: "Repair authorization and config columns after legacy baseline",
     }
 
     def _run_migrations(self) -> None:
         """Run versioned migrations transactionally."""
         conn = self._get_conn()
-        applied = set(
-            row[0] for row in
-            conn.execute("SELECT version FROM schema_migrations").fetchall()
-        )
+        applied = set(row[0] for row in conn.execute("SELECT version FROM schema_migrations").fetchall())
         for version in sorted(self.MIGRATIONS):
             if version in applied:
                 continue
@@ -605,13 +596,43 @@ class DatabaseManager:
                 try:
                     if version == 4:
                         self._ensure_column("conversation_threads", "version", "INTEGER DEFAULT 1")
+                        conn.execute("UPDATE conversation_threads SET version = 1 WHERE version IS NULL")
+                    if version == 5:
+                        for col, decl in (
+                            ("risk_level", "TEXT DEFAULT 'unknown'"),
+                            ("plan_id", "TEXT DEFAULT ''"),
+                            ("params_hash", "TEXT DEFAULT ''"),
+                            ("identity_hash", "TEXT DEFAULT ''"),
+                            ("redacted", "INTEGER DEFAULT 0"),
+                        ):
+                            self._ensure_column("pending_actions", col, decl)
+                    if version == 6:
+                        self._ensure_column(
+                            "config",
+                            "updated_at",
+                            "TEXT DEFAULT ''",
+                        )
                         conn.execute(
-                            "UPDATE conversation_threads SET version = 1 WHERE version IS NULL"
+                            "UPDATE config SET updated_at = datetime('now') WHERE updated_at IS NULL OR updated_at = ''"
+                        )
+                    if version == 7:
+                        for col, decl in (
+                            ("risk_level", "TEXT DEFAULT 'unknown'"),
+                            ("plan_id", "TEXT DEFAULT ''"),
+                            ("params_hash", "TEXT DEFAULT ''"),
+                            ("identity_hash", "TEXT DEFAULT ''"),
+                            ("redacted", "INTEGER DEFAULT 0"),
+                        ):
+                            self._ensure_column("pending_actions", col, decl)
+                        self._ensure_column("config", "updated_at", "TEXT DEFAULT ''")
+                        conn.execute(
+                            "UPDATE config SET updated_at = datetime('now') WHERE updated_at IS NULL OR updated_at = ''"
                         )
                     conn.execute(
                         "INSERT INTO schema_migrations (version, description) VALUES (?, ?)",
                         (version, desc),
                     )
+                    conn.execute(f"PRAGMA user_version = {version}")
                     logger.info("Migration v%d applied: %s", version, desc)
                 except Exception:
                     logger.exception("Migration v%d failed, rolling back", version)
@@ -652,8 +673,13 @@ class DatabaseManager:
             except sqlite3.OperationalError as e:
                 if "locked" in str(e).lower() or "busy" in str(e).lower():
                     if attempt < _MAX_RETRIES:
-                        logger.warning("Database locked (attempt %d/%d), retrying in %.2fs: %s",
-                                       attempt + 1, _MAX_RETRIES, delay, e)
+                        logger.warning(
+                            "Database locked (attempt %d/%d), retrying in %.2fs: %s",
+                            attempt + 1,
+                            _MAX_RETRIES,
+                            delay,
+                            e,
+                        )
                         time.sleep(delay)
                         delay = min(delay * _RETRY_BACKOFF, _MAX_RETRY_DELAY)
                         continue
@@ -723,7 +749,7 @@ class DatabaseManager:
                 result = conn.execute(
                     """DELETE FROM pending_actions
                        WHERE datetime(created_at, '+' || ttl_seconds || ' seconds') <= ?""",
-                    (now,)
+                    (now,),
                 )
                 deleted["pending_actions"] = result.rowcount
 
@@ -743,6 +769,7 @@ class DatabaseManager:
         """Create a consistent backup using SQLite's backup API.
         Returns dict with backup_path and size."""
         import sqlite3 as sqlite3_mod
+
         backup_path = _normalize_path(backup_path)
         os.makedirs(os.path.dirname(backup_path), exist_ok=True)
         with self._write_lock:
@@ -863,7 +890,10 @@ class DatabaseManager:
             if expected_version is not None and current_version != expected_version:
                 logger.warning(
                     "Version mismatch for conversation %s/%s: expected=%d got=%d",
-                    user_id, session_id, expected_version, current_version,
+                    user_id,
+                    session_id,
+                    expected_version,
+                    current_version,
                 )
                 # Return existing data without modification
                 return self.get_conversation(user_id, session_id) or {}

@@ -4,9 +4,11 @@ from sentinel.core.tool import Tool, ToolResult, ToolSpec
 
 def _get_registry():
     from modules import get_sentinel_goal_registry
+
     registry = get_sentinel_goal_registry()
     if registry is None:
         from modules import get_sentinel_orchestrator
+
         get_sentinel_orchestrator()
         registry = get_sentinel_goal_registry()
     return registry
@@ -41,6 +43,7 @@ class GoalRegisterTool(Tool):
     async def execute(self, params: Dict[str, Any], context: Dict[str, Any]) -> ToolResult:
         try:
             from sentinel.core.goals import GoalDefinition, RiskLevel
+
             registry = _get_registry()
             if registry is None:
                 return ToolResult.fail(error="Goal registry not available", tool_id="goals.register")
@@ -128,6 +131,7 @@ class GoalUpdateTool(Tool):
     async def execute(self, params: Dict[str, Any], context: Dict[str, Any]) -> ToolResult:
         try:
             from sentinel.core.goals import RiskLevel
+
             registry = _get_registry()
             if registry is None:
                 return ToolResult.fail(error="Goal registry not available", tool_id="goals.update")
@@ -135,8 +139,14 @@ class GoalUpdateTool(Tool):
             if registry.get(goal_id) is None:
                 return ToolResult.fail(error=f"Goal '{goal_id}' not found", tool_id="goals.update")
             allowed = {
-                "name", "description", "intent_targets", "possible_capabilities",
-                "priority", "base_risk", "keywords", "enabled",
+                "name",
+                "description",
+                "intent_targets",
+                "possible_capabilities",
+                "priority",
+                "base_risk",
+                "keywords",
+                "enabled",
             }
             changes = {k: v for k, v in params.items() if k in allowed and v is not None}
             if not changes:

@@ -23,7 +23,9 @@ class WorkspaceManager:
         if workspace_id in self._workspaces:
             return {"created": False, "error": "already exists"}
         self._workspaces[workspace_id] = {"path": path, "created_at": __import__("time").time()}
-        self._emit(event_types.WORKSPACE_CREATED, session_id, request_id, details={"workspace_id": workspace_id, "path": path})
+        self._emit(
+            event_types.WORKSPACE_CREATED, session_id, request_id, details={"workspace_id": workspace_id, "path": path}
+        )
         log.info("Workspace created: %s", workspace_id)
         return {"created": True, "workspace_id": workspace_id}
 
@@ -57,10 +59,12 @@ class WorkspaceManager:
     def _emit(self, event_type: str, session_id: str, request_id: str, details: Optional[Dict] = None):
         if self._event_bus is None:
             return
-        self._event_bus.emit(SentinelEvent.new(
-            event_type=event_type,
-            session_id=session_id or "system",
-            request_id=request_id or "",
-            component="workspace_manager",
-            details=details,
-        ))
+        self._event_bus.emit(
+            SentinelEvent.new(
+                event_type=event_type,
+                session_id=session_id or "system",
+                request_id=request_id or "",
+                component="workspace_manager",
+                details=details,
+            )
+        )

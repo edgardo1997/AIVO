@@ -7,7 +7,7 @@ from sentinel.conversation import ConversationAvailabilityLayer, ConversationReq
 
 log = logging.getLogger("sentinel.ai_service")
 
-SYSTEM_PROMPT = """You are the conversational intelligence used by Sentinel, an intelligent coordination platform. Help the user with learning, writing, analysis, planning, programming, explanations, and general questions in the language they use. Never claim that you directly accessed the computer or executed an action. System access belongs exclusively to Sentinel's governed pipeline: intent, plan, validation, policy, authorization, execution, and audit. When verified tool results are supplied, explain them accurately. When no verified result exists, be transparent and continue helping conversationally instead of pretending an action occurred. Be clear, practical, and concise unless the user asks for detail."""
+SYSTEM_PROMPT = """Eres la inteligencia conversacional de Sentinel, una plataforma que puede analizar el equipo, abrir aplicaciones, ejecutar scripts y modificar archivos mediante un pipeline gobernado (intención → plan → políticas → ejecución → auditoría). Cuando el usuario pida algo que Sentinel puede hacer, dile que sí puede hacerlo y reformula su petición como una instrucción directa para que el pipeline la procese. Si el pipeline ya ejecutó una acción y te pasaron el resultado, explícalo con precisión. Si no hay resultado de pipeline, ayuda con conocimiento general o dile al usuario que pida la acción directamente. Sé práctico y conciso. Responde en el mismo idioma del usuario."""
 
 ANALYZE_PROMPT = """You are a system analysis AI. Analyze the provided metrics and identify issues, trends, and recommendations. Be specific and actionable. Format your response as bullet points covering: 1) Critical Issues, 2) Warnings, 3) Recommendations."""
 
@@ -111,6 +111,7 @@ FREE_PROVIDERS = {
     },
 }
 
+
 class AIService:
     def __init__(
         self, repo: AIRepository = None, router: ModelRouter = None, context_manager: ContextWindowManager = None
@@ -120,12 +121,14 @@ class AIService:
         self._context_manager = context_manager or ContextWindowManager()
         self._capability_registry = None
         self._vault = None
-        self._conversation = ConversationAvailabilityLayer(
-            SentinelCoreConversation(), _RuntimeCapabilities(self)
-        )
+        self._audit = None
+        self._conversation = ConversationAvailabilityLayer(SentinelCoreConversation(), _RuntimeCapabilities(self))
 
     def set_router(self, router: ModelRouter) -> None:
         self._router = router
+
+    def set_audit_service(self, audit_svc) -> None:
+        self._audit = audit_svc
 
     def set_vault(self, vault) -> None:
         self._vault = vault
@@ -137,6 +140,7 @@ class AIService:
 
         # 1. Cargar desde environment variables primero
         import os
+
         env_map = {
             "deepseek": "SENTINEL_API_KEY_DEEPSEEK",
             "nvidia-nemotron": "SENTINEL_API_KEY_NVIDIA",
@@ -189,15 +193,17 @@ class AIService:
         if self._vault.get_entry(vault_id):
             self._vault.update_entry(vault_id, value=key)
         else:
-            self._vault.create_entry(VaultEntry(
-                id=vault_id,
-                name=f"{provider} API key",
-                category="ai_provider",
-                value=key,
-                masked=True,
-                rotatable=True,
-                notes="Managed automatically by Sentinel model routing",
-            ))
+            self._vault.create_entry(
+                VaultEntry(
+                    id=vault_id,
+                    name=f"{provider} API key",
+                    category="ai_provider",
+                    value=key,
+                    masked=True,
+                    rotatable=True,
+                    notes="Managed automatically by Sentinel model routing",
+                )
+            )
 
     def set_capability_registry(self, registry) -> None:
         self._capability_registry = registry
@@ -209,16 +215,13 @@ class AIService:
         cfg = self.repo.load()
         provider = cfg.get("provider", "sentinel_local")
         model = cfg.get("model") or self._get_default_model(provider)
-        key_configured = bool(
-            self._vault and self._vault.get_entry(f"ai-provider-{provider}")
-        )
+        key_configured = bool(self._vault and self._vault.get_entry(f"ai-provider-{provider}"))
         if not key_configured and not self._vault:
             try:
                 from modules import init_vault
+
                 self._vault = init_vault()
-                key_configured = bool(
-                    self._vault and self._vault.get_entry(f"ai-provider-{provider}")
-                )
+                key_configured = bool(self._vault and self._vault.get_entry(f"ai-provider-{provider}"))
             except Exception as e:
                 log.warning("Could not initialize vault for config check: %s", e)
         if not key_configured and self._router:
@@ -248,7 +251,18 @@ class AIService:
     def get_providers_list(self) -> list:
         if self._router is None:
             from sentinel.core.model_router import BUILTIN_PROVIDERS
-            return [{"id": p.id, "name": p.name, "requires_key": p.requires_key, "is_local": p.is_local, "default_model": p.default_model, "task_types": [t.value for t in p.task_types]} for p in BUILTIN_PROVIDERS]
+
+            return [
+                {
+                    "id": p.id,
+                    "name": p.name,
+                    "requires_key": p.requires_key,
+                    "is_local": p.is_local,
+                    "default_model": p.default_model,
+                    "task_types": [t.value for t in p.task_types],
+                }
+                for p in BUILTIN_PROVIDERS
+            ]
         return self._router.list_providers()
 
     def get_routing_config(self) -> dict:
@@ -257,7 +271,6 @@ class AIService:
         return self._router.get_routing_config()
 
     def restore_config(self) -> None:
-        """Restore provider, model and strategy from the persisted repo on startup."""
         if self._router is None:
             return
         cfg = self.repo.load()
@@ -268,11 +281,30 @@ class AIService:
             self._router.set_preferred_provider(provider)
         if strategy:
             self._router.set_strategy(strategy)
-        log.info("AI config restored: provider=%s model=%s strategy=%s", provider, model, strategy)
+        ttm = cfg.get("task_type_map")
+        if ttm and isinstance(ttm, dict):
+            self._router.set_task_type_map_from_dict(ttm)
+        offline_mode = cfg.get("offline_mode")
+        if offline_mode and self._router:
+            self._router.set_offline_mode(offline_mode)
+        log.info(
+            "AI config restored: provider=%s model=%s strategy=%s task_type_map=%s",
+            provider,
+            model,
+            strategy,
+            bool(ttm),
+        )
+        if self._audit:
+            self._audit.log_action(
+                "config_restored",
+                f"source=sqlite provider={provider} strategy={strategy}",
+                user="local",
+            )
 
     @staticmethod
     def validate_model(provider: str, model: str) -> dict:
         from sentinel.core.model_router import BUILTIN_PROVIDERS
+
         default_model = ""
         for p in BUILTIN_PROVIDERS:
             if p.id == provider:
@@ -299,18 +331,26 @@ class AIService:
         current = self.repo.load()
         strategy = cfg.pop("strategy", None)
         api_key = cfg.pop("api_key", None)
+        task_type_map = cfg.pop("task_type_map", None)
+        offline_mode = cfg.pop("offline_mode", None)
         if isinstance(api_key, str):
             api_key = api_key.strip()
             if api_key == "set":
                 api_key = None
         provider = cfg.get("provider") or current.get("provider", "sentinel_local")
         current.update({k: v for k, v in cfg.items() if v is not None})
+        if strategy:
+            current["strategy"] = strategy
+            current["preferred_provider"] = provider
         current.pop("api_key", None)
+        if task_type_map is not None:
+            current["task_type_map"] = task_type_map
         self.repo.save(current)
         if api_key:
             if not self._vault:
                 try:
                     from modules import init_vault
+
                     self._vault = init_vault()
                 except Exception as e:
                     log.warning("Could not initialize vault for API key storage: %s", e)
@@ -327,9 +367,18 @@ class AIService:
                 self._router.set_api_key(provider, api_key)
             if strategy:
                 self._router.set_strategy(strategy)
-                self._router.set_preferred_provider(
-                    None if strategy == "smart" else provider
-                )
+                self._router.set_preferred_provider(provider)
+            if task_type_map is not None and isinstance(task_type_map, dict):
+                self._router.set_task_type_map_from_dict(task_type_map)
+            if offline_mode is not None:
+                self._router.set_offline_mode(offline_mode)
+                current["offline_mode"] = offline_mode
+        if self._audit:
+            self._audit.log_action(
+                "config_changed",
+                f"provider={provider} strategy={strategy} preferred={current.get('preferred_provider')}",
+                user="local",
+            )
         return {"status": "saved"}
 
     def chat(
@@ -391,7 +440,7 @@ class AIService:
                 }
             old_preferred = None
             if provider and self._router:
-                old_preferred = getattr(self._router, '_preferred_provider', None)
+                old_preferred = getattr(self._router, "_preferred_provider", None)
                 self._router.set_preferred_provider(provider)
             try:
                 result = self._router.chat(managed_messages, task_type=task_type)
@@ -423,9 +472,7 @@ class AIService:
                     except Exception:
                         log.debug("Sentinel local availability refresh failed", exc_info=True)
                 fallback_provider = cfg.get("provider", "sentinel_local")
-                configured_provider_has_key = bool(
-                    self._router and self._router.has_api_key(fallback_provider)
-                )
+                configured_provider_has_key = bool(self._router and self._router.has_api_key(fallback_provider))
                 if not configured_provider_has_key:
                     try:
                         ollama_avail = self._router.provider_availability("ollama", refresh=True)
@@ -433,7 +480,11 @@ class AIService:
                             log.info("Ollama detectado como fallback temporal")
                             self._router.set_api_key("ollama", "ollama")
                             result = self._router.chat(managed_messages, task_type=task_type)
-                            return {"response": result["response"], "provider": result.get("provider"), "model": result.get("model")}
+                            return {
+                                "response": result["response"],
+                                "provider": result.get("provider"),
+                                "model": result.get("model"),
+                            }
                     except Exception:
                         log.debug("Local model recovery unavailable", exc_info=True)
                 raise
@@ -453,20 +504,16 @@ class AIService:
     ) -> Iterator[dict]:
         """Stream an answer while preserving router selection and safe fallback."""
         cfg = self.repo.load()
-        model = cfg.get("model") or self._get_default_model(
-            cfg.get("provider", "sentinel_local")
-        )
+        model = cfg.get("model") or self._get_default_model(cfg.get("provider", "sentinel_local"))
         messages = [{"role": "system", "content": system_prompt or SYSTEM_PROMPT}]
         messages.extend(
-            item
-            for item in (context or [])
-            if isinstance(item, dict) and "role" in item and "content" in item
+            item for item in (context or []) if isinstance(item, dict) and "role" in item and "content" in item
         )
         messages.append({"role": "user", "content": message})
         local_prompt_budget = 3072 if model == "Qwen3-1.7B-Q8_0.gguf" else None
-        managed_messages = self._context_manager.manage(
-            messages, model=model, max_tokens=local_prompt_budget
-        )["messages"]
+        managed_messages = self._context_manager.manage(messages, model=model, max_tokens=local_prompt_budget)[
+            "messages"
+        ]
         request = ConversationRequest(
             message=message,
             context=context or [],
@@ -487,9 +534,7 @@ class AIService:
                         from services.local_model_service import runtime as local_model_runtime
 
                         local_model_runtime.start_if_installed()
-                        availability = self._router.provider_availability(
-                            "sentinel_local", refresh=True
-                        )
+                        availability = self._router.provider_availability("sentinel_local", refresh=True)
                         if availability.available:
                             yield from self._router.chat_stream(
                                 managed_messages,
@@ -520,9 +565,7 @@ class AIService:
                 return {"analysis": result["response"], "provider": result.get("provider")}
             except RuntimeError as e:
                 log.error("All AI providers failed for analysis: %s", e)
-                core = self._conversation.respond(
-                    ConversationRequest(message="system status", purpose="analysis")
-                )
+                core = self._conversation.respond(ConversationRequest(message="system status", purpose="analysis"))
                 return {"analysis": core.text, "conversation_mode": core.mode.value}
 
         model = cfg.get("model") or self._get_default_model(cfg.get("provider", "sentinel_local"))
@@ -571,7 +614,6 @@ class AIService:
         if cfg.get("provider") in ("ollama", "sentinel_local"):
             api_key = cfg.get("provider")
         return OpenAI(base_url=base_url, api_key=api_key)
-
 
 
 class _RuntimeCapabilities:

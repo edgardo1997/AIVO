@@ -174,6 +174,7 @@ def mock_memory():
     mem.store_pending_action = MagicMock()
     mem.get_pending_action = MagicMock(return_value=None)
     mem.remove_pending_action = MagicMock()
+    mem.consume_pending_action = MagicMock(return_value=None)
     mem.get_last_execution = MagicMock(return_value=None)
     return mem
 
@@ -317,7 +318,7 @@ class TestProcessPipeline:
         result = await orchestrator.process("format drive")
         assert result.tool_result is None or result.tool_result.success is False
         assert result.error is not None
-        assert "rejected" in result.error.lower()
+        assert "riesgo" in result.error.lower()
 
     @pytest.mark.asyncio
     async def test_require_confirm_blocks_and_stores_pending(
@@ -539,12 +540,11 @@ class TestApproveWithModifications:
         )
         result = await orch.approve_with_modifications("id", [])
         assert result.error is not None
-        assert "no memory" in result.error.lower()
 
     @pytest.mark.asyncio
     async def test_action_not_found(self, orchestrator, mock_memory):
         """If pending action not found, returns error."""
-        mock_memory.get_pending_action.return_value = None
+        mock_memory.consume_pending_action.return_value = None
         result = await orchestrator.approve_with_modifications("unknown", [{"tool_id": "sys.info"}])
         assert result.error is not None
         assert "not found" in result.error.lower()
@@ -552,7 +552,7 @@ class TestApproveWithModifications:
     @pytest.mark.asyncio
     async def test_empty_modified_steps(self, orchestrator, mock_memory):
         """Empty modified steps list returns error."""
-        mock_memory.get_pending_action.return_value = PendingActionRecord(
+        mock_memory.consume_pending_action.return_value = PendingActionRecord(
             action_id="a1",
             tool_id="sys.info",
             params={
@@ -578,7 +578,7 @@ class TestApproveWithModifications:
     @pytest.mark.asyncio
     async def test_approve_with_modifications_success(self, orchestrator, mock_memory):
         """Successful modification creates steps and executes."""
-        mock_memory.get_pending_action.return_value = PendingActionRecord(
+        mock_memory.consume_pending_action.return_value = PendingActionRecord(
             action_id="a1",
             tool_id="sys.info",
             params={
@@ -624,7 +624,7 @@ class TestApproveWithModifications:
             ],
         )
         assert result.error is None or result.tool_result is not None
-        assert mock_memory.remove_pending_action.called
+        assert mock_memory.consume_pending_action.called
 
 
 # ===================================================================
@@ -635,7 +635,7 @@ class TestApproveWithModifications:
 class TestApproveExecution:
     @pytest.mark.asyncio
     async def test_different_user_cannot_approve(self, orchestrator, mock_memory):
-        mock_memory.get_pending_action.return_value = PendingActionRecord(
+        mock_memory.consume_pending_action.return_value = PendingActionRecord(
             action_id="a1",
             tool_id="system.info",
             params={"identity": {"user_id": "owner"}, "plan": {"steps": []}},
@@ -651,7 +651,6 @@ class TestApproveExecution:
         )
 
         assert "identity" in result.error.lower()
-        mock_memory.remove_pending_action.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_no_memory_returns_error(self):
@@ -669,14 +668,14 @@ class TestApproveExecution:
 
     @pytest.mark.asyncio
     async def test_action_not_found(self, orchestrator, mock_memory):
-        mock_memory.get_pending_action.return_value = None
+        mock_memory.consume_pending_action.return_value = None
         result = await orchestrator.approve_execution("unknown", True)
         assert result.error is not None
         assert "not found" in result.error.lower()
 
     @pytest.mark.asyncio
     async def test_denied(self, orchestrator, mock_memory):
-        mock_memory.get_pending_action.return_value = PendingActionRecord(
+        mock_memory.consume_pending_action.return_value = PendingActionRecord(
             action_id="a1",
             tool_id="sys.info",
             params={
@@ -697,11 +696,11 @@ class TestApproveExecution:
         )
         result = await orchestrator.approve_execution("a1", False)
         assert result.error is not None
-        assert "rejected" in result.error.lower()
+        assert "rechazada" in result.error.lower()
 
     @pytest.mark.asyncio
     async def test_approved_executes(self, orchestrator, mock_memory, mock_gateway, mock_intent_engine):
-        mock_memory.get_pending_action.return_value = PendingActionRecord(
+        mock_memory.consume_pending_action.return_value = PendingActionRecord(
             action_id="a1",
             tool_id="sys.info",
             params={

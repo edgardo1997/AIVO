@@ -69,6 +69,7 @@ SUGGESTION_TEMPLATES = [
     },
 ]
 
+
 class ProactiveService:
     def __init__(self, suggestions: list = None, metrics_history: list = None, engine_active: list = None):
         self._suggestions = suggestions if suggestions is not None else []
@@ -97,6 +98,7 @@ class ProactiveService:
 
     def get_top_process(self, metric: str):
         import psutil
+
         key = "cpu_percent" if metric == "cpu" else "memory_percent"
         processes = []
         for proc in psutil.process_iter(["pid", "name", key]):
@@ -111,6 +113,7 @@ class ProactiveService:
 
     def check_thresholds(self):
         import psutil
+
         now = time.time()
         cpu_percent = psutil.cpu_percent(interval=0.5)
         mem = psutil.virtual_memory()
@@ -168,19 +171,22 @@ class ProactiveService:
             return
         title = template["title"].replace("{value}", str(value))
         message = template["message"].replace("{value}", str(value))
-        self._suggestions.append({
-            "id": check_id,
-            "uid": str(uuid.uuid4())[:8],
-            "title": title,
-            "message": message,
-            "priority": priority,
-            "icon": template["icon"],
-            "value": value,
-            "timestamp": time.time(),
-        })
+        self._suggestions.append(
+            {
+                "id": check_id,
+                "uid": str(uuid.uuid4())[:8],
+                "title": title,
+                "message": message,
+                "priority": priority,
+                "icon": template["icon"],
+                "value": value,
+                "timestamp": time.time(),
+            }
+        )
 
     def store_metrics_snapshot(self):
         import psutil
+
         snapshot = {
             "timestamp": time.time(),
             "cpu": psutil.cpu_percent(interval=0.2),

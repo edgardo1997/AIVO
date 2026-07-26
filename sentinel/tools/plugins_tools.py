@@ -265,6 +265,7 @@ class PluginInstallZipTool(Tool):
     async def execute(self, params: Dict[str, Any], context: Dict[str, Any]) -> ToolResult:
         try:
             import base64
+
             raw = base64.b64decode(params["zip_base64"])
             plugin_id = params.get("plugin_id", "")
             result = self._svc.install_from_zip(raw, plugin_id)

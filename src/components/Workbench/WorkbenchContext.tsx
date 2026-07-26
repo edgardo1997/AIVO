@@ -21,6 +21,7 @@ export type ModelConfig = {
   model: string;
   strategy: string;
   preferred_provider?: string | null;
+  provider_key_status?: Record<string, boolean>;
   free_providers: Record<string, { label: string; base_url: string; default_model: string; api_key_required: boolean }>;
 };
 

@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import { api } from "../../api";
+import { consentApi, type ConsentGrantInfo } from "../../api/consent";
 import { usePolling } from "../../hooks/usePolling";
 import { useAppState } from "../../contexts/AppContext";
 import type { PermissionStatus } from "../../types";
@@ -13,6 +14,7 @@ export function Permissions() {
   const [pendingAction, setPendingAction] = useState<{ action: string; details: string }>({ action: "", details: "" });
   const [rules, setRules] = useState<any[]>([]);
   const [rule, setRule] = useState({ user_id: "*", tool: "*", permission: "*", path_prefix: "", effect: "require_confirm" });
+  const [consentGrants, setConsentGrants] = useState<ConsentGrantInfo[]>([]);
 
   const fetch = useCallback(async () => {
     try {
@@ -20,6 +22,8 @@ export function Permissions() {
       setStatus(s);
       setEmergencyActive(s.emergency_stop);
       setRules((await api.permissions.rules()).rules);
+      const grantsRes = await consentApi.listGrants();
+      setConsentGrants(grantsRes.grants);
     } catch {}
   }, []);
 
@@ -139,6 +143,52 @@ export function Permissions() {
           <div>All actions logged to audit trail</div>
           <div>Pending confirmations: {status?.pending_actions ?? 0}</div>
         </div>
+      </div>
+      <div className="card" style={{ marginTop: 16 }}>
+        <div className="card-title">Permisos concedidos</div>
+        {consentGrants.length === 0 ? (
+          <div style={{ fontSize: 12, color: "var(--text-muted)", padding: "8px 0" }}>No hay permisos concedidos.</div>
+        ) : (
+          <div style={{ fontSize: 12 }}>
+            {consentGrants.map((g) => (
+              <div key={g.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderTop: "1px solid var(--border)" }}>
+                <div>
+                  <strong>{g.tool_id}</strong>
+                  <span style={{ color: "var(--text-muted)", marginLeft: 8 }}>
+                    {g.consent_type === "permanent" ? "Permanente" : g.consent_type === "session" ? "Sesión" : "Una vez"}
+                  </span>
+                  {g.expires_at && (
+                    <span style={{ color: "var(--text-muted)", marginLeft: 8, fontSize: 11 }}>
+                      expira {new Date(g.expires_at * 1000).toLocaleString()}
+                    </span>
+                  )}
+                </div>
+                <button
+                  className="btn btn-ghost"
+                  style={{ fontSize: 10, padding: "2px 8px" }}
+                  onClick={async () => {
+                    await consentApi.revoke(g.id);
+                    const grantsRes = await consentApi.listGrants();
+                    setConsentGrants(grantsRes.grants);
+                  }}
+                >
+                  Revocar
+                </button>
+              </div>
+            ))}
+            <button
+              className="btn btn-ghost"
+              style={{ fontSize: 10, marginTop: 8 }}
+              onClick={async () => {
+                await consentApi.revokeAll();
+                const grantsRes = await consentApi.listGrants();
+                setConsentGrants(grantsRes.grants);
+              }}
+            >
+              Revocar todos
+            </button>
+          </div>
+        )}
       </div>
       <div className="card" style={{ marginTop: 16 }}>
         <div className="card-title">Granular Rules</div>

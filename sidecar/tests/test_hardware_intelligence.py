@@ -30,9 +30,7 @@ def available(provider):
 def test_explicit_model_requirement_is_deterministic():
     manager = ModelCapabilityManager()
 
-    requirement = manager.requirement_for(
-        "custom-model", {"hardware": {"working_set_gb": 7.5, "minimum_cpu_cores": 4}}
-    )
+    requirement = manager.requirement_for("custom-model", {"hardware": {"working_set_gb": 7.5, "minimum_cpu_cores": 4}})
 
     assert requirement.estimated_working_set_gb == 7.5
     assert requirement.minimum_cpu_cores == 4

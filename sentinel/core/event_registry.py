@@ -22,10 +22,7 @@ class EventRegistry:
     def validate(self, event_type: str) -> None:
         if not self.is_valid(event_type):
             valid_list = ", ".join(sorted(self._valid))
-            raise ValueError(
-                f"Unknown event type: '{event_type}'. "
-                f"Valid types: {valid_list}"
-            )
+            raise ValueError(f"Unknown event type: '{event_type}'. Valid types: {valid_list}")
 
     def register(self, event_type: str) -> None:
         self._valid.add(event_type)

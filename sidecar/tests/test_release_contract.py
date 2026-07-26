@@ -15,7 +15,7 @@ def test_release_versions_are_consistent():
     cargo = (ROOT / "src-tauri" / "Cargo.toml").read_text(encoding="utf-8")
     main = (ROOT / "sidecar" / "main.py").read_text(encoding="utf-8")
     version = package["version"]
-    assert version == "1.0.0"
+    assert version == "1.0.0-rc.1"
     assert tauri["version"] == version
     assert re.search(rf'^version = "{re.escape(version)}"$', cargo, re.MULTILINE)
     assert f'"version": "{version}"' in main

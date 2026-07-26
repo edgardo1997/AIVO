@@ -1,7 +1,5 @@
 """Process isolation and validated IPC for untrusted Sentinel plugins."""
 
-from __future__ import annotations
-
 import importlib.util
 import json
 import multiprocessing

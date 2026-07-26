@@ -23,6 +23,7 @@ jobs:
         with:
           ref: ${{ inputs.tag }}
           fetch-depth: 0
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -58,7 +59,7 @@ jobs:
           $release = gh release view $env:PUBLICATION_TAG --json isDraft,assets | ConvertFrom-Json
           if (-not $release.isDraft) { throw 'Release is not a draft; publication gate cannot protect it' }
           $names = @($release.assets | ForEach-Object name)
-          foreach ($pattern in '*.exe','*.msi','*.sig','SHA256SUMS','release-manifest.json') {
+          foreach ($pattern in '*.exe','*.msi','*.sig','update.json','SHA256SUMS','release-manifest.json','sbom-*.cdx.json') {
             if (-not ($names | Where-Object { $_ -like $pattern })) { throw "Missing required release asset: $pattern" }
           }
       - name: Independently verify downloaded release assets

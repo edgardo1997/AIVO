@@ -18,7 +18,12 @@ class StreamingMode:
         self._stream_key_configured = False
 
     def status(self) -> Dict[str, Any]:
-        return {"enabled": self._enabled, "platform": self._platform, "stream_active": self._stream_active, "stream_key_configured": self._stream_key_configured}
+        return {
+            "enabled": self._enabled,
+            "platform": self._platform,
+            "stream_active": self._stream_active,
+            "stream_key_configured": self._stream_key_configured,
+        }
 
     def activate(self, platform: str = "", session_id: str = "", request_id: str = "") -> Dict[str, Any]:
         self._enabled = True
@@ -78,10 +83,12 @@ class StreamingMode:
     def _emit(self, event_type: str, session_id: str, request_id: str, details: Optional[Dict] = None):
         if self._event_bus is None:
             return
-        self._event_bus.emit(SentinelEvent.new(
-            event_type=event_type,
-            session_id=session_id or "system",
-            request_id=request_id or "",
-            component="streaming_mode",
-            details=details,
-        ))
+        self._event_bus.emit(
+            SentinelEvent.new(
+                event_type=event_type,
+                session_id=session_id or "system",
+                request_id=request_id or "",
+                component="streaming_mode",
+                details=details,
+            )
+        )

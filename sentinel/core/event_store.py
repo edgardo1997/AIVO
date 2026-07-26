@@ -109,12 +109,8 @@ class EventStore:
                 "SELECT event_type, COUNT(*) AS cnt FROM events GROUP BY event_type ORDER BY cnt DESC"
             ).fetchall()
         }
-        failed = conn.execute(
-            "SELECT COUNT(*) FROM events WHERE status = 'failed'"
-        ).fetchone()[0]
-        avg_duration = conn.execute(
-            "SELECT AVG(duration) FROM events WHERE duration IS NOT NULL"
-        ).fetchone()[0]
+        failed = conn.execute("SELECT COUNT(*) FROM events WHERE status = 'failed'").fetchone()[0]
+        avg_duration = conn.execute("SELECT AVG(duration) FROM events WHERE duration IS NOT NULL").fetchone()[0]
         return {
             "total_events": total,
             "by_type": by_type,

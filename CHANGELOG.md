@@ -1,6 +1,6 @@
 # Changelog
 
-## v1.0.0 (2026-07-15)
+## v1.0.0 (2026-07-22)
 
 First public release.
 
@@ -83,7 +83,7 @@ First public release.
 - Error Recovery — Exponential backoff retry, friendly error messages, offline banner
 - Welcome Card — Quick-start actions on Dashboard for new users
 
-### CI/CD & Release
+### CI/CD & Release (Fase 10 — Distribution & Supply Chain)
 - 4 CI/CD Workflows — ci, release, publish-general, security-adversarial
 - Dependabot — Automated dependency updates for pip, npm, cargo, GitHub Actions
 - SBOM Generation — CycloneDX for npm, Python, Rust dependencies
@@ -92,7 +92,42 @@ First public release.
 - Release Contract Tests — 9 gates validating version consistency, signing, packaging
 - Release Metadata — SHA256SUMS, release-manifest.json, smoke tests
 - Windows MSI installer via Tauri with updater (server + public key)
-- 800+ tests across frontend (27 files) and backend (50+ files)
+- Two-job release pipeline: unprivileged build → privileged signing
+- All CI actions and tools pinned by immutable version
+- Legacy Python installer (`sidecar/installer.py`) deprecated
+- Release metadata falls back to `sentinel/sentinel` (no historical AIVO refs)
+- Conservative mode (`SENTINEL_CONSERVATIVE_MODE=1`) blocks write/executor tools
+
+### Quality & Stability (Fase 8 — Runtime)
+- Executor and filesystem services offload blocking I/O to threads
+- Semaphore (max 5) caps concurrent subprocesses
+- 23 budget assertions in benchmarks (context_with_proc at 12000ms)
+- Monotonic clocks for all duration measurements
+- Monotonic timestamps in SQLite schema
+
+### Product Coherence (Fase 9 — UX & Trust)
+- Settings stripped of stubs (System/About tabs, unused sidebar)
+- Cost display in Workbench message meta
+- API Key dialog converted to shared Modal component
+- Onboarding + SimulationConfirmDialog accessibility (Escape, focus, role)
+- usePolling hook fixed with recursive setTimeout + AbortController
+- API module reorganized to `src/api/`
+
+### E2E & Pentest (Fase 11)
+- 3 real-binary E2E suites: install→configure→execute→restart→persist→uninstall
+- Schema migration N-1→N and failed update recovery tests
+- Uninstall residue verification (DB, config, temp cleanup)
+- 40 adversarial security tests covering IPC, vault, path traversal, Fleet, audit
+- PathGuardian traversal detection
+- Vault encryption/decryption and tamper detection
+
+### Observability & Monitoring
+- ObservabilityService with execution tracing, latency percentiles, error categories
+- PipelineMetricsService with component durations, tool usage, throughput, bottlenecks
+- CostTracker with per-provider/model pricing, budgets, alerts
+- Circuit breakers per provider with OPEN/CLOSED/HALF_OPEN states
+- Health endpoints: /admin/health, /observability/*, /error-recovery/health-check
+- Performance alerts with anomaly detection
 
 ### Migration from v0.x
 - `/api/*` endpoints are deprecated (respond with `Deprecation` header)

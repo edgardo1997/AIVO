@@ -29,12 +29,15 @@ class SnapshotCreateTool(Tool):
         snapshot = snap.create_snapshot(name)
         if not snapshot:
             return ToolResult.fail(error="Failed to create snapshot", tool_id="env.snapshot.create")
-        return ToolResult.ok(data={
-            "snapshot_id": snapshot.meta.id,
-            "name": snapshot.meta.name,
-            "created_at": snapshot.meta.created_at,
-            "state_count": snapshot.meta.state_count,
-        }, tool_id="env.snapshot.create")
+        return ToolResult.ok(
+            data={
+                "snapshot_id": snapshot.meta.id,
+                "name": snapshot.meta.name,
+                "created_at": snapshot.meta.created_at,
+                "state_count": snapshot.meta.state_count,
+            },
+            tool_id="env.snapshot.create",
+        )
 
 
 class SnapshotListTool(Tool):
@@ -51,13 +54,16 @@ class SnapshotListTool(Tool):
 
     async def execute(self, params: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> ToolResult:
         metas = snap.list_snapshots()
-        return ToolResult.ok(data={
-            "snapshots": [
-                {"id": m.id, "name": m.name, "created_at": m.created_at, "state_count": m.state_count}
-                for m in metas
-            ],
-            "count": len(metas),
-        }, tool_id="env.snapshot.list")
+        return ToolResult.ok(
+            data={
+                "snapshots": [
+                    {"id": m.id, "name": m.name, "created_at": m.created_at, "state_count": m.state_count}
+                    for m in metas
+                ],
+                "count": len(metas),
+            },
+            tool_id="env.snapshot.list",
+        )
 
 
 class SnapshotGetTool(Tool):
@@ -85,14 +91,17 @@ class SnapshotGetTool(Tool):
         snapshot = snap.get_snapshot(snap_id)
         if not snapshot:
             return ToolResult.fail(error=f"Snapshot '{snap_id}' not found", tool_id="env.snapshot.get")
-        return ToolResult.ok(data={
-            "meta": {"id": snapshot.meta.id, "name": snapshot.meta.name, "created_at": snapshot.meta.created_at},
-            "state": {
-                "power_plan": snapshot.state.power_plan,
-                "gpu_count": len(snapshot.state.gpu),
-                "env_vars": snapshot.state.env_vars,
+        return ToolResult.ok(
+            data={
+                "meta": {"id": snapshot.meta.id, "name": snapshot.meta.name, "created_at": snapshot.meta.created_at},
+                "state": {
+                    "power_plan": snapshot.state.power_plan,
+                    "gpu_count": len(snapshot.state.gpu),
+                    "env_vars": snapshot.state.env_vars,
+                },
             },
-        }, tool_id="env.snapshot.get")
+            tool_id="env.snapshot.get",
+        )
 
 
 class SnapshotRestoreTool(Tool):

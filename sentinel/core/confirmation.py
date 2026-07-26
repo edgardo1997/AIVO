@@ -8,11 +8,23 @@ from typing import Any, Dict, Optional
 from .operational_memory import PendingActionRecord
 
 
-_SECRET_KEYS = frozenset({
-    "password", "passwd", "secret", "token", "api_key", "apikey",
-    "authorization", "api-key", "x-api-key", "auth_token",
-    "access_key", "secret_key", "private_key",
-})
+_SECRET_KEYS = frozenset(
+    {
+        "password",
+        "passwd",
+        "secret",
+        "token",
+        "api_key",
+        "apikey",
+        "authorization",
+        "api-key",
+        "x-api-key",
+        "auth_token",
+        "access_key",
+        "secret_key",
+        "private_key",
+    }
+)
 
 
 @dataclass

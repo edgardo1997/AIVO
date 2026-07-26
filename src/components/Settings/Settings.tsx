@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../../api";
+import { Modal } from "../ui/Modal";
 import "./Settings.css";
 
 interface ModelProvider {
@@ -137,7 +138,7 @@ function apiKeyPlaceholder(providerId: string): string {
   return placeholders[providerId] || "Tu API key";
 }
 
-type SettingsSection = "models" | "system" | "about" | "intelligence";
+type SettingsSection = "models" | "intelligence";
 
 export function Settings({ initialSection = "models" }: { initialSection?: SettingsSection }) {
   const [section, setSection] = useState<SettingsSection>(initialSection === "intelligence" ? "models" : initialSection);
@@ -198,6 +199,7 @@ export function Settings({ initialSection = "models" }: { initialSection?: Setti
         // Intentar activar sin key primero (por si hay env var en el backend)
         // El backend carga SENTINEL_API_KEY_* automáticamente
         setSelectedProvider(providerId);
+        setError(null);
         setShowApiDialog(true);
       }
     } else {
@@ -318,18 +320,7 @@ export function Settings({ initialSection = "models" }: { initialSection?: Setti
           >
             <span>🤖</span> Modelos
           </button>
-          <button
-            className={section === "system" ? "active" : ""}
-            onClick={() => setSection("system")}
-          >
-            <span>⚙</span> Sistema
-          </button>
-          <button
-            className={section === "about" ? "active" : ""}
-            onClick={() => setSection("about")}
-          >
-            <span>ℹ</span> Acerca de
-          </button>
+
         </nav>
       </aside>
 
@@ -408,34 +399,15 @@ export function Settings({ initialSection = "models" }: { initialSection?: Setti
               ))}
             </div>
 
-            <div className="add-more-section">
-              <button className="btn-outline">
-                <span>+</span> Añadir más modelos de proveedores populares
-              </button>
-            </div>
+
           </div>
         )}
 
-        {section === "system" && (
-          <div className="system-section">
-            <h1>Sistema</h1>
-            <p>Configuración del sistema y actualizaciones</p>
-            {/* System settings content */}
-          </div>
-        )}
-
-        {section === "about" && (
-          <div className="about-section">
-            <h1>Acerca de</h1>
-            <p>Información sobre Sentinel</p>
-            {/* About content */}
-          </div>
-        )}
       </main>
 
-      {showApiDialog && selectedProvider && (
-        <div className="api-dialog-overlay" onClick={() => setShowApiDialog(false)}>
-          <div className="api-dialog" onClick={(e) => e.stopPropagation()}>
+      {selectedProvider && (
+        <Modal open={showApiDialog} onClose={() => setShowApiDialog(false)} ariaLabel="Configurar API Key">
+          <div className="api-dialog">
             <div className="api-dialog-header">
               <h2>Conectar {MODEL_PROVIDERS.find(p => p.id === selectedProvider)?.name.replace(/ *—.*$/, "")}</h2>
               <button className="close-btn" onClick={() => setShowApiDialog(false)}>×</button>
@@ -458,6 +430,8 @@ export function Settings({ initialSection = "models" }: { initialSection?: Setti
                     {apiKeyUrl(selectedProvider)}
                   </a>
                 </p>
+
+                {error && <div className="api-dialog-error">{error}</div>}
 
                 <div className="form-group">
                   <label htmlFor="api-key">API Key</label>
@@ -482,7 +456,7 @@ export function Settings({ initialSection = "models" }: { initialSection?: Setti
               </div>
             </form>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

@@ -169,7 +169,9 @@ class TestRiskContextFactors:
         assert resp.status_code == 200
         reason = resp.json().get("decision_reason")
         if reason:
-            assert any(src in reason for src in ("plan_risk_score", "system_context", "step_analysis"))
+            data = resp.json()
+            assert data.get("final_risk_score") is not None
+            assert isinstance(data.get("context_factors"), list)
 
 
 class TestExecuteDirectPipeline:

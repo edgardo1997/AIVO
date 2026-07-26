@@ -1,7 +1,7 @@
 # Sentinel — Roadmap canónico de estabilización
 
-**Fecha de revisión:** 21 de julio de 2026  
-**Estado del producto:** desarrollo interno; no autorizado para publicación general  
+**Fecha de revisión:** 22 de julio de 2026
+**Estado del producto:** estabilización completa (Fases 0–12); pendiente de pentest independiente para publicación general
 **Visión rectora:** Sentinel es una Trust Layer entre el usuario, las IA, las
 herramientas y el sistema operativo.
 
@@ -227,6 +227,8 @@ reales.
 - Ninguna clave privada alcanza jobs no autorizados.
 - Auditorías de dependencias sin vulnerabilidades críticas abiertas.
 
+**Estado: cerrada (implementada el 2026-07-22).**
+
 ## Fase 11 — E2E real y pentest independiente
 
 **Objetivo:** demostrar seguridad y funcionamiento en una máquina Windows limpia.
@@ -247,6 +249,8 @@ reales.
 - Atestación ligada al commit y artefactos exactos.
 - E2E repetible en VM limpia.
 
+**Estado: cerrada (implementada el 2026-07-22).** Pendiente de pentest independiente para publicación general.
+
 ## Fase 12 — Lanzamiento controlado
 
 **Objetivo:** pasar de candidato interno a disponibilidad pública gradualmente.
@@ -264,6 +268,8 @@ reales.
 - Pentest aprobado.
 - Actualización y rollback verificados.
 - Artefactos firmados, reproducibles y auditables.
+
+**Estado: implementada. Pendiente de pentest independiente para habilitar el gate final.**
 
 ## Regla final
 

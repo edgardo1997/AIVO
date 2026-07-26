@@ -10,31 +10,73 @@ log = logging.getLogger(__name__)
 
 # --- Context patterns ---
 
-GAME_PROCESSES = frozenset({
-    "steam.exe", "epicgameslauncher.exe", "ubisoftconnect.exe",
-    "battlenet.exe", "riotclient.exe", "leagueclient.exe",
-    "valorant.exe", "csgo.exe", "dota2.exe", "fortnite.exe",
-    "minecraft.exe", "javaw.exe", "eldenring.exe", "cyberpunk2077.exe",
-    "rocketleague.exe", "gta5.exe", "r5apex.exe", "overwatch.exe",
-    "rainbow6.exe", "cod.exe", "modernwarfare.exe", "warzone.exe",
-    "destiny2.exe", "halo.exe", "borderlands3.exe",
-})
+GAME_PROCESSES = frozenset(
+    {
+        "steam.exe",
+        "epicgameslauncher.exe",
+        "ubisoftconnect.exe",
+        "battlenet.exe",
+        "riotclient.exe",
+        "leagueclient.exe",
+        "valorant.exe",
+        "csgo.exe",
+        "dota2.exe",
+        "fortnite.exe",
+        "minecraft.exe",
+        "javaw.exe",
+        "eldenring.exe",
+        "cyberpunk2077.exe",
+        "rocketleague.exe",
+        "gta5.exe",
+        "r5apex.exe",
+        "overwatch.exe",
+        "rainbow6.exe",
+        "cod.exe",
+        "modernwarfare.exe",
+        "warzone.exe",
+        "destiny2.exe",
+        "halo.exe",
+        "borderlands3.exe",
+    }
+)
 
-STREAMING_PROCESSES = frozenset({
-    "obs64.exe", "obs32.exe", "streamlabs.exe", "xsplit.exe",
-    "twitchstudio.exe", "discord.exe", "slack.exe",
-})
+STREAMING_PROCESSES = frozenset(
+    {
+        "obs64.exe",
+        "obs32.exe",
+        "streamlabs.exe",
+        "xsplit.exe",
+        "twitchstudio.exe",
+        "discord.exe",
+        "slack.exe",
+    }
+)
 
-IDE_PROCESSES = frozenset({
-    "code.exe", "devenv.exe", "idea64.exe", "pycharm64.exe",
-    "eclipse.exe", "sublime_text.exe", "notepad++.exe",
-    "clion64.exe", "webstorm64.exe", "goland64.exe",
-})
+IDE_PROCESSES = frozenset(
+    {
+        "code.exe",
+        "devenv.exe",
+        "idea64.exe",
+        "pycharm64.exe",
+        "eclipse.exe",
+        "sublime_text.exe",
+        "notepad++.exe",
+        "clion64.exe",
+        "webstorm64.exe",
+        "goland64.exe",
+    }
+)
 
-BROWSER_PROCESSES = frozenset({
-    "chrome.exe", "firefox.exe", "msedge.exe", "brave.exe",
-    "opera.exe", "vivaldi.exe",
-})
+BROWSER_PROCESSES = frozenset(
+    {
+        "chrome.exe",
+        "firefox.exe",
+        "msedge.exe",
+        "brave.exe",
+        "opera.exe",
+        "vivaldi.exe",
+    }
+)
 
 
 @dataclass
@@ -61,6 +103,7 @@ class OptimizationResult:
 
 
 # --- Detection ---
+
 
 def _detect_context() -> SystemContext:
     ctx = SystemContext()
@@ -90,6 +133,7 @@ def _detect_context() -> SystemContext:
 
     try:
         import psutil
+
         ctx.cpu_usage_pct = psutil.cpu_percent(interval=0.1)
         ctx.memory_usage_pct = psutil.virtual_memory().percent
     except Exception:
@@ -97,9 +141,10 @@ def _detect_context() -> SystemContext:
 
     try:
         import winreg
-        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
-                            r"SYSTEM\CurrentControlSet\Control\Power\PowerSettings",
-                            0, winreg.KEY_READ):
+
+        with winreg.OpenKey(
+            winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\Power\PowerSettings", 0, winreg.KEY_READ
+        ):
             pass
     except Exception:
         log.warning("Failed to read power settings registry", exc_info=True)
@@ -108,6 +153,7 @@ def _detect_context() -> SystemContext:
 
 
 # --- Mode selection ---
+
 
 def _select_mode(ctx: SystemContext) -> str:
     if ctx.running_games:
@@ -124,6 +170,7 @@ def _select_mode(ctx: SystemContext) -> str:
 
 
 # --- Mode application ---
+
 
 def _apply_gaming() -> List[str]:
     actions = []
@@ -203,11 +250,17 @@ _APPLY_MAP = {
 
 # --- Public API ---
 
+
 def optimize(snapshot: bool = True) -> OptimizationResult:
     ctx = _detect_context()
     mode = _select_mode(ctx)
-    log.info("System context detected: mode=%s, games=%d, streaming=%d, ides=%d",
-             mode, len(ctx.running_games), len(ctx.running_streaming), len(ctx.running_ides))
+    log.info(
+        "System context detected: mode=%s, games=%d, streaming=%d, ides=%d",
+        mode,
+        len(ctx.running_games),
+        len(ctx.running_streaming),
+        len(ctx.running_ides),
+    )
 
     snapshot_id = ""
     if snapshot:

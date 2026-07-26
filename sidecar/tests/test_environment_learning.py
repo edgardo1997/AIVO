@@ -75,10 +75,13 @@ def test_first_observation_is_baseline_and_changes_are_deduplicated():
         assert [change.change_type for change in changes] == ["application_added"]
         assert changes[0].subject_id == "app-2"
         assert memory.get_environment_changes("user-1") == changes
-        assert learning.observe(
-            "user-1",
-            _context(_app("app-1", "Editor"), _app("app-2", "Terminal")),
-        ) == []
+        assert (
+            learning.observe(
+                "user-1",
+                _context(_app("app-1", "Editor"), _app("app-2", "Terminal")),
+            )
+            == []
+        )
         assert len(memory.get_environment_changes("user-1")) == 1
     finally:
         memory.close()

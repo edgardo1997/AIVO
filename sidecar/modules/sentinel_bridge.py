@@ -1,18 +1,43 @@
 from .sentinel_bridge_helpers import (
-    router, log, _presentation, _STREAM_END, _STREAM_IDLE_TIMEOUT_SECONDS,
-    _CONVERSATION_ID, _MAX_CONVERSATION_BYTES, _require_admin,
-    _ndjson, _next_stream_event, _close_stream_iterator, _gateway_response,
-    _close_stream_after_pending_step, _file_pipeline,
-    _scoped_user_id, _validate_capabilities,
-    get_orchestrator, get_advisory_service, reset_bridge,
-    get_goal_registry, get_memory,
-    _memory_record, _conversation_db, _validate_conversation_id,
-    _normalize_conversation_messages, _persist_conversation_turn,
-    _generation_metrics, _stream_error_info, _step_result,
+    router,
+    log,
+    _presentation,
+    _STREAM_END,
+    _STREAM_IDLE_TIMEOUT_SECONDS,
+    _CONVERSATION_ID,
+    _MAX_CONVERSATION_BYTES,
+    _require_admin,
+    _ndjson,
+    _next_stream_event,
+    _close_stream_iterator,
+    _gateway_response,
+    _close_stream_after_pending_step,
+    _file_pipeline,
+    _scoped_user_id,
+    _validate_capabilities,
+    get_orchestrator,
+    get_advisory_service,
+    reset_bridge,
+    get_goal_registry,
+    get_memory,
+    _memory_record,
+    _conversation_db,
+    _validate_conversation_id,
+    _normalize_conversation_messages,
+    _persist_conversation_turn,
+    _generation_metrics,
+    _stream_error_info,
+    _step_result,
     get_vault_manager,
-    _build_pipeline_summary, _format_verified_system_result,
-    _format_governed_outcome, _build_chat_pipeline_trace,
-    _get_kb, _get_pipeline, _get_web, _get_hardening, _get_profile_mgr,
+    _build_pipeline_summary,
+    _format_verified_system_result,
+    _format_governed_outcome,
+    _build_chat_pipeline_trace,
+    _get_kb,
+    _get_pipeline,
+    _get_web,
+    _get_hardening,
+    _get_profile_mgr,
 )
 import asyncio
 import json
@@ -95,9 +120,7 @@ async def list_conversations(request: Request, limit: int = Query(100, ge=1, le=
 @router.get("/conversations/{session_id}")
 async def get_conversation(session_id: str, request: Request):
     user_id = request_identity(request).user_id
-    conversation = _conversation_db().get_conversation(
-        user_id, _validate_conversation_id(session_id)
-    )
+    conversation = _conversation_db().get_conversation(user_id, _validate_conversation_id(session_id))
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return conversation
@@ -395,7 +418,6 @@ async def vault_status(request: Request):
     }
 
 
-
 @router.post("/advisory/feedback")
 async def advisory_feedback(body: dict, request: Request):
     from modules import get_gateway
@@ -410,197 +432,32 @@ async def advisory_feedback(body: dict, request: Request):
 
 @router.post("/chat")
 async def sentinel_chat(body: dict, request: Request):
+    from modules import get_gateway
     from modules.auth import request_identity
-    from modules.ai_provider import _svc as ai_svc
 
-    orch = get_orchestrator()
     identity = request_identity(request).to_dict()
-    message = body.get("message", "")
-    history = body.get("context", [])
-    raw_session_id = body.get("session_id")
-    session_id = _validate_conversation_id(raw_session_id) if raw_session_id else None
-
-    if not message:
-        return {
-            "response": "Please provide a message.",
-            "provider": None,
-            "model": None,
-            "pipeline": None,
-            "conversation_mode": "core",
-            "capabilities": ai_svc.conversation_capabilities(),
-        }
-
-    result = None
-    pipeline_summary = "No orchestration context is available for this turn."
-    pipeline_trace = None
-    actionable = False
-    preflight_intent = orch.classify_intent(message)
-    requires_pipeline = preflight_intent.confidence >= 0.6
-    if not requires_pipeline:
-        pipeline_trace = {
-            "intent": {
-                "action": preflight_intent.action,
-                "target": preflight_intent.target,
-                "confidence": preflight_intent.confidence,
-                "raw_input": preflight_intent.raw_input,
-            },
-            "decision": None,
-            "advisory": None,
-            "tool_result": None,
-            "simulated": False,
-            "approved": False,
-            "blocked": False,
-            "action_id": None,
-            "simulation_summary": None,
-            "error": None,
-        }
-        pipeline_summary = (
-            "Conversation-only route selected: no executable system intent was detected, "
-            "so no tool was planned or authorized."
-        )
-    try:
-        # Planning enriches conversation, but it must never hold the chat open.
-        # A timed-out planner is discarded and the always-available conversation
-        # layer still answers the user.
-        if requires_pipeline:
-            result = await asyncio.wait_for(
-                orch.process(message, identity=identity, session_id=session_id),
-                timeout=15,
-            )
-            intent = result.plan.intent
-            pipeline_summary = _build_pipeline_summary(result)
-            pipeline_trace = _build_chat_pipeline_trace(result)
-            actionable = intent.confidence >= 0.6
-    except Exception:
-        log.exception("Orchestration unavailable; conversation continuity remains active")
-
-    # Educational and code answers can exceed the short-answer budget. The
-    # provider retains its own timeout, so the request remains bounded.
-    _AI_TIMEOUT = 48
-
-    conversation_mode = "core"
-    conversation_capabilities = ai_svc.conversation_capabilities()
-
-    if actionable and result:
-        governed_response = _format_governed_outcome(result)
-        if governed_response:
-            try:
-                await asyncio.to_thread(
-                    _persist_conversation_turn,
-                    identity["user_id"],
-                    session_id,
-                    message,
-                    governed_response,
-                    provider="sentinel_core",
-                    pipeline=pipeline_trace,
-                )
-            except Exception:
-                log.exception("Could not persist conversation turn")
-            return {
-                "response": governed_response,
-                "provider": "sentinel_core",
-                "model": None,
-                "pipeline": pipeline_trace,
-                "conversation_mode": "core",
-                "capabilities": conversation_capabilities,
-            }
-        tool_data = result.tool_result.data if result.tool_result else None
-        try:
-            ctx = list(history) if history else []
-            if ctx:
-                ctx.append({"role": "system", "content": f"Pipeline analysis:\n{pipeline_summary}"})
-            fmt_response = await asyncio.wait_for(
-                asyncio.to_thread(
-                    ai_svc.chat,
-                    message=f"User said: {message}\n\nTool result:\n{json.dumps(tool_data, indent=2) if tool_data else '(empty)'}",
-                    context=ctx or None,
-                    system_prompt="You are Sentinel, an intelligent PC orchestration assistant. The system executed a tool based on the user's request. Format the tool result as a concise, natural response to the user. Be direct and helpful.",
-                    purpose="tool_result",
-                    tool_result=tool_data,
-                ),
-                timeout=_AI_TIMEOUT,
-            )
-            response_text = fmt_response.get("response", "")
-            provider = fmt_response.get("provider")
-            model = fmt_response.get("model")
-            conversation_mode = fmt_response.get("conversation_mode", conversation_mode)
-            conversation_capabilities = fmt_response.get("capabilities", conversation_capabilities)
-        except asyncio.TimeoutError:
-            log.warning("Advanced result formatting timed out; using core conversation")
-            core = ai_svc._conversation.respond(
-                ConversationRequest(message=message, purpose="tool_result", tool_result=tool_data)
-            ).to_dict()
-            response_text, provider, model = core["response"], None, None
-            conversation_mode, conversation_capabilities = core["conversation_mode"], core["capabilities"]
-        except Exception:
-            log.exception("Result formatting failed; using core conversation")
-            core = ai_svc._conversation.respond(
-                ConversationRequest(message=message, purpose="tool_result", tool_result=tool_data)
-            ).to_dict()
-            response_text, provider, model = core["response"], None, None
-            conversation_mode, conversation_capabilities = core["conversation_mode"], core["capabilities"]
-    else:
-        try:
-            ctx = list(history) if history else []
-            enrich_ctx = list(ctx)
-            enrich_ctx.append({"role": "system", "content": f"Sentinel pipeline context:\n{pipeline_summary}"})
-            chat_response = await asyncio.wait_for(
-                asyncio.to_thread(
-                    ai_svc.chat,
-                    message=message,
-                    context=enrich_ctx,
-                    system_prompt=(
-                        "You are Sentinel, an intelligent PC orchestration assistant integrated into AIVO. "
-                        "Your purpose is to help the user with system monitoring, file management, task "
-                        "execution, and general computer assistance. You have access to system resources "
-                        "and can execute commands. Be concise, accurate, and helpful. "
-                        "If the user asks about their PC or system, use the pipeline context above to answer."
-                    ),
-                ),
-                timeout=_AI_TIMEOUT,
-            )
-            response_text = chat_response.get("response", "")
-            provider = chat_response.get("provider")
-            model = chat_response.get("model")
-            conversation_mode = chat_response.get("conversation_mode", conversation_mode)
-            conversation_capabilities = chat_response.get("capabilities", conversation_capabilities)
-        except asyncio.TimeoutError:
-            log.warning("Advanced chat timed out; using core conversation")
-            core = ai_svc._conversation.respond(ConversationRequest(message=message, context=ctx)).to_dict()
-            response_text, provider, model = core["response"], None, None
-            conversation_mode, conversation_capabilities = core["conversation_mode"], core["capabilities"]
-        except Exception:
-            log.exception("Chat integration failed; using core conversation")
-            core = ai_svc._conversation.respond(ConversationRequest(message=message, context=ctx)).to_dict()
-            response_text, provider, model = core["response"], None, None
-            conversation_mode, conversation_capabilities = core["conversation_mode"], core["capabilities"]
-
-    try:
-        await asyncio.to_thread(
-            _persist_conversation_turn,
-            identity["user_id"],
-            session_id,
-            message,
-            response_text,
-            provider=provider,
-            model=model,
-            pipeline=pipeline_trace,
-        )
-    except Exception:
-        log.exception("Could not persist conversation turn")
+    params = {
+        "message": body.get("message", ""),
+        "context": body.get("context", []),
+        "session_id": body.get("session_id"),
+    }
+    gw_result = await get_gateway().execute("chat.respond", params, {"identity": identity})
+    if gw_result.success:
+        return gw_result.data
     return {
-        "response": response_text,
-        "provider": provider,
-        "model": model,
-        "pipeline": pipeline_trace,
-        "conversation_mode": conversation_mode,
-        "capabilities": conversation_capabilities,
+        "response": gw_result.error or "Error processing chat request",
+        "provider": None,
+        "model": None,
+        "pipeline": None,
+        "conversation_mode": "core",
+        "capabilities": {},
     }
 
 
 @router.post("/chat/stream")
 async def sentinel_chat_stream(body: dict, request: Request):
     """Stream a governed conversation as newline-delimited JSON events."""
+    from modules import get_gateway
     from modules.ai_provider import _svc as ai_svc
 
     message = str(body.get("message", "")).strip()
@@ -643,7 +500,7 @@ async def sentinel_chat_stream(body: dict, request: Request):
             except Exception:
                 log.exception("Could not persist conversation turn")
 
-        result = None
+        result_data = None
         pipeline_trace = None
         pipeline_summary = "No orchestration context is available for this turn."
         orchestrator = get_orchestrator()
@@ -651,12 +508,26 @@ async def sentinel_chat_stream(body: dict, request: Request):
         requires_pipeline = preflight_intent.confidence >= 0.6
         if requires_pipeline:
             try:
-                result = await asyncio.wait_for(
-                    orchestrator.process(message, identity=identity, session_id=session_id),
-                    timeout=15,
+                gw_result = await get_gateway().execute(
+                    "process.execute",
+                    {"utterance": message, "session_id": session_id, "dry_run": False},
+                    {"identity": identity},
                 )
-                pipeline_trace = _build_chat_pipeline_trace(result)
-                pipeline_summary = _build_pipeline_summary(result)
+                if gw_result.success and gw_result.data:
+                    result_data = gw_result.data
+                    intent = result_data.get("intent", {})
+                    pipeline_trace = result_data
+                    decision = result_data.get("decision")
+                    tool_result = result_data.get("tool_result")
+                    parts = [
+                        f"Intent: {intent.get('action')} -> {intent.get('target')} (confidence={intent.get('confidence', 0):.2f})"
+                    ]
+                    if decision:
+                        parts.append(f"Decision: {decision}")
+                    if tool_result:
+                        status = "success" if tool_result.get("success") else f"error: {tool_result.get('error')}"
+                        parts.append(f"Tool: {tool_result.get('tool_id')} -> {status}")
+                    pipeline_summary = " | ".join(parts)
             except Exception:
                 log.exception("Streaming orchestration unavailable; conversation remains active")
         else:
@@ -677,44 +548,66 @@ async def sentinel_chat_stream(body: dict, request: Request):
         generation_started = time.perf_counter()
         first_delta_at: Optional[float] = None
 
-        actionable = bool(result and result.plan.intent.confidence >= 0.6)
-        if actionable and result:
-            verified = _format_governed_outcome(result)
-            if verified:
-                yield _ndjson(
-                    {"type": "meta", "provider": "sentinel_core", "model": None}
-                )
-                yield _ndjson({"type": "delta", "text": verified})
-                response_parts.append(verified)
-                response_provider = "sentinel_core"
-                first_delta_at = time.perf_counter()
-                performance_metrics = _generation_metrics(
-                    generation_started, first_delta_at, verified
-                )
-                await persist()
-                yield _ndjson({"type": "metrics", **performance_metrics})
-                yield _ndjson({"type": "done"})
-                return
+        actionable = bool(result_data and result_data.get("intent", {}).get("confidence", 0) >= 0.6)
+        verified = (result_data.get("presentation") or {}).get("summary") if result_data else None
+        analysis_keywords = [
+            "analiza",
+            "anális",
+            "analic",
+            "explícame",
+            "explica",
+            "riesgo",
+            "detalle",
+            "profund",
+            "inspeccion",
+            "diagnostic",
+            "recomienda",
+            "qué hacer",
+        ]
+        wants_deep_analysis = actionable and any(kw in message.lower() for kw in analysis_keywords)
+        if actionable and verified and not wants_deep_analysis:
+            yield _ndjson({"type": "meta", "provider": "sentinel_core", "model": None})
+            yield _ndjson({"type": "delta", "text": verified})
+            response_parts.append(verified)
+            response_provider = "sentinel_core"
+            first_delta_at = time.perf_counter()
+            performance_metrics = _generation_metrics(generation_started, first_delta_at, verified)
+            await persist()
+            yield _ndjson({"type": "metrics", **performance_metrics})
+            yield _ndjson({"type": "done"})
+            return
 
         enriched_context = list(history) if isinstance(history, list) else []
-        enriched_context.append(
-            {"role": "system", "content": f"Sentinel pipeline context:\n{pipeline_summary}"}
-        )
+        if actionable and verified:
+            enriched_context.append({"role": "system", "content": f"Tool result summary:\n{verified}"})
+            raw_data = (result_data.get("tool_result") or {}).get("data") if result_data else None
+            if raw_data and isinstance(raw_data, dict):
+                import json
+
+                enriched_context.append(
+                    {
+                        "role": "system",
+                        "content": f"Raw tool data (use this for analysis):\n{json.dumps(raw_data, indent=2, default=str)}",
+                    }
+                )
+        enriched_context.append({"role": "system", "content": f"Sentinel pipeline context:\n{pipeline_summary}"})
         iterator = ai_svc.stream_chat(
             message=message,
             context=enriched_context,
             system_prompt=(
-                "You are Sentinel, the local trust and orchestration layer between the user, "
-                "AI models, tools, and the operating system. Explain decisions accurately and "
-                "never claim an action occurred unless the supplied pipeline confirms it."
+                "Eres la inteligencia de Sentinel. Puedes analizar el equipo, abrir apps, ejecutar "
+                "scripts y modificar archivos mediante el pipeline gobernado. Si el usuario pide algo "
+                "que Sentinel puede hacer, dile que sí se puede y reformula como instrucción directa. "
+                "Si el pipeline ya ejecutó la acción, USA LOS DATOS CRUDOS (Raw tool data) para hacer "
+                "un análisis detallado y útil. No repitas solo el resumen; interpreta los números "
+                "y da recomendaciones específicas. Si no hay pipeline, "
+                "ayuda o pide al usuario que haga la solicitud directamente. Sé conciso."
             ),
         )
         pending_next = None
         try:
             while not await request.is_disconnected():
-                pending_next = asyncio.create_task(
-                    asyncio.to_thread(_next_stream_event, iterator)
-                )
+                pending_next = asyncio.create_task(asyncio.to_thread(_next_stream_event, iterator))
                 event = await asyncio.wait_for(
                     asyncio.shield(pending_next),
                     timeout=_STREAM_IDLE_TIMEOUT_SECONDS,
@@ -759,11 +652,7 @@ async def sentinel_chat_stream(body: dict, request: Request):
                 # ``asyncio.to_thread`` cannot interrupt a synchronous ``next``.
                 # Close again as soon as that in-flight call releases the
                 # generator so a timeout or disconnect cannot strand it.
-                pending_next.add_done_callback(
-                    lambda finished: _close_stream_after_pending_step(
-                        finished, iterator
-                    )
-                )
+                pending_next.add_done_callback(lambda finished: _close_stream_after_pending_step(finished, iterator))
             await asyncio.to_thread(_close_stream_iterator, iterator)
 
     return StreamingResponse(
@@ -869,8 +758,15 @@ async def patch_goal(goal_id: str, body: dict, request: Request):
         return JSONResponse({"error": "priority must be 0-10"}, status_code=400)
     params = {"goal_id": goal_id}
     allowed = {
-        "name", "description", "related_intents", "possible_capabilities",
-        "priority", "base_risk", "keywords", "enabled", "context_rules",
+        "name",
+        "description",
+        "related_intents",
+        "possible_capabilities",
+        "priority",
+        "base_risk",
+        "keywords",
+        "enabled",
+        "context_rules",
     }
     for k, v in body.items():
         if k in allowed and v is not None:
@@ -1365,6 +1261,7 @@ def get_observability_traces(
 @router.get("/observability/pipeline-metrics")
 def get_pipeline_metrics():
     from modules import get_pipeline_metrics as _get_pm
+
     svc = _get_pm()
     return {
         "summary": svc.summary(),
@@ -1378,30 +1275,35 @@ def get_pipeline_metrics():
 @router.get("/observability/component-durations")
 def get_component_durations(limit: int = Query(50, ge=1, le=200)):
     from modules import get_pipeline_metrics as _get_pm
+
     return {"components": _get_pm().component_durations(limit=limit)}
 
 
 @router.get("/observability/tool-usage")
 def get_tool_usage(limit: int = Query(10, ge=1, le=50)):
     from modules import get_pipeline_metrics as _get_pm
+
     return {"tools": _get_pm().tool_usage(limit=limit)}
 
 
 @router.get("/observability/throughput")
 def get_throughput():
     from modules import get_pipeline_metrics as _get_pm
+
     return _get_pm().throughput()
 
 
 @router.get("/observability/bottlenecks")
 def get_bottlenecks(limit: int = Query(5, ge=1, le=20)):
     from modules import get_pipeline_metrics as _get_pm
+
     return {"bottlenecks": _get_pm().bottlenecks(limit=limit)}
 
 
 @router.get("/observability/timeline/{request_id}")
 def get_timeline(request_id: str):
     from modules import get_pipeline_metrics as _get_pm
+
     return _get_pm().timeline(request_id)
 
 
@@ -1636,7 +1538,9 @@ async def execute_skill(body: dict, request: Request):
     skill_id = body.get("skill_id", "")
     if not skill_id:
         return {"success": False, "error": "skill_id is required"}
-    result = await get_gateway().execute("skill.execute", body, {"identity": identity, "session_id": body.get("session_id")})
+    result = await get_gateway().execute(
+        "skill.execute", body, {"identity": identity, "session_id": body.get("session_id")}
+    )
     resp = _gateway_response(result)
     if resp:
         return resp
@@ -1690,7 +1594,9 @@ async def clear_alerts(request: Request, acknowledged_only: bool = Query(True)):
     from modules import get_gateway
 
     identity = request_identity(request).to_dict()
-    result = await get_gateway().execute("alert.clear", {"acknowledged_only": acknowledged_only}, {"identity": identity})
+    result = await get_gateway().execute(
+        "alert.clear", {"acknowledged_only": acknowledged_only}, {"identity": identity}
+    )
     resp = _gateway_response(result)
     if resp:
         return resp

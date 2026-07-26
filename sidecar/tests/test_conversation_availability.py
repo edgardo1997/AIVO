@@ -33,9 +33,7 @@ def test_provider_failure_keeps_conversation_available_without_error_leakage():
     def unavailable():
         raise RuntimeError("secret provider diagnostic")
 
-    data = runtime().respond(
-        ConversationRequest(message="hola, qué puedes hacer"), advanced=unavailable
-    ).to_dict()
+    data = runtime().respond(ConversationRequest(message="hola, qué puedes hacer"), advanced=unavailable).to_dict()
 
     assert data["conversation_mode"] == "core"
     assert data["response"]
@@ -52,13 +50,17 @@ def test_core_reports_runtime_capabilities_truthfully():
 
 
 def test_core_formats_tool_results_without_impersonating_a_model():
-    data = runtime().respond(
-        ConversationRequest(
-            message="muestra el estado",
-            purpose="tool_result",
-            tool_result={"cpu": 12},
+    data = (
+        runtime()
+        .respond(
+            ConversationRequest(
+                message="muestra el estado",
+                purpose="tool_result",
+                tool_result={"cpu": 12},
+            )
         )
-    ).to_dict()
+        .to_dict()
+    )
 
     assert data["conversation_mode"] == "core"
     assert '"cpu": 12' in data["response"]

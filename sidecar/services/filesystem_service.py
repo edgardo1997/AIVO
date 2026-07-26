@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 import shutil
@@ -11,11 +12,11 @@ from sentinel.core.tool import Tool, ToolResult, ToolSpec, ToolStatus
 log = logging.getLogger("sentinel.filesystem_service")
 
 # ── Resource limits ──────────────────────────────────────────────────────
-MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024       # 10 MB
-MAX_SEARCH_DEPTH = 8                           # directory levels
-MAX_SEARCH_RESULTS = 500                       # files returned
-MAX_DIR_ENTRIES = 2000                         # entries listed
-MAX_WRITE_SIZE_BYTES = 5 * 1024 * 1024        # 5 MB
+MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB
+MAX_SEARCH_DEPTH = 8  # directory levels
+MAX_SEARCH_RESULTS = 500  # files returned
+MAX_DIR_ENTRIES = 2000  # entries listed
+MAX_WRITE_SIZE_BYTES = 5 * 1024 * 1024  # 5 MB
 
 
 FILESYSTEM_TOOL_SPECS = {
@@ -164,19 +165,19 @@ class FilesystemService(Tool):
         try:
             tid = self._tool_id
             if tid == "filesystem.read":
-                result = self.read_file(params["path"], auth)
+                result = await asyncio.to_thread(self.read_file, params["path"], auth)
             elif tid == "filesystem.write":
-                result = self.write_file(params["path"], params["content"], auth)
+                result = await asyncio.to_thread(self.write_file, params["path"], params["content"], auth)
             elif tid == "filesystem.list":
-                result = self.list_directory(params.get("path", "."), auth)
+                result = await asyncio.to_thread(self.list_directory, params.get("path", "."), auth)
             elif tid == "filesystem.search":
-                result = self.search_files(params["query"], params.get("root", "C:\\"), auth)
+                result = await asyncio.to_thread(self.search_files, params["query"], params.get("root", "C:\\"), auth)
             elif tid == "filesystem.delete":
-                result = self.delete_file(params["path"], auth)
+                result = await asyncio.to_thread(self.delete_file, params["path"], auth)
             elif tid == "filesystem.undo_write":
-                result = self.undo_write(params["path"], params["original_content"], auth)
+                result = await asyncio.to_thread(self.undo_write, params["path"], params["original_content"], auth)
             elif tid == "filesystem.restore":
-                result = self.restore_file(params["temp_path"], params["path"], auth)
+                result = await asyncio.to_thread(self.restore_file, params["temp_path"], params["path"], auth)
             else:
                 return ToolResult.fail(error=f"Unknown tool: {tid}", tool_id=tid)
             return ToolResult.ok(data=result, tool_id=tid)
@@ -202,9 +203,7 @@ class FilesystemService(Tool):
             stat = os.stat(safe_path)
             if stat.st_size > MAX_FILE_SIZE_BYTES:
                 self._log("read", path, result, auth, status="too_large")
-                raise HTTPException(
-                    413, f"File too large ({stat.st_size} > {MAX_FILE_SIZE_BYTES} bytes)"
-                )
+                raise HTTPException(413, f"File too large ({stat.st_size} > {MAX_FILE_SIZE_BYTES} bytes)")
             with open(safe_path, "r", encoding="utf-8") as f:
                 content = f.read()
             self._log("read", path, result, auth, status="success")
@@ -232,9 +231,7 @@ class FilesystemService(Tool):
         safe_path = result.normalized_path
         if len(content) > MAX_WRITE_SIZE_BYTES:
             self._log("write", path, result, auth, status="too_large")
-            raise HTTPException(
-                413, f"Content too large ({len(content)} > {MAX_WRITE_SIZE_BYTES} bytes)"
-            )
+            raise HTTPException(413, f"Content too large ({len(content)} > {MAX_WRITE_SIZE_BYTES} bytes)")
         original_content = None
         if os.path.isfile(safe_path):
             try:

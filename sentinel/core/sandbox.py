@@ -3,8 +3,20 @@
 import logging
 import uuid
 from ctypes import (
-    POINTER, Structure, byref, c_bool, c_char_p, c_size_t, c_ubyte,
-    c_uint, c_uint64, c_ushort, c_void_p, c_wchar_p, sizeof, windll,
+    POINTER,
+    Structure,
+    byref,
+    c_bool,
+    c_char_p,
+    c_size_t,
+    c_ubyte,
+    c_uint,
+    c_uint64,
+    c_ushort,
+    c_void_p,
+    c_wchar_p,
+    sizeof,
+    windll,
 )
 from ctypes import wintypes
 from dataclasses import dataclass, field
@@ -34,6 +46,7 @@ _kernel32 = windll.kernel32
 
 
 # --- Windows API type definitions ---
+
 
 class _LARGE_INTEGER(Structure):
     _fields_ = [("QuadPart", c_uint64)]
@@ -85,6 +98,7 @@ class _JOBOBJECT_CPU_RATE_CONTROL_INFORMATION(Structure):
 
 
 # --- Kernel32 function bindings ---
+
 
 def _create_job_object(name: Optional[str]) -> Optional[int]:
     name_w = wintypes.LPCWSTR(c_wchar_p(name)) if name else None
@@ -162,6 +176,7 @@ def _terminate_job(handle: int) -> bool:
 
 
 # --- Sandbox Manager ---
+
 
 @dataclass
 class SandboxLimits:

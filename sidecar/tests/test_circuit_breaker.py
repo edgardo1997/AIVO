@@ -123,9 +123,7 @@ class TestCircuitBreakerIntegration:
             mr.chat([{"role": "user", "content": "hi"}], task_type=TaskType.QUICK)
 
     def test_router_records_success_on_success(self):
-        mr = ModelRouter(
-            providers=[ProviderSpec("openrouter", "OpenRouter", [TaskType.QUICK], requires_key=False)]
-        )
+        mr = ModelRouter(providers=[ProviderSpec("openrouter", "OpenRouter", [TaskType.QUICK], requires_key=False)])
         # patch _call_provider to succeed
 
         def mock_call(decision, provider, messages, model_override=None, **kwargs):

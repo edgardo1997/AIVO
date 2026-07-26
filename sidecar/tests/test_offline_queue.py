@@ -228,7 +228,7 @@ class TestOrchestratorOfflineIntegration:
         gw.execute = AsyncMock()
         orch = Orchestrator(intent_engine=IntentEngine(), tool_gateway=gw, offline_queue=None)
         result = await orch.process_offline("test")
-        assert "not configured" in (result.error or "")
+        assert "no está configurada" in (result.error or "").lower()
 
     @pytest.mark.asyncio
     async def test_network_transition_callback(self):

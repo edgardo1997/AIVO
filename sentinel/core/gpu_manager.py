@@ -72,7 +72,9 @@ def _run_nvidia_smi(args: List[str], timeout: int = 10) -> Optional[str]:
     try:
         result = subprocess.run(
             ["nvidia-smi"] + args,
-            capture_output=True, text=True, timeout=timeout,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
             check=False,
         )
         if result.returncode != 0:
@@ -102,13 +104,15 @@ def _parse_smi_csv(stdout: str) -> List[List[str]]:
 
 
 def list_gpus() -> GpuResult:
-    stdout = _run_nvidia_smi([
-        "--query-gpu=index,name,driver_version,temperature.gpu,power.draw,power.limit,"
-        "utilization.gpu,memory.total,memory.used,memory.free,"
-        "clocks.current.graphics,clocks.current.memory,fan.speed,"
-        "persistence_mode",
-        "--format=csv,noheader,nounits",
-    ])
+    stdout = _run_nvidia_smi(
+        [
+            "--query-gpu=index,name,driver_version,temperature.gpu,power.draw,power.limit,"
+            "utilization.gpu,memory.total,memory.used,memory.free,"
+            "clocks.current.graphics,clocks.current.memory,fan.speed,"
+            "persistence_mode",
+            "--format=csv,noheader,nounits",
+        ]
+    )
     if not stdout:
         return GpuResult(success=False, error="nvidia-smi not available or no NVIDIA GPU detected")
 
@@ -174,8 +178,7 @@ def set_power_limit(watts: int, index: int = 0) -> GpuResult:
     if verify.success and verify.gpus:
         new_limit = verify.gpus[0].power_limit_w
         if abs(new_limit - watts) <= 5:
-            return GpuResult(success=True, gpus=verify.gpus,
-                             message=f"Power limit set to {watts}W on GPU {index}")
+            return GpuResult(success=True, gpus=verify.gpus, message=f"Power limit set to {watts}W on GPU {index}")
 
     return GpuResult(success=True, message=f"Power limit change attempted to {watts}W on GPU {index}")
 
@@ -230,8 +233,7 @@ def set_gpu_profile(profile: str, index: int = 0) -> GpuResult:
     msg = f"Profile '{profile}' applied: {', '.join(results)}"
     if errors:
         msg += f" ({', '.join(errors)})"
-    return GpuResult(success=len(results) > 0, message=msg,
-                     error="; ".join(errors) if errors else "")
+    return GpuResult(success=len(results) > 0, message=msg, error="; ".join(errors) if errors else "")
 
 
 def reset_gpu(index: int = 0) -> GpuResult:
@@ -269,5 +271,4 @@ def reset_gpu(index: int = 0) -> GpuResult:
     msg = f"GPU {index} reset: {', '.join(results)}"
     if errors:
         msg += f" ({', '.join(errors)})"
-    return GpuResult(success=len(results) > 0, message=msg,
-                     error="; ".join(errors) if errors else "")
+    return GpuResult(success=len(results) > 0, message=msg, error="; ".join(errors) if errors else "")

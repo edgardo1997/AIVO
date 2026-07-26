@@ -4,8 +4,6 @@ This module never decides or executes. It only translates trusted pipeline
 state into a stable, progressive-disclosure contract.
 """
 
-from __future__ import annotations
-
 from enum import Enum
 from typing import Any, Dict, Optional
 
@@ -63,8 +61,15 @@ class PresentationLayer:
         if intent.confidence < 0.6:
             return "No identifiqué una acción segura para ejecutar. Puedes explicar con más detalle qué necesitas."
         if result.blocked and result.action_id:
-            reason = result.simulation_summary or "La acción necesita tu autorización."
-            return f"Todavía no ejecuté la acción. {reason}"
+            intent = getattr(result, "plan", None)
+            if intent and hasattr(intent, "intent"):
+                inner = intent.intent
+                if inner.target == "executor.launch":
+                    app_name = (getattr(inner, "parameters", None) or {}).get("app_name", "")
+                    if app_name:
+                        return f"¿Abrir {app_name}? Necesito tu autorización para continuar."
+                    return "¿Abrir una aplicación? Necesito tu autorización."
+            return "Necesito tu autorización antes de ejecutar esta acción."
         if result.error or (result.tool_result and not result.tool_result.success):
             raw_error = str(result.error or getattr(result.tool_result, "error", ""))
             if "required" in raw_error.lower():
@@ -115,6 +120,7 @@ class PresentationLayer:
             cpu = data.get("cpu", {})
             memory = data.get("memory", {})
             disk = data.get("disk", {})
+            gpu_list = data.get("gpu", [])
             cpu_percent = float(cpu.get("percent", 0))
             memory_percent = float(memory.get("percent", 0))
             disk_percent = float(disk.get("percent", 0))
@@ -132,9 +138,17 @@ class PresentationLayer:
             elif disk_percent >= 85:
                 risks.append("poco espacio libre en disco")
             measured = (
-                f"CPU {cpu_percent:.1f}%, RAM {memory_percent:.1f}% y disco {disk_percent:.1f}%. "
-                f"Memoria disponible: {gib(memory.get('available'))}; espacio libre: {gib(disk.get('free'))}."
+                f"CPU {cpu_percent:.1f}% ({cpu.get('cores', '?')} núcleos), "
+                f"RAM {memory_percent:.1f}% ({gib(memory.get('total'))} total, "
+                f"{gib(memory.get('available'))} libre), "
+                f"disco {disk_percent:.1f}% ({gib(disk.get('free'))} libre)"
             )
+            if gpu_list:
+                for gpu in gpu_list:
+                    name = gpu.get("name", "GPU")
+                    vram_total = gpu.get("vram_total_mb", 0)
+                    measured += f", GPU: {name} ({vram_total / 1024:.1f} GB VRAM)" if vram_total else f", GPU: {name}"
+            measured += "."
             if target == "system.health":
                 assessment = (
                     "Riesgos detectados: " + "; ".join(risks) + "."
@@ -175,11 +189,9 @@ class PresentationLayer:
     def _risk_level(score: Optional[float]) -> str:
         if score is None:
             return "unknown"
-        if score >= 0.8:
-            return "critical"
-        if score >= 0.6:
+        if score >= 0.7:
             return "high"
-        if score >= 0.3:
+        if score >= 0.35:
             return "medium"
         return "low"
 

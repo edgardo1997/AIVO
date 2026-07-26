@@ -11,49 +11,119 @@ ADMIN_TOOLS: FrozenSet[str] = frozenset({"*"})
 ADMIN_WRITE: FrozenSet[str] = frozenset({"*"})
 ADMIN_DANGEROUS: FrozenSet[str] = frozenset({"*"})
 
-USER_READ: FrozenSet[str] = frozenset({
-    "system.*", "filesystem.read", "filesystem.list", "filesystem.search",
-    "ai.*", "audit.*", "profile.*", "agent.*", "fleet.status", "fleet.list",
-    "plugin.list", "plugin.templates", "permissions.status",
-})
-USER_WRITE: FrozenSet[str] = frozenset({
-    "filesystem.write", "profile.*", "ai.config",
-})
-USER_DANGEROUS: FrozenSet[str] = frozenset({
-    "executor.command", "executor.launch", "executor.kill",
-    "executor.restart", "filesystem.delete",
-})
+USER_READ: FrozenSet[str] = frozenset(
+    {
+        "system.*",
+        "filesystem.read",
+        "filesystem.list",
+        "filesystem.search",
+        "ai.*",
+        "audit.*",
+        "profile.*",
+        "agent.*",
+        "fleet.status",
+        "fleet.list_devices",
+        "fleet.qr",
+        "fleet.export_sync",
+        "fleet.sync_log",
+        "plugins.list",
+        "plugins.templates",
+        "permissions.status",
+    }
+)
+USER_WRITE: FrozenSet[str] = frozenset(
+    {
+        "filesystem.write",
+        "profile.*",
+        "ai.config",
+        "fleet.register_device",
+        "fleet.update_device",
+        "fleet.sync_push",
+        "fleet.sync_pull",
+        "fleet.receive_sync",
+    }
+)
+USER_DANGEROUS: FrozenSet[str] = frozenset(
+    {
+        "executor.command",
+        "executor.launch",
+        "executor.kill",
+        "executor.restart",
+        "filesystem.delete",
+    }
+)
 
-VIEWER_TOOLS: FrozenSet[str] = frozenset({
-    "system.*", "filesystem.read", "filesystem.list", "filesystem.search",
-    "ai.chat", "ai.analyze", "audit.*", "profile.read",
-    "fleet.status", "fleet.list", "plugin.list", "permissions.status",
-})
+VIEWER_TOOLS: FrozenSet[str] = frozenset(
+    {
+        "system.*",
+        "filesystem.read",
+        "filesystem.list",
+        "filesystem.search",
+        "ai.chat",
+        "ai.analyze",
+        "audit.*",
+        "profile.read",
+        "fleet.status",
+        "fleet.list_devices",
+        "fleet.qr",
+        "fleet.export_sync",
+        "fleet.sync_log",
+        "plugins.list",
+        "plugins.templates",
+        "permissions.status",
+    }
+)
 VIEWER_WRITE: FrozenSet[str] = frozenset()
 VIEWER_DANGEROUS: FrozenSet[str] = frozenset()
 
 # Critical tools that require admin role regardless of permission level.
-CRITICAL_TOOLS: FrozenSet[str] = frozenset({
-    "permissions.set_level", "permissions.emergency", "permissions.confirm",
-    "permissions.blocklist", "permissions.remove_blocklist",
-    "fleet.generate_pairing", "fleet.revoke_pairing", "fleet.toggle_remote",
-    "fleet.delete_device",
-    "plugins.load", "plugins.unload", "plugins.reload", "plugins.toggle",
-    "plugins.create", "plugins.install_url", "plugins.install_zip",
-    "vault.*",
-    "policies.reload",
-    "admin.config_set", "admin.config_delete", "admin.backup",
-    "permissions.add_rule", "permissions.remove_rule",
-    "goals.register", "goals.unregister", "goals.update",
-    "budget.*", "cache.*", "rate_limiter.*", "fallback.*",
-    "circuit_breaker.*", "offline_queue.*",
-    "alert.*", "advisory.*",
-    "kb.add_file", "kb.clear", "kb.rebuild",
-    "pipeline.reset_stats",
-    "profile.import",
-    "simulate.*", "process.offline",
-    "skill.suggest", "skill.execute",
-})
+CRITICAL_TOOLS: FrozenSet[str] = frozenset(
+    {
+        "permissions.set_level",
+        "permissions.emergency",
+        "permissions.confirm",
+        "permissions.blocklist",
+        "permissions.remove_blocklist",
+        "fleet.generate_pairing",
+        "fleet.revoke_pairing",
+        "fleet.toggle_remote",
+        "fleet.delete_device",
+        "plugins.load",
+        "plugins.unload",
+        "plugins.reload",
+        "plugins.toggle",
+        "plugins.create",
+        "plugins.install_url",
+        "plugins.install_zip",
+        "vault.*",
+        "policies.reload",
+        "admin.config_set",
+        "admin.config_delete",
+        "admin.backup",
+        "permissions.add_rule",
+        "permissions.remove_rule",
+        "goals.register",
+        "goals.unregister",
+        "goals.update",
+        "budget.*",
+        "cache.*",
+        "rate_limiter.*",
+        "fallback.*",
+        "circuit_breaker.*",
+        "offline_queue.*",
+        "alert.*",
+        "advisory.*",
+        "kb.add_file",
+        "kb.clear",
+        "kb.rebuild",
+        "pipeline.reset_stats",
+        "profile.import",
+        "simulate.*",
+        "process.offline",
+        "skill.suggest",
+        "skill.execute",
+    }
+)
 
 
 class RoleCapabilityMatrix:

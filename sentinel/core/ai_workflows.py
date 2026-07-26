@@ -23,7 +23,12 @@ class AIWorkflows:
     def create(self, name: str, steps: List[str], session_id: str = "", request_id: str = "") -> Dict[str, Any]:
         wid = uuid.uuid4().hex[:12]
         self._workflows[wid] = {"name": name, "steps": steps, "status": "created", "current_step": 0}
-        self._emit(event_types.WORKFLOW_CREATED, session_id, request_id, details={"workflow_id": wid, "name": name, "steps": len(steps)})
+        self._emit(
+            event_types.WORKFLOW_CREATED,
+            session_id,
+            request_id,
+            details={"workflow_id": wid, "name": name, "steps": len(steps)},
+        )
         log.info("Workflow created: %s (%s)", name, wid)
         return {"created": True, "workflow_id": wid, "name": name}
 
@@ -34,11 +39,18 @@ class AIWorkflows:
         wf["status"] = "running"
         wf["current_step"] = 0
         self._active = workflow_id
-        self._emit(event_types.WORKFLOW_STARTED, session_id, request_id, details={"workflow_id": workflow_id, "name": wf["name"]})
+        self._emit(
+            event_types.WORKFLOW_STARTED,
+            session_id,
+            request_id,
+            details={"workflow_id": workflow_id, "name": wf["name"]},
+        )
         log.info("Workflow started: %s", workflow_id)
         return {"started": True, "workflow_id": workflow_id}
 
-    def execute_step(self, workflow_id: str, step_result: str = "", session_id: str = "", request_id: str = "") -> Dict[str, Any]:
+    def execute_step(
+        self, workflow_id: str, step_result: str = "", session_id: str = "", request_id: str = ""
+    ) -> Dict[str, Any]:
         wf = self._workflows.get(workflow_id)
         if wf is None:
             return {"executed": False, "error": "not found"}
@@ -48,7 +60,12 @@ class AIWorkflows:
             return {"executed": False, "error": "all steps completed"}
         step_name = steps[step_index]
         wf["current_step"] = step_index + 1
-        self._emit(event_types.WORKFLOW_STEP_EXECUTED, session_id, request_id, details={"workflow_id": workflow_id, "step": step_index, "name": step_name, "result": step_result})
+        self._emit(
+            event_types.WORKFLOW_STEP_EXECUTED,
+            session_id,
+            request_id,
+            details={"workflow_id": workflow_id, "step": step_index, "name": step_name, "result": step_result},
+        )
         log.info("Workflow step %d/%d executed: %s", step_index + 1, len(steps), step_name)
         return {"executed": True, "step": step_index, "name": step_name, "steps_remaining": len(steps) - step_index - 1}
 
@@ -59,7 +76,12 @@ class AIWorkflows:
         wf["status"] = "completed"
         if self._active == workflow_id:
             self._active = None
-        self._emit(event_types.WORKFLOW_COMPLETED, session_id, request_id, details={"workflow_id": workflow_id, "name": wf["name"]})
+        self._emit(
+            event_types.WORKFLOW_COMPLETED,
+            session_id,
+            request_id,
+            details={"workflow_id": workflow_id, "name": wf["name"]},
+        )
         log.info("Workflow completed: %s", workflow_id)
         return {"completed": True, "workflow_id": workflow_id}
 
@@ -71,17 +93,21 @@ class AIWorkflows:
         wf["error"] = error
         if self._active == workflow_id:
             self._active = None
-        self._emit(event_types.WORKFLOW_FAILED, session_id, request_id, details={"workflow_id": workflow_id, "error": error})
+        self._emit(
+            event_types.WORKFLOW_FAILED, session_id, request_id, details={"workflow_id": workflow_id, "error": error}
+        )
         log.error("Workflow failed: %s (%s)", workflow_id, error)
         return {"failed": True, "workflow_id": workflow_id, "error": error}
 
     def _emit(self, event_type: str, session_id: str, request_id: str, details: Optional[Dict] = None):
         if self._event_bus is None:
             return
-        self._event_bus.emit(SentinelEvent.new(
-            event_type=event_type,
-            session_id=session_id or "system",
-            request_id=request_id or "",
-            component="ai_workflows",
-            details=details,
-        ))
+        self._event_bus.emit(
+            SentinelEvent.new(
+                event_type=event_type,
+                session_id=session_id or "system",
+                request_id=request_id or "",
+                component="ai_workflows",
+                details=details,
+            )
+        )

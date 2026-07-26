@@ -41,13 +41,15 @@ class PipelineMetricsService:
                 components[event.component].append(event.duration)
         result = []
         for comp, durations in sorted(components.items(), key=lambda x: -mean(x[1]) if x[1] else 0):
-            result.append({
-                "component": comp,
-                "label": _COMPONENT_LABELS.get(comp, comp),
-                "avg_duration_ms": round(mean(durations) * 1000, 2),
-                "max_duration_ms": round(max(durations) * 1000, 2),
-                "sample_count": len(durations),
-            })
+            result.append(
+                {
+                    "component": comp,
+                    "label": _COMPONENT_LABELS.get(comp, comp),
+                    "avg_duration_ms": round(mean(durations) * 1000, 2),
+                    "max_duration_ms": round(max(durations) * 1000, 2),
+                    "sample_count": len(durations),
+                }
+            )
         return result
 
     def tool_usage(self, limit: int = 10) -> List[Dict[str, Any]]:
@@ -62,13 +64,15 @@ class PipelineMetricsService:
         result = []
         for tool, count in counter.most_common(limit):
             fail_count = failures.get(tool, 0)
-            result.append({
-                "tool": tool,
-                "calls": count,
-                "share_pct": round(count / total * 100, 1),
-                "failures": fail_count,
-                "failure_rate": round(fail_count / count * 100, 1),
-            })
+            result.append(
+                {
+                    "tool": tool,
+                    "calls": count,
+                    "share_pct": round(count / total * 100, 1),
+                    "failures": fail_count,
+                    "failure_rate": round(fail_count / count * 100, 1),
+                }
+            )
         return result
 
     def throughput(self) -> Dict[str, Any]:
@@ -105,7 +109,16 @@ class PipelineMetricsService:
         component_groups: Dict[str, List[SentinelEvent]] = defaultdict(list)
         for event in events:
             component_groups[event.component or "unknown"].append(event)
-        for comp in ("pipeline", "context_engine", "intent_engine", "planner", "policy_engine", "tool_gateway", "execution", "audit"):
+        for comp in (
+            "pipeline",
+            "context_engine",
+            "intent_engine",
+            "planner",
+            "policy_engine",
+            "tool_gateway",
+            "execution",
+            "audit",
+        ):
             group = component_groups.pop(comp, [])
             if not group:
                 continue
@@ -118,13 +131,15 @@ class PipelineMetricsService:
             }
             tree["children"].append(node)
         for comp, group in component_groups.items():
-            tree["children"].append({
-                "component": comp,
-                "label": comp,
-                "events": [self._event_summary(e) for e in group],
-                "duration_ms": self._span_duration(group),
-                "status": self._span_status(group),
-            })
+            tree["children"].append(
+                {
+                    "component": comp,
+                    "label": comp,
+                    "events": [self._event_summary(e) for e in group],
+                    "duration_ms": self._span_duration(group),
+                    "status": self._span_status(group),
+                }
+            )
         return tree
 
     def _recent_events(self, limit: int = 500) -> List[SentinelEvent]:

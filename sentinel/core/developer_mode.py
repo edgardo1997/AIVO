@@ -17,7 +17,12 @@ class DeveloperMode:
         self._tools_enabled: List[str] = []
 
     def status(self) -> Dict[str, Any]:
-        return {"enabled": self._enabled, "project_path": self._project_path, "env_vars": dict(self._env_vars), "tools_enabled": list(self._tools_enabled)}
+        return {
+            "enabled": self._enabled,
+            "project_path": self._project_path,
+            "env_vars": dict(self._env_vars),
+            "tools_enabled": list(self._tools_enabled),
+        }
 
     def activate(self, session_id: str = "", request_id: str = "") -> Dict[str, Any]:
         self._enabled = True
@@ -45,17 +50,24 @@ class DeveloperMode:
 
     def update_env(self, key: str, value: str, session_id: str = "", request_id: str = "") -> Dict[str, Any]:
         self._env_vars[key] = value
-        self._emit(event_types.DEVELOPER_ENV_UPDATED, session_id, request_id, details={"key": key, "value": "***" if "key" in key.lower() or "secret" in key.lower() else value})
+        self._emit(
+            event_types.DEVELOPER_ENV_UPDATED,
+            session_id,
+            request_id,
+            details={"key": key, "value": "***" if "key" in key.lower() or "secret" in key.lower() else value},
+        )
         log.info("Dev env updated: %s", key)
         return {"key": key, "set": True}
 
     def _emit(self, event_type: str, session_id: str, request_id: str, details: Optional[Dict] = None):
         if self._event_bus is None:
             return
-        self._event_bus.emit(SentinelEvent.new(
-            event_type=event_type,
-            session_id=session_id or "system",
-            request_id=request_id or "",
-            component="developer_mode",
-            details=details,
-        ))
+        self._event_bus.emit(
+            SentinelEvent.new(
+                event_type=event_type,
+                session_id=session_id or "system",
+                request_id=request_id or "",
+                component="developer_mode",
+                details=details,
+            )
+        )

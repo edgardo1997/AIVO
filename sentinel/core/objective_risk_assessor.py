@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ObjectiveRiskAssessment:
     """Evaluación de riesgo basada en factores objetivos"""
+
     base_risk: float
     context_factors: List[str]
     context_modifier: float
@@ -71,10 +72,7 @@ class ObjectiveRiskAssessor:
         pass
 
     def assess(
-        self,
-        plan: Plan,
-        context: Optional[Dict[str, Any]] = None,
-        permission_level: str = "confirm"
+        self, plan: Plan, context: Optional[Dict[str, Any]] = None, permission_level: str = "confirm"
     ) -> ObjectiveRiskAssessment:
         """Evalúa el riesgo basado en factores objetivos
 
@@ -98,15 +96,10 @@ class ObjectiveRiskAssessor:
             data_sources.append("environment_learning")
 
         # Paso 3: Calcular modificador de contexto
-        context_modifier = sum(
-            self.CONTEXT_MODIFIERS.get(f, 0.0) for f in context_factors
-        )
+        context_modifier = sum(self.CONTEXT_MODIFIERS.get(f, 0.0) for f in context_factors)
 
         # Paso 4: Detectar acciones irreversibles
-        is_irreversible = any(
-            s.estimated_impact in ("high", "critical") and not s.is_reversible
-            for s in plan.steps
-        )
+        is_irreversible = any(s.estimated_impact in ("high", "critical") and not s.is_reversible for s in plan.steps)
         data_sources.append("step_analysis")
 
         # Paso 5: Aplicar modificador de simulación si está disponible
@@ -121,27 +114,18 @@ class ObjectiveRiskAssessor:
         final_risk = max(final_risk, 0.0)  # Asegurar que no sea negativo
 
         # Paso 7: Determinar si requiere confirmación basado en factores objetivos
-        level_thresholds = self.IMPACT_THRESHOLDS.get(
-            permission_level,
-            self.IMPACT_THRESHOLDS["confirm"]
-        )
+        level_thresholds = self.IMPACT_THRESHOLDS.get(permission_level, self.IMPACT_THRESHOLDS["confirm"])
         auto_max = level_thresholds["auto"]
         confirm_max = level_thresholds["confirm"]
 
-        requires_confirmation_by_objective = (
-            final_risk > auto_max or
-            (is_irreversible and permission_level != "admin")
-        )
+        requires_confirmation_by_objective = final_risk > auto_max or (is_irreversible and permission_level != "admin")
 
         # Paso 8: Determinar si debe rechazar basado en factores objetivos
         critical_irreversible_simulation = bool(
-            sim
-            and sim.get("overall_risk") == "critical"
-            and sim.get("has_irreversible")
+            sim and sim.get("overall_risk") == "critical" and sim.get("has_irreversible")
         )
         should_reject_by_objective = bool(
-            final_risk > confirm_max
-            or (critical_irreversible_simulation and not is_irreversible)
+            final_risk > confirm_max or (critical_irreversible_simulation and not is_irreversible)
         )
 
         return ObjectiveRiskAssessment(
@@ -153,7 +137,7 @@ class ObjectiveRiskAssessor:
             is_irreversible=is_irreversible,
             requires_confirmation_by_objective=requires_confirmation_by_objective,
             should_reject_by_objective=should_reject_by_objective,
-            data_sources=data_sources
+            data_sources=data_sources,
         )
 
     def _extract_context_factors(self, context: Dict[str, Any], plan: Optional[Plan] = None) -> List[str]:
@@ -217,6 +201,7 @@ class ObjectiveRiskAssessor:
                     if not app_name:
                         continue
                     from .planner import Planner
+
                     evidence = Planner._application_evidence(context, app_name, installed_apps)
                     if evidence is None:
                         factors.append("app_not_found")
@@ -227,11 +212,7 @@ class ObjectiveRiskAssessor:
 
         return factors
 
-    def _assess_simulation_risk(
-        self,
-        sim: Dict[str, Any],
-        permission_level: str
-    ) -> tuple[float, Optional[str]]:
+    def _assess_simulation_risk(self, sim: Dict[str, Any], permission_level: str) -> tuple[float, Optional[str]]:
         """Evalúa el riesgo basado en simulación"""
         overall_risk = sim.get("overall_risk", "low")
         has_irreversible = sim.get("has_irreversible", False)

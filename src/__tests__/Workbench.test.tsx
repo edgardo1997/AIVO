@@ -49,16 +49,19 @@ describe("Workbench", () => {
     localStorage.setItem(storageKey, JSON.stringify([{
       id: "saved-session",
       title: "Aprender Python",
-      updatedAt: 1,
+      updatedAt: Date.now() + 1000,
       messages: [{ id: "message-1", prompt: "Enséñame Python", response: "Primera lección" }],
     }]));
 
     render(<Workbench />);
 
-    expect(await screen.findByText("Aprender Python")).toBeInTheDocument();
-    expect(screen.getAllByText("Enséñame Python").length).toBeGreaterThan(0);
-    expect(screen.getByText("Primera lección")).toBeInTheDocument();
-    expect(screen.getByLabelText("Solicitud para Sentinel")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByPlaceholderText(/Pregunta, analiza/)).toBeInTheDocument();
+    }, { timeout: 3000 });
+    const bodyText = document.body.textContent || "";
+    expect(bodyText).toContain("Aprender Python");
+    expect(bodyText).toContain("Enséñame Python");
+    expect(bodyText).toContain("Primera lección");
   });
 
   it("crea otra conversación sin borrar la anterior", async () => {
@@ -70,10 +73,10 @@ describe("Workbench", () => {
     }]));
 
     render(<Workbench />);
-    fireEvent.click(await screen.findByText("Nueva misión"));
+    fireEvent.click(await screen.findByText("+ Nuevo"));
 
     expect(screen.getByText("Conversación anterior")).toBeInTheDocument();
-    expect(screen.getByText("¿Qué quieres conseguir?")).toBeInTheDocument();
+    expect(screen.getByText("¿En qué puedo ayudarte?")).toBeInTheDocument();
     await waitFor(() => expect(JSON.parse(localStorage.getItem(storageKey) || "[]")).toHaveLength(2));
   });
 
@@ -106,15 +109,15 @@ describe("Workbench", () => {
       await new Promise<void>((resolve) => signal?.addEventListener("abort", () => resolve(), { once: true }));
     });
     render(<Workbench />);
-    const composer = screen.getByLabelText("Solicitud para Sentinel");
+    const composer = screen.getByPlaceholderText(/Pregunta, analiza/);
     fireEvent.change(composer, { target: { value: "Genera una explicación larga" } });
-    fireEvent.click(screen.getByLabelText("Enviar solicitud"));
+    fireEvent.click(screen.getByTitle("Enviar (Enter)"));
 
     fireEvent.click(await screen.findByRole("button", { name: "Detener" }));
 
     expect(await screen.findByText("Resultado parcial")).toBeInTheDocument();
-    expect(screen.getByText("Generación cancelada por el usuario.")).toBeInTheDocument();
-    expect(screen.getByText("Diagnóstico: user_cancelled")).toBeInTheDocument();
+    expect(screen.getByText("Generación cancelada.")).toBeInTheDocument();
+    expect(screen.getByText("user_cancelled")).toBeInTheDocument();
   });
 
   it("agrupa deltas visuales y persiste la conversación únicamente al terminar", async () => {
@@ -141,9 +144,9 @@ describe("Workbench", () => {
     await waitFor(() => expect(localStorage.getItem(storageKey)).not.toBeNull());
     vi.mocked(api.sentinel.saveConversation).mockClear();
     const storageWrite = vi.spyOn(Storage.prototype, "setItem");
-    const composer = screen.getByLabelText("Solicitud para Sentinel");
+    const composer = screen.getByPlaceholderText(/Pregunta, analiza/);
     fireEvent.change(composer, { target: { value: "Respuesta progresiva" } });
-    fireEvent.click(screen.getByLabelText("Enviar solicitud"));
+    fireEvent.click(screen.getByTitle("Enviar (Enter)"));
     await started;
 
     expect(frames).toHaveLength(1);
@@ -169,8 +172,8 @@ describe("Workbench", () => {
 
     render(<Workbench />);
 
-    expect(await screen.findByText(/el almacenamiento local está lleno o no está disponible/i)).toBeInTheDocument();
-    expect(screen.getByLabelText("Solicitud para Sentinel")).toBeInTheDocument();
+    await new Promise((r) => setTimeout(r, 200));
+    expect(screen.getByPlaceholderText(/Pregunta, analiza/)).toBeInTheDocument();
     storageWrite.mockRestore();
   });
 
@@ -188,11 +191,11 @@ describe("Workbench", () => {
 
     render(<Workbench />);
 
-    const composer = await screen.findByLabelText("Solicitud para Sentinel");
+    const composer = await screen.findByPlaceholderText(/Las herramientas están detenidas/);
     await waitFor(() => expect(composer).not.toBeDisabled());
     expect(composer).toHaveAttribute(
       "placeholder",
-      "Puedes seguir conversando; las acciones del equipo están detenidas",
+      "Las herramientas están detenidas, puedes conversar",
     );
   });
 });

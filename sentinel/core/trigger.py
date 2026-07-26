@@ -207,27 +207,27 @@ class TriggerEngine:
 
         fires: List[TriggerFireRecord] = []
         for record, action in pending:
-                if action and self._execute_fn:
-                    try:
-                        if asyncio.iscoroutinefunction(self._execute_fn):
-                            action_coro = self._execute_fn(action.tool_id, action.params)
-                            try:
-                                loop = asyncio.get_running_loop()
-                            except RuntimeError:
-                                asyncio.run(action_coro)
-                            else:
-                                loop.create_task(action_coro)
+            if action and self._execute_fn:
+                try:
+                    if asyncio.iscoroutinefunction(self._execute_fn):
+                        action_coro = self._execute_fn(action.tool_id, action.params)
+                        try:
+                            loop = asyncio.get_running_loop()
+                        except RuntimeError:
+                            asyncio.run(action_coro)
                         else:
-                            self._execute_fn(action.tool_id, action.params)
-                        record.action_executed = True
-                        record.result = "executed"
-                    except Exception as e:
-                        record.result = f"error: {e}"
-                        logger.error("Trigger %s action failed: %s", record.trigger_id, e)
-                else:
-                    record.action_executed = action is not None
-                    record.result = "fired_no_action" if not action else "fired"
-                fires.append(record)
+                            loop.create_task(action_coro)
+                    else:
+                        self._execute_fn(action.tool_id, action.params)
+                    record.action_executed = True
+                    record.result = "executed"
+                except Exception as e:
+                    record.result = f"error: {e}"
+                    logger.error("Trigger %s action failed: %s", record.trigger_id, e)
+            else:
+                record.action_executed = action is not None
+                record.result = "fired_no_action" if not action else "fired"
+            fires.append(record)
         with self._lock:
             for record in fires:
                 self._history.append(record)

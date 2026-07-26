@@ -6,9 +6,9 @@ Sentinel no es un modelo de IA ni un chatbot independiente. Los modelos y herram
 
 ## Estado del producto
 
-La versión 1.0 está en estabilización. El repositorio contiene componentes experimentales que no forman parte del flujo comercial actual. La interfaz entregada se concentra en el Workbench de Sentinel.
+Versión 1.0.0 — estabilización completa (Fases 0–12). Pendiente de pentest independiente para publicación general.
 
-No existe todavía una imagen Docker soportada ni un despliegue servidor multiusuario. El objetivo actual es una aplicación local de escritorio para Windows.
+La interfaz se concentra en el Workbench de Sentinel. No existe todavía una imagen Docker soportada ni un despliegue servidor multiusuario. El objetivo actual es una aplicación local de escritorio para Windows.
 
 ## Flujo de confianza
 
@@ -46,9 +46,11 @@ El comando debe ejecutarse dentro del directorio del proyecto, no desde `C:\Wind
 npm run build
 npm test -- --run
 python -m ruff check sentinel sidecar
-python -m pytest
+python -m pytest -m "not performance"
 cargo check --manifest-path src-tauri/Cargo.toml
 ```
+
+Ejecuta ~460 tests Python (unit + integration + security + adversarial + e2e) + 129 tests JS + 15 Rust. Para benchmarks: `python -m pytest -m performance`.
 
 ## Datos y privacidad
 

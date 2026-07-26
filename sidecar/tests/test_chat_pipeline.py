@@ -42,7 +42,7 @@ class TestChatPipeline:
             tool_result=None,
         )
 
-        assert _format_governed_outcome(result).startswith("Todavía no ejecuté")
+        assert _format_governed_outcome(result).startswith("¿Abrir")
 
     def test_conversation_only_stream_skips_expensive_orchestration(self, monkeypatch):
         from modules.ai_provider import _svc as ai_service
@@ -168,9 +168,7 @@ class TestChatPipeline:
         assert "meta" in event_types
         assert "metrics" in event_types
         assert event_types[-1] == "done"
-        assert "".join(
-            event["text"] for event in events if event["type"] == "delta"
-        ) == "Hola desde Sentinel"
+        assert "".join(event["text"] for event in events if event["type"] == "delta") == "Hola desde Sentinel"
         stored = client.get("/api/sentinel/conversations/stream-test")
         assert stored.status_code == 200
         assert stored.json()["messages"][-1]["response"] == "Hola desde Sentinel"

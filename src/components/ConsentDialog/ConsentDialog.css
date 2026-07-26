@@ -1,0 +1,249 @@
+.consent-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(2px);
+}
+
+.consent-dialog {
+  background: var(--bg-card, #1a1a1a);
+  border: 1px solid var(--border, #2a2a2a);
+  border-radius: 14px;
+  max-width: 500px;
+  width: 92%;
+  overflow: hidden;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.5);
+}
+
+.consent-dialog.risk-critical {
+  border-color: #ff0000;
+  box-shadow: 0 12px 48px rgba(255, 0, 0, 0.15);
+}
+
+/* ── Header ── */
+.consent-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 22px 14px;
+}
+
+.consent-header-icon {
+  font-size: 22px;
+}
+
+.consent-header-action {
+  flex: 1;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary, #fff);
+}
+
+.consent-close {
+  background: none;
+  border: none;
+  color: var(--text-muted, #606060);
+  font-size: 22px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+/* ── Body ── */
+.consent-body {
+  padding: 0 22px 16px;
+}
+
+/* Risk pill */
+.consent-risk-row {
+  margin-bottom: 14px;
+}
+
+.consent-risk-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+}
+
+/* Summary */
+.consent-summary {
+  font-size: 14px;
+  color: var(--text-primary, #fff);
+  line-height: 1.5;
+  margin-bottom: 14px;
+}
+
+/* Impact list */
+.consent-impact-list {
+  margin-bottom: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.consent-impact-item {
+  font-size: 13px;
+  padding-left: 4px;
+}
+
+.consent-impact-item.positive {
+  color: var(--text-secondary, #a0a0a0);
+}
+
+.consent-impact-item.negative {
+  color: var(--danger, #ff4444);
+}
+
+/* Reason */
+.consent-reason {
+  font-size: 13px;
+  color: var(--text-secondary, #a0a0a0);
+  line-height: 1.5;
+  margin-bottom: 14px;
+}
+
+.consent-reason strong {
+  color: var(--text-primary, #fff);
+}
+
+/* Critical box */
+.consent-critical-box {
+  background: rgba(255, 0, 0, 0.08);
+  border: 1px solid rgba(255, 0, 0, 0.2);
+  border-radius: 10px;
+  padding: 14px;
+  margin: 14px 0;
+}
+
+.consent-critical-box strong {
+  color: #ff4444;
+  font-size: 13px;
+}
+
+.consent-critical-box p {
+  font-size: 12px;
+  color: var(--text-secondary, #a0a0a0);
+  margin: 8px 0;
+}
+
+.consent-critical-box code {
+  background: var(--bg-hover, #222);
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 12px;
+}
+
+.consent-critical-input {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid #ff4444;
+  border-radius: 8px;
+  background: var(--bg-primary, #0d0d0d);
+  color: #fff;
+  font-size: 13px;
+  margin-top: 8px;
+  box-sizing: border-box;
+  font-family: monospace;
+}
+
+.consent-critical-input:focus {
+  outline: none;
+  border-color: #ff6666;
+}
+
+/* Technical details (collapsed) */
+.consent-tech-details {
+  margin-top: 12px;
+  font-size: 12px;
+}
+
+.consent-tech-details summary {
+  cursor: pointer;
+  color: var(--text-muted, #606060);
+  font-size: 12px;
+  padding: 4px 0;
+  user-select: none;
+}
+
+.consent-tech-details summary:hover {
+  color: var(--text-secondary, #a0a0a0);
+}
+
+.consent-tech-content {
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: var(--bg-hover, #222);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--text-secondary, #a0a0a0);
+}
+
+.consent-tech-content strong {
+  color: var(--text-primary, #fff);
+}
+
+.consent-tech-sim {
+  margin: 4px 0 0;
+  font-size: 11px;
+  white-space: pre-wrap;
+  color: var(--text-muted, #606060);
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+/* ── Actions ── */
+.consent-actions {
+  display: flex;
+  gap: 8px;
+  padding: 14px 22px 18px;
+  justify-content: flex-end;
+}
+
+.consent-actions .btn {
+  font-size: 13px;
+  padding: 8px 20px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: opacity 0.15s;
+}
+
+.consent-actions .btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.consent-actions .btn-danger {
+  background: #ff0000;
+  color: #fff;
+  border: none;
+}
+
+.consent-actions .btn-primary {
+  background: var(--accent, #0066ff);
+  color: #fff;
+  border: none;
+}
+
+.consent-actions .btn-secondary {
+  background: var(--bg-hover, #222);
+  color: var(--text-primary, #fff);
+  border: 1px solid var(--border, #2a2a2a);
+}
+
+.consent-actions .btn-ghost {
+  background: transparent;
+  color: var(--text-secondary, #a0a0a0);
+  border: 1px solid var(--border, #2a2a2a);
+}

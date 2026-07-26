@@ -2,8 +2,10 @@ from typing import Any, Dict, Optional
 
 from sentinel.core.tool import Tool, ToolResult, ToolSpec
 from sentinel.core.identity import (
-    get_windows_identity, identity_to_dict,
-    verify_with_hello, get_credential_manager,
+    get_windows_identity,
+    identity_to_dict,
+    verify_with_hello,
+    get_credential_manager,
 )
 
 _CAT = "identity"
@@ -80,7 +82,9 @@ class CredentialSetTool(Tool):
             return ToolResult.fail(error="value parameter is required", tool_id="identity.credential.set")
         result = get_credential_manager().set(key, value)
         if not result["success"]:
-            return ToolResult.fail(error=result.get("error", "Failed to save credential"), tool_id="identity.credential.set")
+            return ToolResult.fail(
+                error=result.get("error", "Failed to save credential"), tool_id="identity.credential.set"
+            )
         return ToolResult.ok(data={"key": key, "message": result["message"]}, tool_id="identity.credential.set")
 
 
@@ -108,7 +112,10 @@ class CredentialGetTool(Tool):
             return ToolResult.fail(error="key parameter is required", tool_id="identity.credential.get")
         result = get_credential_manager().get(key)
         if not result["success"]:
-            return ToolResult.ok(data={"key": key, "exists": False, "message": result.get("error", "")}, tool_id="identity.credential.get")
+            return ToolResult.ok(
+                data={"key": key, "exists": False, "message": result.get("error", "")},
+                tool_id="identity.credential.get",
+            )
         return ToolResult.ok(data={"key": key, "exists": True}, tool_id="identity.credential.get")
 
 
@@ -136,7 +143,9 @@ class CredentialDeleteTool(Tool):
             return ToolResult.fail(error="key parameter is required", tool_id="identity.credential.delete")
         result = get_credential_manager().delete(key)
         if not result["success"]:
-            return ToolResult.fail(error=result.get("error", "Failed to delete credential"), tool_id="identity.credential.delete")
+            return ToolResult.fail(
+                error=result.get("error", "Failed to delete credential"), tool_id="identity.credential.delete"
+            )
         return ToolResult.ok(data={"key": key, "message": result["message"]}, tool_id="identity.credential.delete")
 
 
@@ -154,4 +163,7 @@ class CredentialListTool(Tool):
 
     async def execute(self, params: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> ToolResult:
         result = get_credential_manager().list_keys()
-        return ToolResult.ok(data={"keys": result.get("keys", []), "count": len(result.get("keys", []))}, tool_id="identity.credential.list")
+        return ToolResult.ok(
+            data={"keys": result.get("keys", []), "count": len(result.get("keys", []))},
+            tool_id="identity.credential.list",
+        )

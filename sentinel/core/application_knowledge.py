@@ -1,12 +1,13 @@
-from __future__ import annotations
-
 import hashlib
+import logging
 import os
 import shutil
 import threading
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -41,6 +42,15 @@ class ApplicationKnowledgeService:
         self._profiles: List[AppProfile] = []
         self._cache_until: Optional[datetime] = None
         self._lock = threading.RLock()
+        self._launched_apps: set = set()  # set of app names successfully launched
+
+    def mark_launched(self, app_name: str) -> None:
+        with self._lock:
+            self._launched_apps.add(str(app_name).strip().casefold())
+
+    def known_apps(self) -> set:
+        with self._lock:
+            return set(self._launched_apps)
 
     def discover(self, limit: int = 200, *, refresh: bool = False) -> List[AppProfile]:
         safe_limit = max(1, min(int(limit), 500))
@@ -55,22 +65,21 @@ class ApplicationKnowledgeService:
         self, limit: int = 200, *, refresh: bool = False, include_executable: bool = False
     ) -> List[Dict[str, object]]:
         return [
-            profile.to_dict(include_executable=include_executable)
-            for profile in self.discover(limit, refresh=refresh)
+            profile.to_dict(include_executable=include_executable) for profile in self.discover(limit, refresh=refresh)
         ]
 
     def lookup(self, name: str, *, refresh: bool = False) -> Optional[AppProfile]:
-        query = _normalize_name(name)
+        query = _normalize_app_name(name)
         if not query:
             return None
         profiles = self.discover(500, refresh=refresh)
-        exact = [profile for profile in profiles if _normalize_name(profile.name) == query]
+        exact = [profile for profile in profiles if _normalize_app_name(profile.name) == query]
         if exact:
             return max(exact, key=lambda profile: profile.confidence)
         executable_matches = [
             profile
             for profile in profiles
-            if profile.executable and _normalize_name(os.path.basename(profile.executable)) == query
+            if profile.executable and _normalize_app_name(os.path.basename(profile.executable)) == query
         ]
         return max(executable_matches, key=lambda profile: profile.confidence) if executable_matches else None
 
@@ -79,7 +88,9 @@ class ApplicationKnowledgeService:
         if not needle:
             return []
         matches = [profile for profile in self.discover(500) if needle in _normalize_name(profile.name)]
-        return sorted(matches, key=lambda profile: (-profile.confidence, profile.name.casefold()))[: max(1, min(limit, 200))]
+        return sorted(matches, key=lambda profile: (-profile.confidence, profile.name.casefold()))[
+            : max(1, min(limit, 200))
+        ]
 
     def invalidate(self) -> None:
         with self._lock:
@@ -90,6 +101,8 @@ class ApplicationKnowledgeService:
         if os.name == "nt":
             for item in _windows_registry_apps():
                 candidates[_candidate_key(item["name"], item.get("path"))] = item
+            for item in _windows_store_apps():
+                candidates.setdefault(_candidate_key(item["name"], item.get("path")), item)
 
         system_root = os.path.normcase(os.environ.get("SystemRoot", "C:\\Windows"))
         for directory in os.environ.get("PATH", "").split(os.pathsep):
@@ -102,9 +115,7 @@ class ApplicationKnowledgeService:
                         continue
                     path = os.path.join(directory, filename)
                     name = filename[:-4]
-                    candidates.setdefault(
-                        _candidate_key(name, path), {"name": name, "path": path, "source": "path"}
-                    )
+                    candidates.setdefault(_candidate_key(name, path), {"name": name, "path": path, "source": "path"})
             except (OSError, PermissionError):
                 continue
 
@@ -119,8 +130,8 @@ class ApplicationKnowledgeService:
         executable = item.get("path")
         source = str(item.get("source") or "unknown")
         category, capabilities = _classify(name)
-        confidence = {"app_paths": 0.98, "uninstall": 0.82, "path": 0.88}.get(source, 0.6)
-        if executable and not os.path.isfile(executable):
+        confidence = {"app_paths": 0.98, "uninstall": 0.82, "path": 0.88, "store_app": 0.85}.get(source, 0.6)
+        if executable and source != "store_app" and not os.path.isfile(executable):
             executable = None
             confidence = min(confidence, 0.65)
         stable = os.path.normcase(executable) if executable else name.casefold()
@@ -146,18 +157,40 @@ def _normalize_name(name: str) -> str:
     return str(name or "").strip().casefold().removesuffix(".exe")
 
 
+_KNOWN_APP_ALIASES: dict[str, str] = {
+    "bloc de notas": "notepad",
+    "blocdenotas": "notepad",
+    "calculadora": "calculator",
+    "administrador de tareas": "taskmgr",
+    "explorador de archivos": "explorer",
+    "explorador": "explorer",
+}
+
+
+def _normalize_app_name(name: str) -> str:
+    """Normalize name and expand known aliases (Spanish, shorthand)."""
+    normalized = _normalize_name(name)
+    alias = _KNOWN_APP_ALIASES.get(normalized)
+    return alias if alias else normalized
+
+
+def _exact_app_match(name: str, known_name: str) -> bool:
+    """Exact match after normalization — never substring."""
+    return _normalize_app_name(name) == _normalize_app_name(known_name)
+
+
 def _classify(name: str) -> tuple[str, List[str]]:
-    value = name.casefold()
-    groups = (
+    value = _normalize_app_name(name)
+    groups: tuple[tuple[tuple[str, ...], str, List[str]], ...] = (
         (("chrome", "edge", "firefox", "brave", "opera"), "browser", ["launch", "open_url"]),
-        (("code", "visual studio", "pycharm", "idea", "codium"), "development", ["launch", "open_project"]),
+        (("code", "visual studio", "pycharm", "idea", "codium", "vscode"), "development", ["launch", "open_project"]),
         (("word", "writer", "acrobat", "notepad"), "documents", ["launch", "open_document"]),
         (("excel", "calc", "spreadsheet"), "spreadsheets", ["launch", "open_spreadsheet"]),
         (("paint", "photos", "gimp", "photoshop"), "images", ["launch", "open_image"]),
         (("powershell", "terminal", "cmd", "windows terminal"), "terminal", ["launch", "run_command"]),
     )
     for needles, category, capabilities in groups:
-        if any((value == needle if needle == "cmd" else needle in value) for needle in needles):
+        if any(value == needle for needle in needles):
             return category, capabilities
     return "application", ["launch"]
 
@@ -201,14 +234,36 @@ def _windows_registry_apps() -> List[Dict[str, Optional[str]]]:
                                     path = icon.rsplit(",", 1)[0].strip().strip('"')
                                 except OSError:
                                     path = None
-                            found.setdefault(
-                                name.casefold(), {"name": name, "path": path, "source": "uninstall"}
-                            )
+                            found.setdefault(name.casefold(), {"name": name, "path": path, "source": "uninstall"})
                         except OSError:
                             continue
             except OSError:
                 continue
     return list(found.values())
+
+
+def _windows_store_apps() -> List[Dict[str, Optional[str]]]:
+    result: List[Dict[str, Optional[str]]] = []
+    try:
+        import subprocess
+        import json
+
+        script = "Get-StartApps | Where-Object { $_.AppID -like '*!App' } | Select-Object Name, AppID | ConvertTo-Json"
+        proc = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", script], capture_output=True, text=True, timeout=15
+        )
+        if proc.returncode != 0 or not proc.stdout.strip():
+            return result
+        data = json.loads(proc.stdout)
+        entries = data if isinstance(data, list) else [data]
+        for entry in entries:
+            name = (entry.get("Name") or "").strip()
+            app_id = (entry.get("AppID") or "").strip()
+            if name and app_id:
+                result.append({"name": name, "path": app_id, "source": "store_app"})
+    except Exception:
+        logger.debug("Windows Store application discovery failed", exc_info=True)
+    return result
 
 
 _APPLICATION_KNOWLEDGE = ApplicationKnowledgeService()

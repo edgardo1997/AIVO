@@ -127,6 +127,17 @@ WORKFLOW_STEP_EXECUTED = "workflow.step.executed"
 WORKFLOW_COMPLETED = "workflow.completed"
 WORKFLOW_FAILED = "workflow.failed"
 
+# Model Execution
+MODEL_EXECUTION_STARTED = "model.execution.started"
+MODEL_EXECUTION_COMPLETED = "model.execution.completed"
+MODEL_EXECUTION_FAILED = "model.execution.failed"
+
+# User Feedback
+USER_FEEDBACK_RECEIVED = "user.feedback.received"
+
+# Ranking
+MODEL_RANKING_UPDATED = "model.ranking.updated"
+
 ALL_EVENTS = frozenset(
     {
         PIPELINE_STARTED,
@@ -214,5 +225,10 @@ ALL_EVENTS = frozenset(
         WORKFLOW_STEP_EXECUTED,
         WORKFLOW_COMPLETED,
         WORKFLOW_FAILED,
+        MODEL_EXECUTION_STARTED,
+        MODEL_EXECUTION_COMPLETED,
+        MODEL_EXECUTION_FAILED,
+        USER_FEEDBACK_RECEIVED,
+        MODEL_RANKING_UPDATED,
     }
 )

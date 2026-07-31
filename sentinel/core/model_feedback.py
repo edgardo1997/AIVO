@@ -1,3 +1,9 @@
+import warnings
+warnings.warn(
+    "ModelFeedbackStore is deprecated. Use IntelligenceCoordinator + FeedbackEngine instead.",
+    DeprecationWarning, stacklevel=2,
+)
+
 import sqlite3
 import threading
 from dataclasses import dataclass, field

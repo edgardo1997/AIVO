@@ -132,6 +132,22 @@ def get_memory():
     return get_sentinel_memory()
 
 
+async def _pipeline_execute(
+    tool_id: str,
+    params: Dict[str, Any],
+    context: Optional[Dict[str, Any]] = None,
+    *,
+    source: str = "api",
+) -> Any:
+    """Ejecuta una herramienta a través del ExecutionPipeline oficial.
+
+    Única función autorizada para ejecutar herramientas desde la capa API.
+    """
+    from modules import get_execution_pipeline
+
+    return await get_execution_pipeline().execute(tool_id, params, context or {}, source=source)
+
+
 def _memory_record(record) -> Dict[str, Any]:
     outcome = (
         "failed" if record.error or (record.tool_result and record.tool_result.get("success") is False) else "succeeded"

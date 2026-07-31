@@ -1,12 +1,15 @@
 import json
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 import logging
 
 from .skill import SkillRegistry, SkillSpec, SkillResult
 from .tool_gateway import ToolGateway
 from .model_router import ModelRouter, TaskType
 from .planner import Plan, PlanStep, Intent
+
+if TYPE_CHECKING:
+    from .execution_pipeline import ExecutionPipeline
 
 logger = logging.getLogger(__name__)
 
@@ -18,11 +21,13 @@ class SkillEngine:
         tool_gateway: Optional[ToolGateway] = None,
         model_router: Optional[ModelRouter] = None,
         execute_step: Optional[callable] = None,
+        execution_pipeline: Optional["ExecutionPipeline"] = None,
     ):
         self._registry = registry
         self._tool_gateway = tool_gateway
         self._model_router = model_router
         self._execute_step = execute_step
+        self._execution_pipeline = execution_pipeline
 
     @property
     def registry(self) -> SkillRegistry:
@@ -111,7 +116,13 @@ class SkillEngine:
 
             if self._execute_step:
                 sr = await self._execute_step(step.tool_id, step.params, step_context)
-            else:
+            elif self._execution_pipeline:
+                tr = await self._execution_pipeline.execute(
+                    step.tool_id, step.params, step_context,
+                    source="skill",
+                )
+                sr = {"success": tr.success, "data": tr.data, "error": tr.error, "duration_ms": tr.duration_ms}
+            elif self._tool_gateway:
                 tr = await self._tool_gateway.execute(step.tool_id, step.params, step_context)
                 sr = {"success": tr.success, "data": tr.data, "error": tr.error, "duration_ms": tr.duration_ms}
 

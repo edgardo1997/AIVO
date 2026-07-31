@@ -75,18 +75,21 @@ class TriggerHistoryResponse(BaseModel):
 
 @router.get("/triggers", response_model=dict)
 async def list_triggers(request: Request):
-    from modules import get_gateway
+    from modules import get_execution_pipeline
     from modules.auth import request_identity
 
     identity = request_identity(request).to_dict()
-    result = await get_gateway().execute("trigger.list", {}, {"identity": identity})
+    result = await get_execution_pipeline().execute("trigger.list", {}, {"identity": identity}, source="api")
     if not result.success:
         raise HTTPException(status_code=500, detail=result.error)
     return result.data or {"triggers": [], "total": 0}
 
 
 @router.get("/triggers/history", response_model=dict)
-async def get_all_history(limit: int = 50):
+async def get_all_history(request: Request, limit: int = 50):
+    from modules.auth import request_identity
+
+    request_identity(request)
     if not _db:
         return {"history": [], "total": 0}
     rows = _db.fetchall(
@@ -98,11 +101,11 @@ async def get_all_history(limit: int = 50):
 
 @router.get("/triggers/{trigger_id}", response_model=dict)
 async def get_trigger(trigger_id: str, request: Request):
-    from modules import get_gateway
+    from modules import get_execution_pipeline
     from modules.auth import request_identity
 
     identity = request_identity(request).to_dict()
-    result = await get_gateway().execute("trigger.list", {}, {"identity": identity})
+    result = await get_execution_pipeline().execute("trigger.list", {}, {"identity": identity}, source="api")
     if not result.success:
         raise HTTPException(status_code=500, detail=result.error)
     triggers = (result.data or {}).get("triggers", [])
@@ -114,12 +117,12 @@ async def get_trigger(trigger_id: str, request: Request):
 
 @router.post("/triggers", status_code=201)
 async def create_trigger(body: CreateTriggerRequest, request: Request):
-    from modules import get_gateway
+    from modules import get_execution_pipeline
     from modules.auth import request_identity
 
     identity = request_identity(request).to_dict()
     params = body.model_dump()
-    result = await get_gateway().execute("trigger.create", params, {"identity": identity})
+    result = await get_execution_pipeline().execute("trigger.create", params, {"identity": identity}, source="api")
     if not result.success:
         if "already exists" in (result.error or ""):
             raise HTTPException(status_code=409, detail=result.error)
@@ -129,7 +132,7 @@ async def create_trigger(body: CreateTriggerRequest, request: Request):
 
 @router.patch("/triggers/{trigger_id}")
 async def update_trigger(trigger_id: str, body: UpdateTriggerRequest, request: Request):
-    from modules import get_gateway
+    from modules import get_execution_pipeline
     from modules.auth import request_identity
 
     identity = request_identity(request).to_dict()
@@ -137,7 +140,7 @@ async def update_trigger(trigger_id: str, body: UpdateTriggerRequest, request: R
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
     params = {"id": trigger_id, **updates}
-    result = await get_gateway().execute("trigger.update", params, {"identity": identity})
+    result = await get_execution_pipeline().execute("trigger.update", params, {"identity": identity}, source="api")
     if not result.success:
         if "not found" in (result.error or ""):
             raise HTTPException(status_code=404, detail=result.error)
@@ -147,11 +150,11 @@ async def update_trigger(trigger_id: str, body: UpdateTriggerRequest, request: R
 
 @router.delete("/triggers/{trigger_id}")
 async def delete_trigger(trigger_id: str, request: Request):
-    from modules import get_gateway
+    from modules import get_execution_pipeline
     from modules.auth import request_identity
 
     identity = request_identity(request).to_dict()
-    result = await get_gateway().execute("trigger.delete", {"id": trigger_id}, {"identity": identity})
+    result = await get_execution_pipeline().execute("trigger.delete", {"id": trigger_id}, {"identity": identity}, source="api")
     if not result.success:
         if "not found" in (result.error or ""):
             raise HTTPException(status_code=404, detail=result.error)
@@ -160,7 +163,10 @@ async def delete_trigger(trigger_id: str, request: Request):
 
 
 @router.get("/triggers/{trigger_id}/history", response_model=dict)
-async def get_trigger_history(trigger_id: str, limit: int = 20):
+async def get_trigger_history(trigger_id: str, request: Request, limit: int = 20):
+    from modules.auth import request_identity
+
+    request_identity(request)
     if not _db:
         return {"history": [], "total": 0}
     rows = _db.fetchall(

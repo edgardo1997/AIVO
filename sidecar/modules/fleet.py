@@ -57,20 +57,20 @@ class SyncReceiveRequest(BaseModel):
 
 
 async def _gateway_execute(tool_id: str, params: dict, request: Request):
-    from modules import get_gateway
+    from modules import get_execution_pipeline
     from modules.auth import request_identity
 
     identity = request_identity(request).to_dict()
-    return await get_gateway().execute(tool_id, params, {"identity": identity})
+    return await get_execution_pipeline().execute(tool_id, params, {"identity": identity}, source="api")
 
 
 @router.get("/status")
 async def get_fleet_status(request: Request):
-    from modules import get_gateway
+    from modules import get_execution_pipeline
     from modules.auth import request_identity
 
     identity = request_identity(request).to_dict()
-    result = await get_gateway().execute("fleet.status", {}, {"identity": identity})
+    result = await get_execution_pipeline().execute("fleet.status", {}, {"identity": identity}, source="api")
     if not result.success:
         raise HTTPException(status_code=500, detail=result.error)
     return result.data
@@ -102,11 +102,11 @@ async def toggle_remote(request: Request):
 
 @router.get("/pairing/qr")
 async def get_pairing_qr(request: Request):
-    from modules import get_gateway
+    from modules import get_execution_pipeline
     from modules.auth import request_identity
 
     identity = request_identity(request).to_dict()
-    result = await get_gateway().execute("fleet.qr", {}, {"identity": identity})
+    result = await get_execution_pipeline().execute("fleet.qr", {}, {"identity": identity}, source="api")
     if not result.success:
         raise HTTPException(status_code=500, detail=result.error)
     return result.data
@@ -114,11 +114,11 @@ async def get_pairing_qr(request: Request):
 
 @router.get("/devices")
 async def list_devices(request: Request):
-    from modules import get_gateway
+    from modules import get_execution_pipeline
     from modules.auth import request_identity
 
     identity = request_identity(request).to_dict()
-    result = await get_gateway().execute("fleet.list_devices", {}, {"identity": identity})
+    result = await get_execution_pipeline().execute("fleet.list_devices", {}, {"identity": identity}, source="api")
     if not result.success:
         raise HTTPException(status_code=500, detail=result.error)
     return result.data
@@ -126,11 +126,11 @@ async def list_devices(request: Request):
 
 @router.get("/devices/{device_id}")
 async def get_device(device_id: str, request: Request):
-    from modules import get_gateway
+    from modules import get_execution_pipeline
     from modules.auth import request_identity
 
     identity = request_identity(request).to_dict()
-    result = await get_gateway().execute("fleet.list_devices", {}, {"identity": identity})
+    result = await get_execution_pipeline().execute("fleet.list_devices", {}, {"identity": identity}, source="api")
     if not result.success:
         raise HTTPException(status_code=500, detail=result.error)
     devices = (result.data or {}).get("devices", [])
@@ -210,11 +210,11 @@ async def export_sync(request: Request):
 
 @router.get("/sync/log")
 async def sync_log(request: Request, limit: int = 50):
-    from modules import get_gateway
+    from modules import get_execution_pipeline
     from modules.auth import request_identity
 
     identity = request_identity(request).to_dict()
-    result = await get_gateway().execute("fleet.sync_log", {"limit": limit}, {"identity": identity})
+    result = await get_execution_pipeline().execute("fleet.sync_log", {"limit": limit}, {"identity": identity}, source="api")
     if not result.success:
         raise HTTPException(status_code=500, detail=result.error)
     return result.data

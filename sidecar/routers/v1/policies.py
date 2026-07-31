@@ -31,7 +31,10 @@ def _get_engine() -> PolicyEngine:
 
 
 @router.get("/policies", response_model=List[PolicyInfo])
-async def list_policies():
+async def list_policies(request: Request):
+    from modules.auth import request_identity
+
+    request_identity(request)
     engine = _get_engine()
     if engine is None:
         return []

@@ -40,6 +40,26 @@ def initialized_test_runtime():
     initialize_runtime()
 
 
+def _reset_tool_rate_limiter(orchestrator):
+    """Reset per-tool sliding windows so one test cannot starve the rest.
+
+    pytest-benchmark iterates process/execute calls many times, which can
+    exhaust the ToolExecutionGuard's per-tool budget (e.g. process.* 20/60s)
+    and cascade 403s into every later test that calls /api/sentinel/process.
+    """
+    from sentinel.security.tool_rate_limiter import ToolRateLimiter
+
+    guard = getattr(getattr(orchestrator, "_execution_pipeline", None), "_guard", None)
+    router = getattr(orchestrator, "_model_router", None)
+    if guard is None and router is not None:
+        guard = getattr(router, "_tool_guard", None)
+    if guard is None:
+        return
+    rl = getattr(guard, "_rate_limiter", None)
+    if isinstance(rl, ToolRateLimiter):
+        rl.reset()
+
+
 def admin_mode():
     perm_svc.set_level("admin")
 
@@ -92,6 +112,7 @@ def clean_state():
         rl = getattr(orch, "_rate_limiter", None)
         if rl is not None:
             rl.clear()
+        _reset_tool_rate_limiter(orch)
     except Exception:
         pass
     try:

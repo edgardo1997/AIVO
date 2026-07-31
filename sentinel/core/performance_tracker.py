@@ -1,3 +1,9 @@
+import warnings
+warnings.warn(
+    "PerformanceTracker is deprecated. Use IntelligenceCoordinator + PerformanceIntelligence instead.",
+    DeprecationWarning, stacklevel=2,
+)
+
 import logging
 from collections import defaultdict, deque
 from dataclasses import dataclass, field

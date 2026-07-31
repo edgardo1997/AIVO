@@ -11,14 +11,14 @@ import uuid
 from .intent import Intent, IntentEngine
 from .model_router import ModelRouter, TaskType, RouterDecision
 from .tool_gateway import ToolGateway
+from .execution_pipeline import ExecutionPipeline
 from .context import ContextEngine
 from .tool import ToolResult
 from .planner import Planner, Plan, PlanStep
 from .decision_engine import Decision, DecisionEngine, DecisionResult
 from .operational_memory import MemoryBackend, ExecutionRecord, PendingActionRecord
-from .model_feedback import ModelFeedbackStore
 from .cost_tracker import CostTracker
-from .performance_tracker import PerformanceTracker
+from .intelligence_coordinator import IntelligenceCoordinator
 from .plan_cache import PlanCache
 from .recovery import RetryHandler, FallbackHandler, RollbackManager, RecoveryPolicy, RetryExhaustedError
 from .rate_limiter import RateLimiter, RateLimitDecision, DEFAULT_LIMITS, load_rate_limit_config
@@ -29,6 +29,7 @@ from .alerting import AlertManager, AlertSeverity
 from .events import SentinelEvent
 from .event_bus import EventBus
 from . import event_types
+from sentinel.core.runtime import SentinelRuntime, SentinelRequest
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +94,8 @@ class ExecutionPlan:
     tool_params: Dict[str, Any]
     task_type: TaskType
     router_decision: Optional[RouterDecision] = None
+    model_strategy: Optional[Dict[str, Any]] = None
+    capability_recommendation: Optional[Dict[str, Any]] = None
 
 
 @dataclass
@@ -154,9 +157,10 @@ class Orchestrator:
         risk_classifier: Optional[Any] = None,
         consent_service: Optional[Any] = None,
         simulation_engine: Optional[Any] = None,
-        model_feedback_store: Optional[ModelFeedbackStore] = None,
+        model_feedback_store: Optional[Any] = None,
         cost_tracker: Optional[CostTracker] = None,
-        performance_tracker: Optional[PerformanceTracker] = None,
+        performance_tracker: Optional[Any] = None,
+        intelligence: Optional[Any] = None,
         plan_cache: Optional[PlanCache] = None,
         rate_limiter: Optional[RateLimiter] = None,
         multi_agent_orchestrator: Optional[MultiAgentOrchestrator] = None,
@@ -167,6 +171,7 @@ class Orchestrator:
         knowledge_base: Optional[Any] = None,
         file_pipeline: Optional[Any] = None,
         web_browsing: Optional[Any] = None,
+        execution_pipeline: Optional[ExecutionPipeline] = None,
         hardening: Optional[Any] = None,
         advisory_service: Optional[Any] = None,
         grounding_engine: Optional[Any] = None,
@@ -176,8 +181,11 @@ class Orchestrator:
         event_store: Optional[Any] = None,
         process_timeout: Optional[float] = 60.0,
         rate_limit_config: Optional[Dict[str, int]] = None,
+        runtime: Optional[SentinelRuntime] = None,
+        observability_engine: Optional[Any] = None,
     ):
         self._process_timeout = process_timeout
+        self._runtime = runtime
         self._intent_engine = intent_engine
         self._tool_gateway = tool_gateway
         self._planner = planner or Planner()
@@ -207,9 +215,10 @@ class Orchestrator:
         self._risk_classifier = risk_classifier
         self._consent_service = consent_service
         self._simulation = simulation_engine
-        self._feedback = model_feedback_store or ModelFeedbackStore()
+        self._feedback = model_feedback_store
         self._cost_tracker = cost_tracker
-        self._perf_tracker = performance_tracker or PerformanceTracker()
+        self._perf_tracker = performance_tracker
+        self._intelligence = intelligence or IntelligenceCoordinator()
         self._plan_cache = plan_cache
         self._rate_limiter = rate_limiter
         self._rate_limit_config = rate_limit_config
@@ -240,10 +249,128 @@ class Orchestrator:
             self._model_router.set_feedback_store(self._feedback)
         if model_router and model_router._key_map:
             self._intent_engine.set_model_router(model_router)
+        if execution_pipeline is None:
+            execution_pipeline = ExecutionPipeline(
+                tool_gateway=tool_gateway,
+                audit_service=audit_service,
+            )
+        self._execution_pipeline = execution_pipeline
         self._pipeline_enforced = True
         self._retry_handler = RetryHandler()
         self._fallback_handler = FallbackHandler()
         self._rollback_manager = RollbackManager()
+        self._observability = observability_engine
+        self._obs_persist_counter = 0
+        if self._observability is not None:
+            self._wire_observability()
+
+    def _wire_observability(self) -> None:
+        """Register Orchestrator-owned components in the ObservabilityEngine."""
+        obs = self._observability
+        try:
+            register = getattr(obs, "register_component", None)
+            if register is None:
+                register = getattr(obs.health, "register", None)
+            if register is None:
+                return
+            from sentinel.observability.health.health_checker import ComponentHealth, HealthState
+
+            register(
+                "orchestrator",
+                lambda: ComponentHealth(
+                    name="orchestrator", state=HealthState.HEALTHY,
+                    details={"pipeline_enforced": self._pipeline_enforced},
+                ),
+            )
+            register(
+                "execution_pipeline",
+                lambda: ComponentHealth(
+                    name="execution_pipeline", state=HealthState.HEALTHY,
+                    details={"enforced": self._pipeline_enforced},
+                ),
+            )
+            register(
+                "tool_gateway",
+                lambda: ComponentHealth(
+                    name="tool_gateway", state=HealthState.HEALTHY,
+                    details={"tools": len(getattr(self._tool_gateway, "_tools", {}) or {})},
+                ),
+            )
+            register(
+                "tool_execution_guard",
+                lambda: ComponentHealth(
+                    name="tool_execution_guard",
+                    state=HealthState.HEALTHY if getattr(self, "_pipeline_enforced", True) else HealthState.DEGRADED,
+                    details={"enforced": self._pipeline_enforced},
+                ),
+            )
+        except Exception as e:
+            logger.debug("Observability wiring failed: %s", e)
+
+    async def _run_with_observability(self, coro, *, utterance: str, identity: Optional[dict], session_id: Optional[str], dry_run: bool) -> Any:
+        """Wrap the pipeline with a request trace + telemetry (fail-safe)."""
+        obs = self._observability
+        if obs is None:
+            return await coro
+        import time as _time
+
+        start = _time.monotonic()
+        span = None
+        try:
+            span = obs.start_request_trace(
+                metadata={"utterance": utterance[:200], "session_id": session_id or "", "dry_run": dry_run}
+            )
+        except Exception:
+            span = None
+        try:
+            result = await coro
+            latency_ms = (_time.monotonic() - start) * 1000
+            model_id = "unknown"
+            try:
+                if result.plan is not None and getattr(result.plan, "intent", None) is not None:
+                    model_id = getattr(result.plan.intent, "action", "") or "unknown"
+            except Exception:
+                pass
+            try:
+                obs.record_request(model_id, True, latency_ms)
+                obs.record_component_duration("orchestrator.process", latency_ms)
+            except Exception:
+                pass
+            if span is not None:
+                try:
+                    obs.end_request_trace(span, status="ok")
+                except Exception:
+                    pass
+            await self._maybe_persist_observability()
+            return result
+        except Exception as exc:
+            latency_ms = (_time.monotonic() - start) * 1000
+            try:
+                obs.record_request("unknown", False, latency_ms)
+                obs.record_component_duration("orchestrator.process", latency_ms)
+            except Exception:
+                pass
+            if span is not None:
+                try:
+                    obs.end_request_trace(span, status="error")
+                except Exception:
+                    pass
+            raise
+
+    async def _maybe_persist_observability(self) -> None:
+        """Periodically flush engine telemetry into the official MetricRepository."""
+        self._obs_persist_counter += 1
+        if self._obs_persist_counter % 25 != 0:
+            return
+        if self._observability is None or self._intelligence is None:
+            return
+        persist = getattr(self._intelligence, "persist_observability_metrics", None)
+        if persist is None:
+            return
+        try:
+            await persist(self._observability)
+        except Exception as e:
+            logger.debug("Observability metrics persistence skipped: %s", e)
 
     async def _emit(
         self,
@@ -311,29 +438,29 @@ class Orchestrator:
         override_plan: Optional[Plan] = None,
         timeout: Optional[float] = None,
     ) -> ExecutionResult:
+        if self._runtime is not None:
+            return await self._runtime_process(utterance, identity=identity, session_id=session_id, dry_run=dry_run)
         try:
             effective_timeout = timeout if timeout is not None else self._process_timeout
+            coro = self._process_impl(
+                utterance,
+                identity=identity,
+                session_id=session_id,
+                dry_run=dry_run,
+                skip_simulation=skip_simulation,
+                override_plan=override_plan,
+            )
+            coro = self._run_with_observability(
+                coro,
+                utterance=utterance,
+                identity=identity,
+                session_id=session_id,
+                dry_run=dry_run,
+            )
             if effective_timeout is not None and effective_timeout > 0:
-                result = await asyncio.wait_for(
-                    self._process_impl(
-                        utterance,
-                        identity=identity,
-                        session_id=session_id,
-                        dry_run=dry_run,
-                        skip_simulation=skip_simulation,
-                        override_plan=override_plan,
-                    ),
-                    timeout=effective_timeout,
-                )
+                result = await asyncio.wait_for(coro, timeout=effective_timeout)
             else:
-                result = await self._process_impl(
-                    utterance,
-                    identity=identity,
-                    session_id=session_id,
-                    dry_run=dry_run,
-                    skip_simulation=skip_simulation,
-                    override_plan=override_plan,
-                )
+                result = await coro
             return self._attach_advisory(result)
         except Exception as exc:
             logger.exception("Pipeline failed: %s", exc)
@@ -346,6 +473,29 @@ class Orchestrator:
                 message=str(exc),
             )
             raise
+
+    async def _runtime_process(self, utterance: str, *, identity: Optional[dict] = None, session_id: Optional[str] = None, dry_run: bool = False) -> ExecutionResult:
+        """Bridge: Orchestrator.process() → SentinelRuntime.process() → ExecutionResult."""
+        request = SentinelRequest(
+            utterance=utterance,
+            session_id=session_id or "",
+            user_id=identity.get("user_id", "") if isinstance(identity, dict) else "",
+            dry_run=dry_run,
+            context={"identity": identity or {}},
+        )
+        response = await self._runtime.process(request)
+        from .intent import Intent
+        from .planner import Plan
+        return ExecutionResult(
+            plan=ExecutionPlan(
+                intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=utterance),
+                plan=Plan(steps=[], intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=utterance), description=""),
+                tool_id="",
+                tool_params={},
+                task_type=TaskType.QUICK,
+            ),
+            error=response.error,
+        )
 
     def classify_intent(self, utterance: str) -> Intent:
         """Run the side-effect-free preflight classifier used by conversation routing."""
@@ -605,6 +755,28 @@ class Orchestrator:
 
         exec_plan = self._build_exec_plan(intent, plan, context)
 
+        if self._intelligence is not None:
+            try:
+                strategy = self._intelligence.decide_strategy(utterance, intent, context)
+                context["model_strategy"] = strategy
+                exec_plan.model_strategy = strategy.to_dict()
+                logger.info(
+                    "Model strategy decided: %s (%s) for %s",
+                    strategy.strategy.value,
+                    strategy.complexity,
+                    intent.target,
+                )
+            except Exception as exc:
+                logger.debug("Model strategy decision skipped: %s", exc)
+            try:
+                recommendation = self._intelligence.recommend_model(
+                    intent.target or utterance, context
+                )
+                context["intelligence_recommendation"] = recommendation
+                exec_plan.capability_recommendation = recommendation.to_dict()
+            except Exception as exc:
+                logger.debug("Capability recommendation skipped: %s", exc)
+
         if self._model_router:
             try:
                 exec_plan.router_decision = self._model_router.select(exec_plan.task_type, context=context)
@@ -627,6 +799,43 @@ class Orchestrator:
             skip_simulation=skip_simulation,
         )
         result.execution_id = execution_id
+
+        # Execution history persistence (FASE 5.4)
+        if self._intelligence is not None:
+            try:
+                selected_model = ""
+                rec = getattr(exec_plan, "router_decision", None)
+                if rec is not None:
+                    selected_model = getattr(rec, "model", "") or getattr(rec, "model_id", "")
+                if not selected_model and exec_plan.capability_recommendation:
+                    selected_model = exec_plan.capability_recommendation.get("recommended_model", "")
+                risk_level = ""
+                if result.decision is not None:
+                    risk_level = str(getattr(result.decision, "risk_level", "") or "")
+                cost = 0.0
+                if result.tool_result is not None:
+                    cost = float(getattr(result.tool_result, "cost", 0.0) or 0.0)
+                tools_used = [s.tool_id for s in plan.steps]
+                await self._intelligence.record_execution(
+                    execution_id=execution_id,
+                    user_request=utterance,
+                    intent=f"{intent.action}:{intent.target}",
+                    task_type=exec_plan.task_type.value
+                    if hasattr(exec_plan.task_type, "value")
+                    else str(exec_plan.task_type),
+                    selected_model=selected_model,
+                    tools_used=tools_used,
+                    duration=(datetime.now(timezone.utc) - start).total_seconds(),
+                    success=result.error is None and not result.blocked,
+                    failure_reason=result.error,
+                    risk_level=risk_level,
+                    cost=cost,
+                    confidence_score=float(intent.confidence or 0.0),
+                    error=result.error,
+                )
+            except Exception as exc:
+                logger.debug("Execution history persistence skipped: %s", exc)
+
         return result
 
     async def _run_pipeline(
@@ -1278,10 +1487,11 @@ class Orchestrator:
                 request_id=execution_id,
                 tool=tid,
             )
-            result = await self._tool_gateway.execute(
+            result = await self._execution_pipeline.execute(
                 tool_id=tid,
                 params=step_params,
                 context=step_context,
+                source="orchestrator",
             )
             await self._emit(
                 event_types.TOOL_FINISHED,
@@ -1317,66 +1527,46 @@ class Orchestrator:
                     tool_id=step.tool_id,
                 )
 
-        if step.model_decision and self._feedback:
-            try:
-                self._feedback.record(
-                    provider_id=step.model_decision.provider_id,
-                    model=step.model_decision.model,
-                    task_type=step.model_decision.task_type,
-                    success=s_result.success,
-                    duration_ms=s_result.duration_ms or 0.0,
-                    error=s_result.error,
-                )
-            except Exception as e:
-                logger.warning("Failed to record model feedback: %s", e)
-
-        if step.model_decision and self._cost_tracker:
-            try:
-                usage = None
-                if isinstance(s_result.data, dict):
-                    usage = s_result.data.get("usage")
-                prompt_tokens = 0
-                completion_tokens = 0
-                estimated = True
-                if usage and isinstance(usage, dict):
-                    prompt_tokens = usage.get("prompt_tokens", 0) or 0
-                    completion_tokens = usage.get("completion_tokens", 0) or 0
-                    estimated = False
-                if prompt_tokens > 0 or completion_tokens > 0:
-                    self._cost_tracker.record_cost(
-                        provider_id=step.model_decision.provider_id,
-                        model=step.model_decision.model,
+        if step.model_decision:
+            if self._intelligence:
+                try:
+                    await self._intelligence.learn_from_model_result(
+                        model_id=step.model_decision.model,
                         task_type=step.model_decision.task_type,
-                        prompt_tokens=prompt_tokens,
-                        completion_tokens=completion_tokens,
+                        intent=step.model_decision.task_type,
+                        latency_ms=s_result.duration_ms or 0.0,
+                        tokens_used=0,
+                        cost=0.0,
+                        success=s_result.success,
                         error=s_result.error,
-                        estimated=estimated,
                     )
-            except Exception as e:
-                logger.warning("Failed to record cost: %s", e)
+                except Exception as e:
+                    logger.warning("Failed to record intelligence: %s", e)
 
-        if step.model_decision and self._perf_tracker:
-            try:
-                alert = self._perf_tracker.record(
-                    provider_id=step.model_decision.provider_id,
-                    model=step.model_decision.model,
-                    task_type=step.model_decision.task_type,
-                    tool_id=step.tool_id,
-                    duration_ms=s_result.duration_ms or 0.0,
-                    success=s_result.success,
-                )
-                if alert:
-                    logger.warning(
-                        "Performance regression: %s/%s %s (%.0fms vs baseline %.0fms, +%.0f%%)",
-                        alert.provider_id,
-                        alert.model,
-                        alert.tool_id,
-                        alert.current_avg,
-                        alert.baseline_avg,
-                        alert.deviation_pct,
-                    )
-            except Exception as e:
-                logger.warning("Failed to record performance: %s", e)
+            if self._cost_tracker:
+                try:
+                    usage = None
+                    if isinstance(s_result.data, dict):
+                        usage = s_result.data.get("usage")
+                    prompt_tokens = 0
+                    completion_tokens = 0
+                    estimated = True
+                    if usage and isinstance(usage, dict):
+                        prompt_tokens = usage.get("prompt_tokens", 0) or 0
+                        completion_tokens = usage.get("completion_tokens", 0) or 0
+                        estimated = False
+                    if prompt_tokens > 0 or completion_tokens > 0:
+                        self._cost_tracker.record_cost(
+                            provider_id=step.model_decision.provider_id,
+                            model=step.model_decision.model,
+                            task_type=step.model_decision.task_type,
+                            prompt_tokens=prompt_tokens,
+                            completion_tokens=completion_tokens,
+                            error=s_result.error,
+                            estimated=estimated,
+                        )
+                except Exception as e:
+                    logger.warning("Failed to record cost: %s", e)
 
         recovery_strategy = (
             "fallback"
@@ -1562,7 +1752,11 @@ class Orchestrator:
         context: Dict[str, Any],
     ) -> List[Any]:
         async def _exec(tool_id: str, params: Dict[str, Any]):
-            return await self._tool_gateway.execute(tool_id, params, context)
+            return await self._execution_pipeline.execute(
+                tool_id, params, context,
+                skip_security=True,
+                source="rollback",
+            )
 
         return await self._rollback_manager.rollback(completed, _exec)
 
@@ -1819,6 +2013,10 @@ class Orchestrator:
         return self._perf_tracker
 
     @property
+    def intelligence(self) -> Any:
+        return self._intelligence
+
+    @property
     def plan_cache(self) -> Any:
         return self._plan_cache
 
@@ -2025,6 +2223,11 @@ class Orchestrator:
     @property
     def skill_engine(self):
         return self._skill_engine
+
+    @property
+    def observability(self):
+        """The production ObservabilityEngine wired into this orchestrator (may be None)."""
+        return self._observability
 
     @property
     def alert_manager(self) -> AlertManager:

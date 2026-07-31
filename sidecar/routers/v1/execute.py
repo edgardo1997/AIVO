@@ -36,18 +36,17 @@ class ConfirmExecuteRequest(BaseModel):
 
 @router.post("/confirm", response_model=ExecuteResponse)
 async def confirm_tool(req: ConfirmExecuteRequest, request: Request):
-    from modules import get_gateway
     from modules.auth import request_identity
+    from modules.sentinel_bridge import get_orchestrator
 
     identity = request_identity(request).to_dict()
-    result = await get_gateway().confirm(req.action_id, req.approved, identity)
+    orch = get_orchestrator()
+    result = await orch.approve_execution(req.action_id, req.approved, identity)
     return ExecuteResponse(
-        success=result.success,
-        data=result.data,
+        success=result.success if result.success else not result.error,
+        data=result.data or {},
         error=result.error,
-        requires_confirmation=result.requires_confirmation,
         action_id=None,
-        duration_ms=result.duration_ms,
     )
 
 

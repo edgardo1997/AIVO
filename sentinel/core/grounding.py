@@ -9,8 +9,11 @@ import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 from enum import Enum
+
+if TYPE_CHECKING:
+    from sentinel.core.execution_pipeline import ExecutionPipeline
 
 logger = logging.getLogger(__name__)
 
@@ -100,9 +103,11 @@ class GroundingEngine:
         context_engine: Optional[Any] = None,
         tool_gateway: Optional[Any] = None,
         capability_registry: Optional[Any] = None,
+        execution_pipeline: Optional["ExecutionPipeline"] = None,
     ):
         self._context_engine = context_engine
         self._tool_gateway = tool_gateway
+        self._execution_pipeline = execution_pipeline
         self._capability_registry = capability_registry
         self._cache: Dict[str, tuple[Any, float]] = {}  # key -> (data, timestamp)
 
@@ -278,10 +283,17 @@ class GroundingEngine:
                 )
 
         # No hay caché o está obsoleto, obtener desde herramienta
-        if requirement.tool_id and self._tool_gateway:
+        if requirement.tool_id and (self._execution_pipeline or self._tool_gateway):
             try:
                 tool_params = requirement.tool_params or {}
-                tool_result = await self._tool_gateway.execute(requirement.tool_id, tool_params, context=context or {})
+                if self._execution_pipeline:
+                    tool_result = await self._execution_pipeline.execute(
+                        requirement.tool_id, tool_params, context=context or {},
+                        skip_security=True,
+                        source="grounding",
+                    )
+                else:
+                    tool_result = await self._tool_gateway.execute(requirement.tool_id, tool_params, context=context or {})
 
                 if tool_result.success and tool_result.data:
                     # Cachear resultado

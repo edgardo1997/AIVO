@@ -10,6 +10,8 @@ _log = _logging.getLogger("sentinel.modules")
 
 _gateway = None
 _gateway_ready = False
+_execution_pipeline = None
+_execution_pipeline_ready = False
 _event_bus = EventBus()
 _event_stream_service = None
 _event_store = None
@@ -21,6 +23,47 @@ _streaming_mode = None
 _workspace_manager = None
 _automation_engine = None
 _ai_workflows = None
+_model_registry = None
+_capability_engine = None
+_model_coordinator = None
+_model_strategy_engine = None
+
+
+def get_model_registry():
+    global _model_registry
+    if _model_registry is None:
+        from sentinel.core.model_registry import ModelRegistry
+        from sentinel.models.default_registry import build_default_registry
+
+        _model_registry = build_default_registry() or ModelRegistry()
+    return _model_registry
+
+
+def get_capability_engine():
+    global _capability_engine
+    if _capability_engine is None:
+        from sentinel.core.capability_engine import CapabilityEngine
+
+        _capability_engine = CapabilityEngine()
+    return _capability_engine
+
+
+def get_model_coordinator():
+    global _model_coordinator
+    if _model_coordinator is None:
+        from sentinel.core.model_coordinator import ModelCoordinator
+
+        _model_coordinator = ModelCoordinator(model_registry=get_model_registry())
+    return _model_coordinator
+
+
+def get_model_strategy_engine():
+    global _model_strategy_engine
+    if _model_strategy_engine is None:
+        from sentinel.intelligence.model_strategy import ModelStrategyEngine
+
+        _model_strategy_engine = ModelStrategyEngine(registry=get_model_registry())
+    return _model_strategy_engine
 
 
 def get_event_bus() -> EventBus:
@@ -285,11 +328,16 @@ class _OrchestratorHolder:
             gw._desktop_integrations = _integrations
             register_integration_tools(gw, _integrations)
 
-        from sentinel.core.observability import ObservabilityService
+        from sentinel.observability.engine import ObservabilityConfig, ObservabilityEngine
 
         _observability = getattr(gw, "_observability", None)
         if _observability is None:
-            _observability = ObservabilityService()
+            _observability = ObservabilityEngine(
+                ObservabilityConfig(
+                    backup_dir="./data/observability",
+                    version="sentinel-1.0.0",
+                )
+            )
             gw._observability = _observability
             gw.set_observability(_observability)
 
@@ -359,6 +407,84 @@ def _init_gateway():
 
     _log.info("Shared ToolGateway initialized (no tools registered yet)")
     _gateway_ready = True
+
+
+async def _init_storage_and_intelligence(intel, storage):
+    """Inicializa el motor de almacenamiento y el registro de modelos en segundo plano."""
+    from sentinel.storage.repositories.metric_repository import MetricRepository
+    from sentinel.storage.repositories.feedback_repository import FeedbackRepository
+    from sentinel.storage.repositories.model_repository import ModelRepository
+    from sentinel.storage.repositories.execution_repository import ExecutionRepository
+    from sentinel.storage.repositories.model_performance_repository import ModelPerformanceRepository
+    from sentinel.storage.repositories.user_preference_repository import UserPreferenceRepository
+    try:
+        await storage.initialize()
+        intel.set_metric_repository(MetricRepository(storage))
+        intel.set_feedback_repository(FeedbackRepository(storage))
+        intel.set_execution_repository(ExecutionRepository(storage))
+        intel.set_model_performance_repository(ModelPerformanceRepository(storage))
+        intel.set_user_preference_repository(UserPreferenceRepository(storage))
+        model_repo = ModelRepository(storage)
+        intel.set_model_repository(model_repo)
+        _log.info("Intelligence persistence initialized via StorageEngine")
+
+        try:
+            loaded = await intel.load_registry_from_repository()
+            _log.info("Model registry loaded %d model(s) from repository", loaded)
+        except Exception as exc:
+            _log.debug("Registry load skipped: %s", exc)
+
+        try:
+            recovered = await intel.recover_learning()
+            _log.info("Learning recovery complete: %s", recovered)
+        except Exception as exc:
+            _log.warning("Learning recovery skipped: %s", exc)
+
+        try:
+            discovery_result = await intel.discover_models()
+            _log.info(
+                "Model discovery complete: status=%s added=%s updated=%s total=%s",
+                discovery_result.get("status"),
+                discovery_result.get("added"),
+                discovery_result.get("updated"),
+                discovery_result.get("total_after"),
+            )
+            await intel.persist_registry_to_repository()
+        except Exception as exc:
+            _log.warning("Model discovery skipped: %s", exc)
+    except Exception as exc:
+        _log.warning("Intelligence persistence init failed: %s", exc)
+
+
+def get_execution_pipeline():
+    global _execution_pipeline, _execution_pipeline_ready
+    if not _execution_pipeline_ready:
+        _init_execution_pipeline()
+    return _execution_pipeline
+
+
+def _init_execution_pipeline():
+    global _execution_pipeline, _execution_pipeline_ready
+    if _execution_pipeline_ready:
+        return
+    from sentinel.core.execution_pipeline import ExecutionPipeline
+    from sentinel.security.tool_guard import ToolExecutionGuard
+    from sentinel.security.argument_validator import ArgumentValidator
+    from sentinel.security.tool_rate_limiter import ToolRateLimiter
+
+    gw = get_gateway()
+    guard = ToolExecutionGuard(
+        tool_gateway=gw,
+        policy_engine=getattr(gw, "_policy_engine", None),
+        argument_validator=ArgumentValidator(),
+        rate_limiter=ToolRateLimiter(),
+    )
+    _execution_pipeline = ExecutionPipeline(
+        tool_gateway=gw,
+        tool_execution_guard=guard,
+    )
+    _execution_pipeline_ready = True
+    _log.info("Shared ExecutionPipeline initialized with ToolExecutionGuard")
 
 
 class _ToolAdapter(Tool):
@@ -891,6 +1017,9 @@ def init_sentinel_orchestrator(
         probe_timeout=5.0,
     )
     mr.set_health_checker(health_checker)
+    registry = get_model_registry()
+    mr.set_model_registry(registry)
+    _log.info("ModelRegistry wired into ModelRouter (%d models)", registry.count())
     vault = init_vault()
     ai_svc.set_vault(vault)
     try:
@@ -986,6 +1115,62 @@ def init_sentinel_orchestrator(
         knowledge_service=get_application_knowledge(),
     )
 
+    from sentinel.core.intelligence_coordinator import IntelligenceCoordinator
+
+    cap_engine = get_capability_engine()
+    intelligence = IntelligenceCoordinator(
+        event_bus=event_bus,
+        cost_tracker=cost_tracker,
+        vault=_vault,
+        model_registry=registry,
+        capability_engine=cap_engine,
+    )
+    mr.set_model_ranking(intelligence.get_ranking())
+    mr.set_intelligence(intelligence)
+    intelligence.set_model_router(mr)
+    try:
+        from sentinel.core.circuit_breaker import CircuitBreaker
+
+        cb = CircuitBreaker()
+        mr.set_circuit_breaker(cb)
+        intelligence.sync_circuit_breaker(cb)
+        _log.info("CircuitBreaker wired into ModelRouter + IntelligenceCoordinator")
+    except Exception as exc:
+        _log.warning("CircuitBreaker wiring failed: %s", exc)
+    try:
+        mr.enable_multi_model()
+        _log.info("Multi-model coordination enabled on ModelRouter")
+    except Exception as exc:
+        _log.warning("Multi-model enable failed: %s", exc)
+    try:
+        from sentinel.core.model_coordinator import ModelCoordinator
+
+        coordinator = get_model_coordinator()
+        coordinator.set_model_router(mr)
+        intelligence.get_model_coordinator().set_model_router(mr)
+        _log.info("ModelCoordinator wired into ModelRouter + IntelligenceCoordinator")
+    except Exception as exc:
+        _log.warning("ModelCoordinator wiring failed: %s", exc)
+    try:
+        from sentinel.storage import StorageEngine, StorageConfig
+        from sentinel.storage.repositories.metric_repository import MetricRepository
+        from sentinel.storage.repositories.feedback_repository import FeedbackRepository
+
+        _storage_engine = StorageEngine()
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if loop is not None and loop.is_running():
+            loop.create_task(_init_storage_and_intelligence(intelligence, _storage_engine))
+        else:
+            _log.info("StorageEngine deferred — no running event loop")
+    except Exception as exc:
+        _log.warning("StorageEngine setup skipped: %s", exc)
+
+    intelligence.subscribe_to_events()
+
     orchestrator = Orchestrator(
         intent_engine=intent_engine,
         tool_gateway=gateway,
@@ -1017,6 +1202,9 @@ def init_sentinel_orchestrator(
         presentation_layer=presentation_layer,
         event_bus=event_bus,
         rate_limit_config=rate_limit_config,
+        execution_pipeline=get_execution_pipeline(),
+        intelligence=intelligence,
+        observability_engine=getattr(gateway, "_observability", None),
     )
 
     async def _skill_pipeline_step(tool_id, params, ctx):

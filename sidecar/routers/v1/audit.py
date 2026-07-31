@@ -1,7 +1,7 @@
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from pydantic import BaseModel
 
 log = logging.getLogger("sentinel.v1.audit")
@@ -24,12 +24,15 @@ class AuditResponse(BaseModel):
 
 @router.get("/audit", response_model=AuditResponse)
 async def list_audit(
+    request: Request,
     limit: int = Query(100, ge=1, le=10000),
     action: Optional[str] = Query(None),
     since: Optional[str] = Query(None),
 ):
     from modules.audit import _svc as audit_svc
+    from modules.auth import request_identity
 
+    request_identity(request)
     entries = audit_svc.get_log(limit=limit, action_filter=action)
     result = entries.get("entries", [])
     if since:
@@ -38,7 +41,9 @@ async def list_audit(
 
 
 @router.get("/audit/integrity")
-async def audit_integrity():
+async def audit_integrity(request: Request):
     from modules.audit import _svc as audit_svc
+    from modules.auth import request_identity
 
+    request_identity(request)
     return audit_svc.verify_integrity()

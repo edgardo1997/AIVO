@@ -66,13 +66,49 @@ def _configure_logging() -> logging.Logger:
 log = _configure_logging()
 
 
-@asynccontextmanager
+def _start_observability_flush():
+    """Background task: persist ObservabilityEngine metrics on a fixed cadence."""
+    import asyncio
+
+    async def _flush_loop() -> None:
+        from modules.sentinel_bridge_helpers import get_orchestrator
+
+        while True:
+            await asyncio.sleep(60)
+            try:
+                orch = get_orchestrator()
+                if orch is None:
+                    continue
+                engine = getattr(orch, "_observability", None)
+                intel = getattr(orch, "_intelligence", None)
+                persist = getattr(intel, "persist_observability_metrics", None) if intel is not None else None
+                if engine is not None and persist is not None:
+                    await persist(engine)
+            except Exception:
+                log.debug("Observability background flush failed", exc_info=True)
+
+    try:
+        return asyncio.create_task(_flush_loop())
+    except Exception:
+        return None
+
+
 async def sentinel_lifespan(_app: FastAPI):
     """Own the runtime services that must not outlive the API process."""
     from repositories.async_engine import close_async_engine, init_async_db
 
     initialize_runtime()
     from services.local_model_service import runtime as local_model_runtime
+
+    # Expose the production ObservabilityEngine on the app (FASE 7).
+    try:
+        from modules import get_gateway
+
+        _app.state.observability_engine = getattr(get_gateway(), "_observability", None)
+    except Exception:
+        log.exception("Could not expose observability_engine on app.state")
+    if getattr(_app.state, "observability_engine", None) is not None:
+        log.info("ObservabilityEngine wired into app.state.observability_engine")
 
     # Starting an already-installed model is safe and avoids a broken first
     # conversation. Installation remains an explicit user action.
@@ -84,7 +120,14 @@ async def sentinel_lifespan(_app: FastAPI):
             fleet_mod._svc.ensure_fleet_server_on_startup()
             fleet_mod._svc.register_self()
         proactive_mod._svc.start()
+
+        # FASE 7: periodic observability persistence (time-based flush).
+        # The Orchestrator also flushes every 25 requests; this guarantees
+        # telemetry is persisted even under low traffic.
+        obs_flush_task = _start_observability_flush()
         yield
+        if obs_flush_task is not None:
+            obs_flush_task.cancel()
     finally:
         shutdown_clean = True
         for service_name, stop_service in (
@@ -198,6 +241,7 @@ from routers.v1.execute import router as v1_execute_router
 from routers.v1.policies import router as v1_policies_router
 from routers.v1.audit import router as v1_audit_router
 from routers.v1.agents import router as v1_agents_router
+from routers.v1.models import router as v1_models_router
 from routers.v1.triggers import router as v1_triggers_router
 from routers.v1.profile import router as v1_profile_router
 from routers.auth_jwt import router as auth_jwt_router
@@ -210,6 +254,7 @@ from modules.ai_provider import router as ai_provider_router
 from routers.events import router as events_router
 from routers.system_live import router as system_live_router
 from routers.consent import router as consent_router
+from sentinel.observability.endpoints import router as observability_router
 
 
 def _register_routes(application: FastAPI) -> None:
@@ -226,11 +271,13 @@ def _register_routes(application: FastAPI) -> None:
         (v1_policies_router, "/v1", ["v1"]),
         (v1_audit_router, "/v1", ["v1"]),
         (v1_agents_router, "/v1", ["v1"]),
+        (v1_models_router, "/v1", ["v1"]),
         (v1_triggers_router, "/v1", ["v1"]),
         (v1_profile_router, "/v1", ["v1"]),
         (events_router, "", ["events"]),
         (system_live_router, "", ["system"]),
         (consent_router, "", ["consent"]),
+        (observability_router, "/api/observability", ["observability"]),
     ):
         application.include_router(router, prefix=prefix, tags=tags)
 

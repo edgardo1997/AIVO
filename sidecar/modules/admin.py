@@ -59,11 +59,11 @@ def get_config(key: str, request: Request):
 
 @router.put("/config/{key:path}")
 async def set_config(key: str, body: dict, request: Request):
-    from modules import get_gateway
+    from modules import get_execution_pipeline
 
     identity = request_identity(request).to_dict()
     raw = body.get("value")
-    result = await get_gateway().execute("admin.config_set", {"key": key, "value": raw}, {"identity": identity})
+    result = await get_execution_pipeline().execute("admin.config_set", {"key": key, "value": raw}, {"identity": identity}, source="api")
     if not result.success:
         return JSONResponse({"error": result.error}, status_code=400)
     return result.data
@@ -71,10 +71,10 @@ async def set_config(key: str, body: dict, request: Request):
 
 @router.delete("/config/{key:path}")
 async def delete_config(key: str, request: Request):
-    from modules import get_gateway
+    from modules import get_execution_pipeline
 
     identity = request_identity(request).to_dict()
-    result = await get_gateway().execute("admin.config_delete", {"key": key}, {"identity": identity})
+    result = await get_execution_pipeline().execute("admin.config_delete", {"key": key}, {"identity": identity}, source="api")
     if not result.success:
         return JSONResponse({"error": result.error}, status_code=400)
     return result.data
@@ -85,10 +85,10 @@ async def delete_config(key: str, request: Request):
 
 @router.post("/backup")
 async def create_backup(request: Request):
-    from modules import get_gateway
+    from modules import get_execution_pipeline
 
     identity = request_identity(request).to_dict()
-    result = await get_gateway().execute("admin.backup", {}, {"identity": identity})
+    result = await get_execution_pipeline().execute("admin.backup", {}, {"identity": identity}, source="api")
     if not result.success:
         return JSONResponse({"error": result.error}, status_code=400)
     return result.data
@@ -179,14 +179,14 @@ def marketplace_list(request: Request):
 
 @router.post("/plugins/install/url")
 async def install_from_url(body: dict, request: Request):
-    from modules import get_gateway
+    from modules import get_execution_pipeline
 
     identity = request_identity(request).to_dict()
     url = body.get("url", "")
     plugin_id = body.get("plugin_id", "")
     if not url:
         return JSONResponse({"error": "Missing 'url' in request body"}, status_code=400)
-    result = await get_gateway().execute(
+    result = await get_execution_pipeline().execute(
         "plugins.install_url", {"url": url, "plugin_id": plugin_id}, {"identity": identity}
     )
     if not result.success:
@@ -196,14 +196,14 @@ async def install_from_url(body: dict, request: Request):
 
 @router.post("/plugins/install/zip")
 async def install_from_zip_upload(body: dict, request: Request):
-    from modules import get_gateway
+    from modules import get_execution_pipeline
 
     identity = request_identity(request).to_dict()
     zip_b64 = body.get("zip_base64", "")
     plugin_id = body.get("plugin_id", "")
     if not zip_b64:
         return JSONResponse({"error": "Missing 'zip_base64' in request body"}, status_code=400)
-    result = await get_gateway().execute(
+    result = await get_execution_pipeline().execute(
         "plugins.install_zip", {"zip_base64": zip_b64, "plugin_id": plugin_id}, {"identity": identity}
     )
     if not result.success:

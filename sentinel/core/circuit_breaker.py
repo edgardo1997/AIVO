@@ -85,6 +85,26 @@ class CircuitBreaker:
             provider_ids.update(self._failures.keys())
         return [self.get_state(pid) for pid in sorted(provider_ids)]
 
+    def availability_score(self, provider_id: str) -> float:
+        """Puntuación de disponibilidad 0-100 para ranking/failover."""
+        state = self.get_state(provider_id)
+        s = state["state"]
+        if s == CircuitState.CLOSED.value:
+            return 100.0
+        if s == CircuitState.HALF_OPEN.value:
+            return 50.0
+        # OPEN: penalización progresiva con la cuenta de fallos consecutivos
+        failures = state.get("consecutive_failures", 0)
+        penalty = min(50.0, failures * 15.0)
+        return max(0.0, 50.0 - penalty)
+
+    def recovery_seconds(self, provider_id: str) -> float:
+        state = self.get_state(provider_id)
+        return float(state.get("remaining_cooldown", 0.0))
+
+    def total_failures(self, provider_id: str) -> int:
+        return int(self._failures.get(provider_id, 0))
+
     def reset(self, provider_id: Optional[str] = None) -> int:
         with self._lock:
             if provider_id:

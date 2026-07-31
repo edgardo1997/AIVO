@@ -18,14 +18,14 @@ def _identity_user(identity: dict) -> str:
 @router.get("/profile")
 async def get_profile(request: Request):
     from modules.auth import request_identity
-    from modules import get_gateway
+    from modules import get_execution_pipeline
     from repositories.async_engine import async_session_scope
     from sentinel.core.user_profile_async import AsyncUserProfileManager
 
     identity = request_identity(request).to_dict()
     user_id = _identity_user(identity)
 
-    result = await get_gateway().execute("profile.get", {"user_id": user_id}, {"identity": identity})
+    result = await get_execution_pipeline().execute("profile.get", {"user_id": user_id}, {"identity": identity}, source="api")
     if not result.success:
         async with async_session_scope() as session:
             svc = AsyncUserProfileManager(session)
@@ -45,12 +45,12 @@ async def get_profile(request: Request):
 @router.patch("/profile")
 async def update_profile(body: Dict[str, Any], request: Request):
     from modules.auth import request_identity
-    from modules import get_gateway
+    from modules import get_execution_pipeline
 
     identity = request_identity(request).to_dict()
     user_id = _identity_user(identity)
     params = {"user_id": user_id, **body}
-    result = await get_gateway().execute("profile.update", params, {"identity": identity})
+    result = await get_execution_pipeline().execute("profile.update", params, {"identity": identity}, source="api")
     if not result.success:
         return JSONResponse({"error": result.error}, status_code=400)
     return {"status": "updated", "profile": result.data}
@@ -59,11 +59,11 @@ async def update_profile(body: Dict[str, Any], request: Request):
 @router.get("/profile/preferences")
 async def list_preferences(request: Request):
     from modules.auth import request_identity
-    from modules import get_gateway
+    from modules import get_execution_pipeline
 
     identity = request_identity(request).to_dict()
     user_id = _identity_user(identity)
-    result = await get_gateway().execute(
+    result = await get_execution_pipeline().execute(
         "profile.preference", {"action": "list", "user_id": user_id}, {"identity": identity}
     )
     if not result.success:
@@ -74,7 +74,7 @@ async def list_preferences(request: Request):
 @router.put("/profile/preferences")
 async def set_preference(body: Dict[str, Any], request: Request):
     from modules.auth import request_identity
-    from modules import get_gateway
+    from modules import get_execution_pipeline
 
     identity = request_identity(request).to_dict()
     user_id = _identity_user(identity)
@@ -83,7 +83,7 @@ async def set_preference(body: Dict[str, Any], request: Request):
     if not key:
         return JSONResponse({"error": "key is required"}, status_code=400)
     params = {"action": "set", "user_id": user_id, "key": key, "value": value}
-    result = await get_gateway().execute("profile.preference", params, {"identity": identity})
+    result = await get_execution_pipeline().execute("profile.preference", params, {"identity": identity}, source="api")
     if not result.success:
         return JSONResponse({"error": result.error}, status_code=400)
     return {"status": "saved", "key": key}
@@ -92,7 +92,7 @@ async def set_preference(body: Dict[str, Any], request: Request):
 @router.delete("/profile/preferences")
 async def delete_preference(body: Dict[str, Any], request: Request):
     from modules.auth import request_identity
-    from modules import get_gateway
+    from modules import get_execution_pipeline
 
     identity = request_identity(request).to_dict()
     user_id = _identity_user(identity)
@@ -100,7 +100,7 @@ async def delete_preference(body: Dict[str, Any], request: Request):
     if not key:
         return JSONResponse({"error": "key is required"}, status_code=400)
     params = {"action": "delete", "user_id": user_id, "key": key}
-    result = await get_gateway().execute("profile.preference", params, {"identity": identity})
+    result = await get_execution_pipeline().execute("profile.preference", params, {"identity": identity}, source="api")
     if not result.success:
         if "not found" in (result.error or ""):
             return JSONResponse({"error": result.error}, status_code=404)

@@ -1,4 +1,6 @@
 # Test Commands
+- **Lint**: (none configured — uses pytest)
+- **Typecheck**: (none configured — uses pytest)
 
 - **JS tests**: `npm test` (vitest run)
 - **Python tests (all)**: `cd sidecar && python -m pytest`

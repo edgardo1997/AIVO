@@ -55,6 +55,32 @@ class ToolGateway:
     def set_observability(self, service: Any) -> None:
         self._observability = service
 
+    def _obs_start(self, tool_id: str, execution_id: str = "", parent_span_id: str = "") -> Any:
+        """Start a tool trace span against either the modern ObservabilityEngine
+        (start_tool_span) or the legacy ObservabilityService (start)."""
+        if self._observability is None:
+            return None
+        try:
+            if hasattr(self._observability, "start_tool_span"):
+                return self._observability.start_tool_span(tool_id, execution_id, parent_span_id)
+            return self._observability.start(tool_id, execution_id, parent_span_id)
+        except Exception as e:
+            logger.debug("Observability span start failed for %s: %s", tool_id, e)
+            return None
+
+    def _obs_finish(self, span: Any, success: bool, category: Optional[str] = None, *args: Any) -> None:
+        """Finish a tool trace span against either observability backend."""
+        if self._observability is None or span is None:
+            return
+        try:
+            if hasattr(self._observability, "finish_tool_span"):
+                self._observability.finish_tool_span(span, success, category)
+                return
+            self._observability.finish(span, success, category, *args)
+        except Exception as e:
+            logger.debug("Observability span finish failed: %s", e)
+
+
     async def confirm(self, action_id: str, approved: bool, identity: Dict[str, Any]) -> ToolResult:
         if self._confirmation_broker is None:
             return ToolResult.fail("Confirmation service is unavailable")
@@ -265,7 +291,8 @@ class ToolGateway:
                 result.policy_result = policy_data
                 return result
 
-            if policy_result.effect == PolicyEffect.REQUIRE_CONFIRM and not ctx.get("_orchestrator_approval"):
+            already_approved = bool(ctx.get("_orchestrator_approval") or ctx.get("_confirmation_grant"))
+            if policy_result.effect == PolicyEffect.REQUIRE_CONFIRM and not already_approved:
                 action_id = None
                 if self._confirmation_broker is not None:
                     risk_level = policy_result.context.get("level", "unknown") if policy_result.context else "unknown"
@@ -352,7 +379,7 @@ class ToolGateway:
         await self._emit(event_types.TOOL_STARTED, tool_id=tool_id, context=ctx)
 
         span_id = (
-            self._observability.start(
+            self._obs_start(
                 tool_id,
                 ctx.get("execution_id", ""),
                 ctx.get("parent_span_id", ""),
@@ -365,8 +392,7 @@ class ToolGateway:
             cb = self._hardening.circuit_breaker
             if not cb.allow_request(tool_id):
                 self._hardening.record_circuit_block()
-                if span_id:
-                    self._observability.finish(span_id, False, "circuit_open")
+                self._obs_finish(span_id, False, "circuit_open")
                 return ToolResult.fail(
                     error=f"Tool '{tool_id}' is circuit-open (too many recent failures)",
                     tool_id=tool_id,
@@ -409,8 +435,7 @@ class ToolGateway:
                 )
                 blocked.policy_result = policy_data
                 blocked.quality_result = quality_data
-                if span_id:
-                    self._observability.finish(span_id, False, "quality", quality_data, blocked.policy_decision)
+                self._obs_finish(span_id, False, "quality")
                 await self._emit(
                     event_types.TOOL_FINISHED,
                     tool_id=tool_id,
@@ -427,7 +452,7 @@ class ToolGateway:
                 category = None
                 if not result.success and self._hardening is not None:
                     category = ErrorClassifier.classify(result.error or "", tool_id).value
-                self._observability.finish(span_id, result.success, category, quality_data, result.policy_decision)
+                self._obs_finish(span_id, result.success, category)
             await self._emit(
                 event_types.TOOL_FINISHED,
                 tool_id=tool_id,
@@ -444,7 +469,7 @@ class ToolGateway:
                 self._hardening.classify_failure(f"timeout after {elapsed:.0f}ms", tool_id)
                 self._hardening.record_timeout()
             if span_id:
-                self._observability.finish(span_id, False, "transient")
+                self._obs_finish(span_id, False, "transient")
             await self._emit(
                 event_types.TOOL_FINISHED,
                 tool_id=tool_id,
@@ -465,7 +490,7 @@ class ToolGateway:
                 if self._hardening.should_trip_circuit(category):
                     self._hardening.circuit_breaker.record_failure(tool_id)
             if span_id:
-                self._observability.finish(span_id, False, category.value if self._hardening is not None else "fatal")
+                self._obs_finish(span_id, False, category.value if self._hardening is not None else "fatal")
             await self._emit(
                 event_types.TOOL_FINISHED,
                 tool_id=tool_id,

@@ -70,11 +70,11 @@ def _agent_to_response(agent: dict) -> AgentInfoResponse:
 
 @router.get("/agents", response_model=List[AgentInfoResponse])
 async def list_agents(request: Request):
-    from modules import get_gateway
+    from modules import get_execution_pipeline
     from modules.auth import request_identity
 
     identity = request_identity(request).to_dict()
-    result = await get_gateway().execute("agent.list", {}, {"identity": identity})
+    result = await get_execution_pipeline().execute("agent.list", {}, {"identity": identity}, source="api")
     if not result.success:
         raise HTTPException(status_code=500, detail=result.error)
     agents = (result.data or {}).get("agents", [])
@@ -83,11 +83,11 @@ async def list_agents(request: Request):
 
 @router.get("/agents/{agent_id}", response_model=AgentInfoResponse)
 async def get_agent(agent_id: str, request: Request):
-    from modules import get_gateway
+    from modules import get_execution_pipeline
     from modules.auth import request_identity
 
     identity = request_identity(request).to_dict()
-    result = await get_gateway().execute("agent.list", {}, {"identity": identity})
+    result = await get_execution_pipeline().execute("agent.list", {}, {"identity": identity}, source="api")
     if not result.success:
         raise HTTPException(status_code=500, detail=result.error)
     agents = (result.data or {}).get("agents", [])
@@ -99,13 +99,13 @@ async def get_agent(agent_id: str, request: Request):
 
 @router.post("/agents", status_code=201)
 async def create_agent(body: CreateAgentRequest, request: Request):
-    from modules import get_gateway
+    from modules import get_execution_pipeline
     from modules.auth import request_identity
 
     identity = request_identity(request).to_dict()
     params = body.model_dump(exclude_none=True)
     params["id"] = params.pop("agent_id")
-    result = await get_gateway().execute("agent.create", params, {"identity": identity})
+    result = await get_execution_pipeline().execute("agent.create", params, {"identity": identity}, source="api")
     if not result.success:
         if "already exists" in (result.error or ""):
             raise HTTPException(status_code=409, detail=result.error)
@@ -115,7 +115,7 @@ async def create_agent(body: CreateAgentRequest, request: Request):
 
 @router.patch("/agents/{agent_id}")
 async def update_agent(agent_id: str, body: UpdateAgentRequest, request: Request):
-    from modules import get_gateway
+    from modules import get_execution_pipeline
     from modules.auth import request_identity
 
     identity = request_identity(request).to_dict()
@@ -123,7 +123,7 @@ async def update_agent(agent_id: str, body: UpdateAgentRequest, request: Request
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
     params = {"id": agent_id, **updates}
-    result = await get_gateway().execute("agent.update", params, {"identity": identity})
+    result = await get_execution_pipeline().execute("agent.update", params, {"identity": identity}, source="api")
     if not result.success:
         if "not found" in (result.error or ""):
             raise HTTPException(status_code=404, detail=result.error)
@@ -133,11 +133,11 @@ async def update_agent(agent_id: str, body: UpdateAgentRequest, request: Request
 
 @router.delete("/agents/{agent_id}")
 async def delete_agent(agent_id: str, request: Request):
-    from modules import get_gateway
+    from modules import get_execution_pipeline
     from modules.auth import request_identity
 
     identity = request_identity(request).to_dict()
-    result = await get_gateway().execute("agent.delete", {"id": agent_id}, {"identity": identity})
+    result = await get_execution_pipeline().execute("agent.delete", {"id": agent_id}, {"identity": identity}, source="api")
     if not result.success:
         if "not found" in (result.error or ""):
             raise HTTPException(status_code=404, detail=result.error)

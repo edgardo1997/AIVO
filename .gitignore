@@ -86,3 +86,6 @@ installer/
 
 # Local model binaries (download at runtime)
 sentinel/local_model/
+
+# Build artifacts from AI-assisted build sessions
+.codex-*

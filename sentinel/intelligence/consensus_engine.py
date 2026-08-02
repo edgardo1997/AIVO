@@ -88,7 +88,6 @@ class ConsensusEngine:
 
     def _synthesize_answer(self, best: EvaluatedResponse, ranked: List[EvaluatedResponse], conflict_report: ConflictReport, instruction: str) -> str:
         parts = []
-        conclusion = extract_conclusion(best.response.response_text)
         parts.append(f"## Resumen\n\n{best.response.response_text[:500]}")
         if len(ranked) > 1:
             parts.append(f"\n\n## Análisis adicional\n\nSe consultaron {len(ranked)} modelos. {self._format_additional_insights(ranked, best)}")

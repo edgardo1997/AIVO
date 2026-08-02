@@ -175,7 +175,7 @@ class TaskTimePredictor:
                 if metrics and "avg_latency_ms" in metrics:
                     samples.append(metrics["avg_latency_ms"] / 1000)
             except Exception:
-                pass
+                logger.warning("Failed to load performance metrics for '%s'", profile.model_id, exc_info=True)
         if self._feedback:
             prof = self._feedback.get_profile(profile.model_id, profile.task_type)
             if prof and prof.avg_latency > 0:

@@ -65,10 +65,13 @@ def generated_at() -> str:
     return moment.isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
-def release_files(artifact_root: Path, sboms: Iterable[Path]) -> list[Path]:
+def release_files(
+    artifact_root: Path, sboms: Iterable[Path], selected: Iterable[Path] | None = None
+) -> list[Path]:
+    candidates = selected if selected is not None else artifact_root.rglob("*")
     artifacts = [
         path
-        for path in artifact_root.rglob("*")
+        for path in candidates
         if path.is_file()
         and (
             path.suffix.lower() in {".exe", ".msi", ".sig"}
@@ -83,10 +86,12 @@ def release_files(artifact_root: Path, sboms: Iterable[Path]) -> list[Path]:
     return sorted({*artifacts, *sboms}, key=lambda item: item.as_posix())
 
 
-def generate(root: Path, artifact_root: Path, metadata_dir: Path) -> Path:
+def generate(
+    root: Path, artifact_root: Path, metadata_dir: Path, selected_artifacts: Iterable[Path] | None = None
+) -> Path:
     metadata_dir.mkdir(parents=True, exist_ok=True)
     sboms = validate_sboms(metadata_dir)
-    files = release_files(artifact_root, sboms)
+    files = release_files(artifact_root, sboms, selected_artifacts)
     package = json.loads((root / "package.json").read_text(encoding="utf-8"))
     records = []
     for path in files:
@@ -184,6 +189,7 @@ def main() -> int:
     generate_parser.add_argument("--root", type=Path, default=Path.cwd())
     generate_parser.add_argument("--artifact-root", type=Path, required=True)
     generate_parser.add_argument("--metadata-dir", type=Path, required=True)
+    generate_parser.add_argument("--artifact", type=Path, action="append")
     verify_parser = subparsers.add_parser("verify")
     verify_parser.add_argument("--root", type=Path, default=Path.cwd())
     verify_parser.add_argument("--manifest", type=Path, required=True)
@@ -193,7 +199,8 @@ def main() -> int:
     args = parser.parse_args()
     try:
         if args.command == "generate":
-            print(generate(args.root.resolve(), args.artifact_root.resolve(), args.metadata_dir.resolve()))
+            selected = [path.resolve() for path in args.artifact] if args.artifact else None
+            print(generate(args.root.resolve(), args.artifact_root.resolve(), args.metadata_dir.resolve(), selected))
         elif args.command == "verify":
             verify(args.root.resolve(), args.manifest.resolve())
             print("Sentinel release hashes and manifest verified")

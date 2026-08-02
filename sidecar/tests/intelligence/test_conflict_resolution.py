@@ -53,7 +53,6 @@ class TestConflictResolver:
         ev2 = _make_evaluated("model_b", "The cause is CPU overheating.", score=0.6)
         ev3 = _make_evaluated("model_c", "The cause is a driver conflict.", score=0.6)
         report = resolver.resolve([ev1, ev2, ev3])
-        any_third = any(c.resolved and "third" not in c.resolution.lower() for c in report.conflicts)
         # With 3+ unique positions, it's MAJOR and will use third_opinion_fn
         if report.total_conflicts > 0:
             assert third_opinion_called or all(c.resolved for c in report.conflicts)

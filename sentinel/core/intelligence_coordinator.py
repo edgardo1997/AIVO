@@ -536,7 +536,7 @@ class IntelligenceCoordinator:
                     from sentinel.models import ModelStatus
                     self._registry.set_status(m.id, ModelStatus.AVAILABLE)
                 except Exception:
-                    pass
+                    logger.warning("Failed to mark provider model '%s' available", m.id, exc_info=True)
 
     def sync_circuit_breaker(self, cb: Any) -> None:
         """Sincroniza el CircuitBreaker con el ranking (failover real)."""
@@ -560,7 +560,7 @@ class IntelligenceCoordinator:
                 usage_count=usage,
             )
         except Exception:
-            pass
+            logger.warning("Failed to update intelligence registry metrics for '%s'", model_id, exc_info=True)
 
     def _registry_models_for_provider(self, provider_id: str) -> List[str]:
         if self._registry is None:
@@ -577,7 +577,7 @@ class IntelligenceCoordinator:
             from sentinel.models import ModelStatus
             self._registry.update_metrics(model_id=model_id, success_rate=0.0)
         except Exception:
-            pass
+            logger.warning("Failed to degrade intelligence registry model '%s'", model_id, exc_info=True)
 
     # ── Discovery ───────────────────────────────────────────────
 
@@ -588,7 +588,7 @@ class IntelligenceCoordinator:
             try:
                 await self._registry.load_from_repository(self._model_repo)
             except Exception:
-                pass
+                logger.warning("Failed to restore model registry from repository", exc_info=True)
         return await self._discovery.run_full_discovery_async()
 
     async def health_check_models(self) -> Dict[str, bool]:
@@ -787,7 +787,7 @@ class IntelligenceCoordinator:
             try:
                 status["records"]["models"] = self._registry.count()
             except Exception:
-                pass
+                logger.warning("Failed to count intelligence registry models", exc_info=True)
         try:
             if self._execution_repo is not None:
                 status["records"]["executions"] = await self._execution_repo.count()

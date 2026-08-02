@@ -199,10 +199,7 @@ class TestRouterStability:
 
     def test_router_all_providers_fail_gracefully(self):
         """All providers fail -> RuntimeError with explanation."""
-        mr = ModelRouter()
-        mr.set_api_key("nvidia-nemotron", "test-key")
-        mr.set_api_key("deepseek", "test-key")
-        mr.set_offline_mode("force_local")
+        mr = ModelRouter(providers=[])
         with pytest.raises(RuntimeError) as exc:
             mr.chat(
                 messages=[{"role": "user", "content": "hi"}],

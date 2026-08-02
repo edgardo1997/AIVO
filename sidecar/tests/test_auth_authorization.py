@@ -545,3 +545,72 @@ class TestSensitiveRouteAuthorization:
         assert response.status_code == 500
         assert response.json() == {"detail": "Policy reload failed"}
         assert "secret" not in response.text
+
+
+@pytest.mark.security
+class TestJwtLoginAndRotation:
+    """P1-3: /auth/login and /auth/refresh are reachable and rotate.
+
+    Regression for:
+    - the chicken-and-egg where login/refresh were blocked by the bearer-token
+      middleware (login/refresh are now reachable but still host-gated), and
+    - refresh tokens being reusable forever (rotation now revokes the reused
+      token so it can never be exchanged again).
+    """
+
+    @staticmethod
+    def _client():
+        app = FastAPI()
+        app.state._test_mode = True
+        app.middleware("http")(auth_middleware)
+        from routers import auth_jwt
+
+        app.include_router(auth_jwt.router)
+        return TestClient(app)
+
+    @pytest.fixture
+    def auth_env(self, monkeypatch, tmp_path):
+        from repositories.database import DatabaseManager
+
+        DatabaseManager._instance = None
+        monkeypatch.setenv("SENTINEL_DB_PATH", str(tmp_path / "jwt-tests.db"))
+        monkeypatch.setenv("SENTINEL_JWT_SECRET", "audit-test-secret")
+        monkeypatch.setenv("SENTINEL_USER_PASSWORD", "correct-password")
+        yield
+        DatabaseManager._instance = None
+
+    def test_login_is_reachable_without_bearer(self, auth_env):
+        client = self._client()
+        resp = client.post("/auth/login", json={"user_id": "alice", "password": "correct-password"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["access_token"] and body["refresh_token"]
+        assert body["token_type"] == "bearer"
+
+    def test_login_rejects_bad_password(self, auth_env):
+        client = self._client()
+        resp = client.post("/auth/login", json={"user_id": "alice", "password": "wrong"})
+        assert resp.status_code == 401
+
+    def test_refresh_rotates_and_prevents_replay(self, auth_env):
+        client = self._client()
+        login = client.post(
+            "/auth/login", json={"user_id": "alice", "password": "correct-password"}
+        ).json()
+        first_refresh = login["refresh_token"]
+
+        refreshed = client.post("/auth/refresh", json={"refresh_token": first_refresh})
+        assert refreshed.status_code == 200
+        body = refreshed.json()
+        assert body["access_token"] and body["refresh_token"]
+        assert body["refresh_token"] != first_refresh
+
+        # Replay of the rotated refresh token must now be rejected.
+        replay = client.post("/auth/refresh", json={"refresh_token": first_refresh})
+        assert replay.status_code == 401
+
+    def test_login_fails_closed_when_auth_disabled(self, auth_env, monkeypatch):
+        monkeypatch.setenv("SENTINEL_USER_PASSWORD", "")
+        client = self._client()
+        resp = client.post("/auth/login", json={"user_id": "alice", "password": ""})
+        assert resp.status_code == 401

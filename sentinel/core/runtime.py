@@ -83,7 +83,12 @@ class SentinelResponse:
 
 
 class SentinelRuntime:
-    """Punto único de entrada para toda operación en Sentinel.
+    """Punto único de entrada para toda operación en Sentinel. **DEPRECADO**.
+
+    El núcleo oficial es `Orchestrator` (ver `docs/FASE_1_ARCHITECTURE_FREEZE.md`).
+    `SentinelRuntime` se conserva solo como legado de compatibilidad; su única
+    salida de ejecución es `ExecutionPipeline`. Usar `DeprecatedRuntimeAdapter`
+    para cualquier integración nueva.
 
     Pipeline completo (en orden):
       1. RateLimit      → RateLimiter
@@ -94,7 +99,7 @@ class SentinelRuntime:
       6. Security       → PolicyEngine + RiskClassifier + ConsentService
       7. Decision       → DecisionEngine
       8. Model Select   → ModelRouter
-      9. Execution      → ToolGateway (único gate)
+      9. Execution      → ExecutionPipeline → ToolExecutionGuard → ToolGateway
       10. Memory        → MemoryBackend
       11. Learning      → PerformanceIntelligence + FeedbackEngine
       12. Audit         → AuditService
@@ -128,7 +133,13 @@ class SentinelRuntime:
         capability_engine: Any = None,
         # Observability
         observability_engine: Any = None,
+        # Ejecución segura
+        execution_pipeline: Any = None,
     ):
+        logger.warning(
+            "SentinelRuntime is deprecated. Use Orchestrator directly. "
+            "This runtime will be removed in a future release."
+        )
         self._intent = intent_engine
         self._policy = policy_engine
         self._planner = planner
@@ -150,6 +161,7 @@ class SentinelRuntime:
         self._event_bus = event_bus
         self._capability = capability_engine
         self._obs = observability_engine
+        self._pipeline = execution_pipeline
         self._db: Any = None
         self._audit_log: List[Dict[str, Any]] = []
 
@@ -180,6 +192,9 @@ class SentinelRuntime:
 
     def set_gateway(self, gateway: Any) -> None:
         self._gateway = gateway
+
+    def set_execution_pipeline(self, pipeline: Any) -> None:
+        self._pipeline = pipeline
 
     def set_decision_engine(self, engine: Any) -> None:
         self._decision = engine
@@ -444,27 +459,36 @@ class SentinelRuntime:
             except Exception as e:
                 logger.warning("Time prediction failed: %s", e)
 
-        # ── 9. Execution via ToolGateway ──
+        # ── 9. Execution via ExecutionPipeline (única salida segura) ──
         results = []
         if plan and hasattr(plan, "steps") and not request.dry_run:
             for step in plan.steps:
                 tool_id = self._resolve_tool_id(step)
-                if tool_id and self._gateway:
-                    try:
-                        step_result = await self._gateway.execute(
-                            tool_id,
-                            self._step_params(step),
-                            {
-                                "identity": request.user_id,
-                                "execution_id": execution_id,
-                                "session_id": request.session_id,
-                                "source": "sentinel_runtime",
-                            },
-                        )
-                        results.append({"tool_id": tool_id, "result": step_result, "success": True})
-                    except Exception as e:
-                        logger.error("Tool execution failed: %s | %s", tool_id, e)
-                        results.append({"tool_id": tool_id, "error": str(e), "success": False})
+                if not tool_id:
+                    continue
+                if self._pipeline is None:
+                    logger.warning(
+                        "SentinelRuntime sin ExecutionPipeline: bloqueando ejecución de %s (fail-closed)",
+                        tool_id,
+                    )
+                    results.append({"tool_id": tool_id, "error": "ExecutionPipeline required", "success": False})
+                    continue
+                try:
+                    step_result = await self._pipeline.execute(
+                        tool_id,
+                        self._step_params(step),
+                        {
+                            "identity": {"user_id": request.user_id},
+                            "execution_id": execution_id,
+                            "session_id": request.session_id,
+                            "source": "sentinel_runtime",
+                        },
+                        source="sentinel_runtime",
+                    )
+                    results.append({"tool_id": tool_id, "result": step_result, "success": True})
+                except Exception as e:
+                    logger.error("Tool execution failed: %s | %s", tool_id, e)
+                    results.append({"tool_id": tool_id, "error": str(e), "success": False})
 
                     # ── 10. Performance metrics ──
                     if self._perf:

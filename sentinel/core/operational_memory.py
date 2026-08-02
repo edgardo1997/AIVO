@@ -259,7 +259,9 @@ class MemoryBackend(Protocol):
 
     def remove_pending_action(self, action_id: str) -> Optional[PendingActionRecord]: ...
 
-    def consume_pending_action(self, action_id: str) -> Optional[PendingActionRecord]: ...
+    def consume_pending_action(
+        self, action_id: str, expected_user_id: str = ""
+    ) -> Optional[PendingActionRecord]: ...
 
     def list_pending_actions(self) -> List[PendingActionRecord]: ...
 
@@ -550,9 +552,17 @@ class InMemoryBackend:
         with self._lock:
             return self._pending.pop(action_id, None)
 
-    def consume_pending_action(self, action_id: str) -> Optional[PendingActionRecord]:
+    def consume_pending_action(self, action_id: str, expected_user_id: str = "") -> Optional[PendingActionRecord]:
         with self._lock:
-            return self._pending.pop(action_id, None)
+            record = self._pending.get(action_id)
+            if record is None:
+                return None
+            if expected_user_id:
+                stored_identity = record.params.get("identity") or {}
+                stored_user_id = stored_identity.get("user_id") or record.params.get("user_id", "")
+                if stored_user_id != expected_user_id:
+                    raise PermissionError("Identity hash mismatch — replay detected")
+            return self._pending.pop(action_id)
 
     def list_pending_actions(self) -> List[PendingActionRecord]:
         with self._lock:
@@ -1085,13 +1095,19 @@ class SQLiteBackend:
     def remove_pending_action(self, action_id: str) -> Optional[PendingActionRecord]:
         return self.consume_pending_action(action_id)
 
-    def consume_pending_action(self, action_id: str) -> Optional[PendingActionRecord]:
+    def consume_pending_action(self, action_id: str, expected_user_id: str = "") -> Optional[PendingActionRecord]:
         with self._db.transaction(immediate=True) as conn:
             row = conn.execute("SELECT * FROM pending_actions WHERE action_id = ?", (action_id,)).fetchone()
             if not row:
                 return None
+            record = self._row_to_pending(dict(row))
+            if expected_user_id:
+                stored_identity = record.params.get("identity") or {}
+                stored_user_id = stored_identity.get("user_id") or record.params.get("user_id", "")
+                if stored_user_id != expected_user_id:
+                    raise PermissionError("Identity hash mismatch — replay detected")
             conn.execute("DELETE FROM pending_actions WHERE action_id = ?", (action_id,))
-        return self._row_to_pending(dict(row))
+        return record
 
     def list_pending_actions(self) -> List[PendingActionRecord]:
         rows = self._db.fetchall("SELECT * FROM pending_actions ORDER BY created_at DESC")

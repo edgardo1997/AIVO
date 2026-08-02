@@ -20,6 +20,15 @@ def _blocked(resp, msg=""):
 
 @pytest.mark.security
 class TestFilesystemViaGateway:
+    def test_argument_validator_blocks_volume_root_but_not_user_temp_child(self):
+        from sentinel.security.argument_validator import ArgumentValidator
+
+        validator = ArgumentValidator()
+        assert validator.validate("filesystem.write", {"path": "C:\\", "content": "x"}).valid is False
+
+        temp_child = os.path.join(os.environ.get("TEMP", "C:\\Temp"), "aivo_sec_validator.txt")
+        assert validator.validate("filesystem.write", {"path": temp_child, "content": "x"}).valid is True
+
     def test_read_allowed_at_view(self):
         from modules.permissions import _svc as perm_svc
 

@@ -21,7 +21,8 @@ from sentinel.storage.repositories.decision_repository import DecisionRepository
 @pytest_asyncio.fixture
 async def engine():
     """Crea StorageEngine en memoria para tests."""
-    import tempfile, os
+    import tempfile
+    import os
     db_path = os.path.join(tempfile.gettempdir(), f"sentinel_test_{datetime.now(timezone.utc).timestamp()}.db")
     cfg = StorageConfig(database_url=f"sqlite:///{db_path}", migrate_on_start=True)
     eng = StorageEngine(cfg)
@@ -30,7 +31,7 @@ async def engine():
     await eng.close()
     try:
         os.remove(db_path)
-    except:
+    except OSError:
         pass
 
 

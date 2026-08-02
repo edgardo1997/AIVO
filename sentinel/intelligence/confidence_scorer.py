@@ -108,7 +108,6 @@ class ConfidenceScorer:
             return 0.5
         transitions = sum(1 for s in sentences for t in ["however", "therefore", "moreover", "furthermore", "additionally", "consequently", "nevertheless", "meanwhile", "subsequently", "in contrast", "as a result"] if t in s.lower())
         transition_score = min(1.0, transitions / len(sentences) * 1.5)
-        consistent_tense = True
         has_repetition = self._check_repetition(sentences)
         repetition_penalty = 0.3 if has_repetition else 0.0
         return max(0.1, min(1.0, 0.4 + transition_score * 0.4 - repetition_penalty))

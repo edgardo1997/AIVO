@@ -3,7 +3,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from unittest.mock import ANY, MagicMock
+from unittest.mock import ANY, AsyncMock, MagicMock
 import pytest
 
 from sentinel.core.model_router import ModelRouter, TaskType, RouterDecision
@@ -11,6 +11,7 @@ from sentinel.core.planner import PlanStep, Planner
 from sentinel.core.intent import Intent
 from sentinel.core.orchestrator import Orchestrator, TOOL_TO_TASK
 from sentinel.core.tool_gateway import ToolGateway
+from sentinel.core.tool import ToolResult
 
 
 class TestRouterDecisionToDict:
@@ -177,22 +178,22 @@ class TestOrchestratorMultiModel:
         )
 
         executed_contexts = []
-        gateway = ToolGateway()
-        original_execute = gateway.execute
+        execution_pipeline = AsyncMock()
 
-        async def tracking_execute(tool_id, params, context):
+        async def tracking_execute(*, tool_id, params, context, source):
             executed_contexts.append(context.get("model_decision"))
-            return await original_execute(tool_id, params, context)
+            return ToolResult.ok(data={}, tool_id=tool_id)
 
-        gateway.execute = tracking_execute
+        execution_pipeline.execute.side_effect = tracking_execute
 
         orch = Orchestrator(
             intent_engine=MagicMock(),
-            tool_gateway=gateway,
+            tool_gateway=ToolGateway(),
             planner=Planner(),
             model_router=router,
             context_engine=None,
             memory=None,
+            execution_pipeline=execution_pipeline,
         )
         orch._intent_engine.parse.return_value = Intent(
             action="query",

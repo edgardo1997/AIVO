@@ -380,7 +380,7 @@ export function Workbench({ onLogout }: WorkbenchProps) {
         }
       }, controller.signal);
       await refreshSecurity();
-    } catch (error) {
+    } catch {
       flushStreamDeltas();
       if (controller.signal.aborted) return;
       setMessages((current) => current.map((m) => m.id === id ? {

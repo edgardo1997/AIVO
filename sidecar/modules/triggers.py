@@ -8,6 +8,7 @@ from fastapi import APIRouter
 
 from sentinel.core.trigger import TriggerRule, TriggerCondition, TriggerAction, TriggerEngine, TriggerFireRecord
 from repositories.database import DatabaseManager
+from modules.product_metrics_probe import record_automation_created
 
 log = logging.getLogger("sentinel.triggers")
 router = APIRouter()
@@ -121,6 +122,7 @@ def _wrap_engine_for_persistence() -> None:
         added = orig_add(rule, overwrite=overwrite)
         if added:
             _save_rule(rule)
+            record_automation_created("trigger", rule.id)
         return added
 
     engine.add_rule = wrapped_add

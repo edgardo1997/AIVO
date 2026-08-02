@@ -37,16 +37,26 @@ class ConfirmExecuteRequest(BaseModel):
 @router.post("/confirm", response_model=ExecuteResponse)
 async def confirm_tool(req: ConfirmExecuteRequest, request: Request):
     from modules.auth import request_identity
-    from modules.sentinel_bridge import get_orchestrator
+    from modules.sentinel_bridge_helpers import confirm_pending_tool
 
     identity = request_identity(request).to_dict()
-    orch = get_orchestrator()
-    result = await orch.approve_execution(req.action_id, req.approved, identity)
+    result = await confirm_pending_tool(req.action_id, req.approved, identity)
+    if result is not None:
+        return ExecuteResponse(
+            success=result.success,
+            data=result.data or {},
+            error=result.error,
+            requires_confirmation=result.requires_confirmation,
+            action_id=(result.data or {}).get("action_id") if isinstance(result.data, dict) else None,
+            duration_ms=result.duration_ms,
+        )
+
+    # A legacy PendingActionRecord lacks the durable bindings required for an
+    # execution grant.  It must never become authority through a fallback.
     return ExecuteResponse(
-        success=result.success if result.success else not result.error,
-        data=result.data or {},
-        error=result.error,
-        action_id=None,
+        success=False,
+        error="Confirmation requires a valid durable execution grant; legacy actions must be reconfirmed.",
+        requires_confirmation=True,
     )
 
 

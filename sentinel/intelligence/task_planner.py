@@ -139,7 +139,7 @@ class TaskPlanner:
         return TaskPlan(original_request=user_message, tasks=tasks, execution_strategy=strategy, context=context or {})
 
     def _build_single_task(self, user_message: str, domains: List[str]) -> PlannedTask:
-        domain = domains[0]
+        _domain = domains[0]
         return PlannedTask(
             task_id="task_1",
             name="analysis",

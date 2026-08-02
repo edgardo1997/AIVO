@@ -237,24 +237,29 @@ class TestModelRouterToolCalling:
     async def test_chat_with_tools_no_active_tools(self, mock_to_openai):
         mock_to_openai.return_value = []
         router = ModelRouter()
-        with pytest.raises(RuntimeError):
-            await router.chat_with_tools(
-                [{"role": "user", "content": "hello"}],
-                tools=[SAMPLE_SPEC],
-                task_type=TaskType.QUICK,
-            )
+        router.chat = MagicMock(return_value={"content": "fallback"})
+        result = await router.chat_with_tools(
+            [{"role": "user", "content": "hello"}],
+            tools=[SAMPLE_SPEC],
+            task_type=TaskType.QUICK,
+        )
+        assert result == {"content": "fallback"}
+        router.chat.assert_called_once()
 
     @pytest.mark.asyncio
     @patch("sentinel.core.model_router.to_openai_tools")
     async def test_chat_with_tools_no_registry_falls_back(self, mock_to_openai):
         mock_to_openai.return_value = [{"type": "function", "function": {"name": "test"}}]
         router = ModelRouter()
-        with pytest.raises(RuntimeError):
-            await router.chat_with_tools(
-                [{"role": "user", "content": "hello"}],
-                tools=[SAMPLE_SPEC],
-                task_type=TaskType.QUICK,
-            )
+        router.set_model_registry(ModelRegistry())
+        router.chat = MagicMock(return_value={"content": "fallback"})
+        result = await router.chat_with_tools(
+            [{"role": "user", "content": "hello"}],
+            tools=[SAMPLE_SPEC],
+            task_type=TaskType.QUICK,
+        )
+        assert result == {"content": "fallback"}
+        router.chat.assert_called_once()
 
     def test_chat_with_tools_selects_tool_capable_model(self):
         router = ModelRouter()
@@ -294,8 +299,10 @@ class TestModelRouterToolCalling:
         router.set_tool_gateway(gateway)
 
         from sentinel.security.tool_guard import ToolExecutionGuard
+        from sentinel.core.execution_pipeline import ExecutionPipeline
         guard = ToolExecutionGuard(tool_gateway=gateway)
         router.set_tool_guard(guard)
+        router.set_execution_pipeline(ExecutionPipeline(tool_gateway=gateway, tool_execution_guard=guard))
 
         tc = {"id": "call_1", "type": "function", "function": {"name": "executor.launch", "arguments": {"app": "notepad"}}}
         msg = await router._execute_tool_call_safe(tc, "test", "any-model")
@@ -315,8 +322,10 @@ class TestModelRouterToolCalling:
         router.set_tool_gateway(gateway)
 
         from sentinel.security.tool_guard import ToolExecutionGuard
+        from sentinel.core.execution_pipeline import ExecutionPipeline
         guard = ToolExecutionGuard(tool_gateway=gateway)
         router.set_tool_guard(guard)
+        router.set_execution_pipeline(ExecutionPipeline(tool_gateway=gateway, tool_execution_guard=guard))
 
         tc = {"id": "call_2", "type": "function", "function": {"name": "filesystem.write", "arguments": {"path": "/etc/passwd"}}}
         msg = await router._execute_tool_call_safe(tc, "test", "any-model")

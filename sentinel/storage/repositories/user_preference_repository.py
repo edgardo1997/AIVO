@@ -22,7 +22,7 @@ class UserPreferenceRepository:
     async def save(self, pref: UserPreference) -> None:
         row = pref.to_row()
         await self._engine.execute(
-            """INSERT INTO user_preferences
+            """INSERT INTO intelligence_user_preferences
                (user_id, key, value, source, evidence_count, confidence, created_at, updated_at)
                VALUES (:user_id, :key, :value, :source, :evidence_count, :confidence, :created_at, :updated_at)
                ON CONFLICT(user_id, key) DO UPDATE SET
@@ -34,7 +34,7 @@ class UserPreferenceRepository:
 
     async def get(self, user_id: str, key: str) -> Optional[UserPreference]:
         rows = await self._engine.execute(
-            "SELECT * FROM user_preferences WHERE user_id = :uid AND key = :key",
+            "SELECT * FROM intelligence_user_preferences WHERE user_id = :uid AND key = :key",
             {"uid": user_id, "key": key},
         )
         if rows:
@@ -43,24 +43,25 @@ class UserPreferenceRepository:
 
     async def list_user(self, user_id: str) -> List[UserPreference]:
         rows = await self._engine.execute(
-            "SELECT * FROM user_preferences WHERE user_id = :uid ORDER BY confidence DESC, key ASC",
+            "SELECT * FROM intelligence_user_preferences WHERE user_id = :uid ORDER BY confidence DESC, key ASC",
             {"uid": user_id},
         )
         return [UserPreference.from_row(dict(r)) for r in rows]
 
     async def list_all(self) -> List[UserPreference]:
         rows = await self._engine.execute(
-            "SELECT * FROM user_preferences ORDER BY user_id, key"
+            "SELECT * FROM intelligence_user_preferences ORDER BY user_id, key"
         )
         return [UserPreference.from_row(dict(r)) for r in rows]
 
     async def delete(self, user_id: str, key: str) -> bool:
         await self._engine.execute(
-            "DELETE FROM user_preferences WHERE user_id = :uid AND key = :key",
+            "DELETE FROM intelligence_user_preferences WHERE user_id = :uid AND key = :key",
             {"uid": user_id, "key": key},
         )
         return True
 
     async def count(self) -> int:
-        rows = await self._engine.execute("SELECT COUNT(*) as cnt FROM user_preferences")
+        rows = await self._engine.execute("SELECT COUNT(*) as cnt FROM intelligence_user_preferences")
         return rows[0]["cnt"] if rows else 0
+

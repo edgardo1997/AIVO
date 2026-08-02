@@ -166,22 +166,17 @@ class TestPermissionEscalation:
             assert data.get("error") is not None
         finally:
             perm_svc.set_level("admin")
-        resp = client.post("/api/sentinel/process", json={"utterance": "run command echo hello"})
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "executor.command",
+                "params": {"command": "echo hello"},
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
-        if data.get("blocked"):
-            approve_resp = client.post(
-                "/api/sentinel/simulate/approve",
-                json={
-                    "action_id": data["action_id"],
-                    "approved": True,
-                },
-            )
-            assert approve_resp.status_code == 200
-            data = approve_resp.json()
-        assert data["approved"] is True
-        assert data["tool_result"]["success"] is True
-        assert data["tool_result"]["data"] is not None
+        assert data["success"] is True
+        assert data["data"]["stdout"] is not None
 
     def test_v1_execute_blocked_at_view_allowed_at_admin(self):
         perm_svc.set_level("view")

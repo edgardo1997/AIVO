@@ -1,0 +1,13 @@
+{
+  "id": "spotify",
+  "name": "Spotify Control",
+  "version": "1.0.0",
+  "author": "Sentinel Team",
+  "description": "Control Spotify playback through Sentinel: play, pause, next, volume and current song.",
+  "entrypoint": "plugin.py",
+  "capabilities": ["media", "commands"],
+  "permissions": ["application.control"],
+  "events": [],
+  "license": "MIT",
+  "homepage": "https://sentinel.local/plugins/spotify"
+}

@@ -42,7 +42,7 @@ class TestTaskPlanner:
     def test_add_custom_rule(self):
         planner = TaskPlanner()
         planner.add_rule("custom", [{"name": "custom_analysis", "capabilities": ["reasoning"], "description": "Custom analysis"}])
-        plan = planner.plan("Perform custom analysis on the system")
+        planner.plan("Perform custom analysis on the system")
         # "custom" is not a keyword, so it won't auto-detect. We need to test rule structure directly.
         assert "custom" in planner._rules
         assert len(planner._rules["custom"]) == 1

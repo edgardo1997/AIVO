@@ -18,6 +18,7 @@ class AIChatTool(Tool):
                     "message": {"type": "string", "description": "User message"},
                     "system_prompt": {"type": "string", "description": "Optional system prompt override"},
                     "context": {"type": "array", "description": "Previous conversation context"},
+                    "provider": {"type": "string", "description": "Optional provider override"},
                 },
                 "required": ["message"],
             },
@@ -32,6 +33,7 @@ class AIChatTool(Tool):
                 params["message"],
                 params.get("system_prompt"),
                 params.get("context"),
+                params.get("provider"),
             )
             return ToolResult.ok(data=result, tool_id="ai.chat")
         except Exception as e:
@@ -89,6 +91,7 @@ class AIConfigTool(Tool):
                     "base_url": {"type": "string", "description": "Base URL override"},
                     "model": {"type": "string", "description": "Model name"},
                     "strategy": {"type": "string", "description": "Model routing strategy"},
+                    "delete_key": {"type": "boolean", "description": "Delete the provider key"},
                 },
             },
             required_permissions=["ai.config"],
@@ -99,7 +102,11 @@ class AIConfigTool(Tool):
     async def execute(self, params: Dict[str, Any], context: Dict[str, Any]) -> ToolResult:
         try:
             if params:
-                result = self._svc.set_config(params)
+                config = dict(params)
+                delete_key = bool(config.pop("delete_key", False))
+                if delete_key and config.get("provider"):
+                    self._svc.delete_provider_key(config["provider"])
+                result = self._svc.set_config(config)
             else:
                 result = self._svc.get_config()
             return ToolResult.ok(data=result, tool_id="ai.config")

@@ -28,6 +28,11 @@ class AIModelPolicy(Policy):
         return "Restricts which AI models and providers can be used"
 
     async def evaluate(self, tool_id: str, params: Dict[str, Any], context: Dict[str, Any]) -> PolicyResult:
+        # Configuring a provider is governed by ai.config permissions, but it
+        # does not invoke that provider. Provider allowlists apply when a model
+        # is actually used, not while an administrator stores a configuration.
+        if tool_id == "ai.config":
+            return PolicyResult(PolicyEffect.ALLOW, self.policy_id(), "AI configuration authorized")
         model = params.get("model") or context.get("ai_model", "")
         provider = params.get("provider") or context.get("ai_provider", "")
 

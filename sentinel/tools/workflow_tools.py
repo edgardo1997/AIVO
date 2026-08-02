@@ -129,6 +129,34 @@ class WorkflowCancelTool(Tool):
         sid = (context or {}).get("session_id", "")
         rid = (context or {}).get("request_id", "")
         return ToolResult.ok(
-            data=self._svc.fail(params["workflow_id"], error="cancelled", session_id=sid, request_id=rid),
+            data=self._svc.cancel(params["workflow_id"], session_id=sid, request_id=rid),
             tool_id="workflow.cancel",
+        )
+
+
+class WorkflowDeleteTool(Tool):
+    def __init__(self, svc):
+        self._svc = svc
+
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            id="workflow.delete",
+            name="Delete Workflow",
+            description="Delete an AI workflow by id",
+            version="1.0.0",
+            category=_CAT,
+            parameters={
+                "type": "object",
+                "properties": {"workflow_id": {"type": "string"}},
+                "required": ["workflow_id"],
+            },
+            required_permissions=["system.write"],
+        )
+
+    async def execute(self, params: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> ToolResult:
+        sid = (context or {}).get("session_id", "")
+        rid = (context or {}).get("request_id", "")
+        return ToolResult.ok(
+            data=self._svc.delete(params["workflow_id"], session_id=sid, request_id=rid),
+            tool_id="workflow.delete",
         )

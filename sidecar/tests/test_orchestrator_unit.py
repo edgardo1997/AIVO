@@ -561,7 +561,8 @@ class TestApproveWithModifications:
         mock_memory.consume_pending_action.return_value = None
         result = await orchestrator.approve_with_modifications("unknown", [{"tool_id": "sys.info"}])
         assert result.error is not None
-        assert "not found" in result.error.lower()
+        assert "deprecated" in result.error.lower()
+        mock_memory.consume_pending_action.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_empty_modified_steps(self, orchestrator, mock_memory):
@@ -587,7 +588,8 @@ class TestApproveWithModifications:
         )
         result = await orchestrator.approve_with_modifications("a1", [])
         assert result.error is not None
-        assert "no steps" in result.error.lower()
+        assert "deprecated" in result.error.lower()
+        mock_memory.consume_pending_action.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_approve_with_modifications_success(self, orchestrator, mock_memory):
@@ -637,8 +639,8 @@ class TestApproveWithModifications:
                 {"tool_id": "system.info", "params": {}, "description": "check info"},
             ],
         )
-        assert result.error is None or result.tool_result is not None
-        assert mock_memory.consume_pending_action.called
+        assert "deprecated" in result.error.lower()
+        mock_memory.consume_pending_action.assert_not_called()
 
 
 # ===================================================================
@@ -646,28 +648,18 @@ class TestApproveWithModifications:
 # ===================================================================
 
 
-class TestApproveExecution:
+class TestDeprecatedPendingApprovals:
     @pytest.mark.asyncio
-    async def test_different_user_cannot_approve(self, orchestrator, mock_memory):
-        mock_memory.consume_pending_action.return_value = PendingActionRecord(
-            action_id="a1",
-            tool_id="system.info",
-            params={"identity": {"user_id": "owner"}, "plan": {"steps": []}},
-            reason="test",
-            created_at="now",
-            ttl_seconds=600,
-        )
-
+    async def test_approve_execution_has_no_authority(self, orchestrator, mock_memory, mock_gateway):
         result = await orchestrator.approve_execution(
-            "a1",
-            True,
-            approver_identity={"user_id": "other-user"},
+            "a1", True, approver_identity={"user_id": "other-user"}
         )
-
-        assert "identity" in result.error.lower()
+        assert "deprecated" in result.error.lower()
+        mock_memory.consume_pending_action.assert_not_called()
+        mock_gateway.execute.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_no_memory_returns_error(self):
+    async def test_approve_execution_without_memory_has_no_authority(self):
         orch = Orchestrator(
             intent_engine=MagicMock(),
             tool_gateway=MagicMock(
@@ -678,86 +670,7 @@ class TestApproveExecution:
             memory=None,
         )
         result = await orch.approve_execution("id", True)
-        assert result.error is not None
-
-    @pytest.mark.asyncio
-    async def test_action_not_found(self, orchestrator, mock_memory):
-        mock_memory.consume_pending_action.return_value = None
-        result = await orchestrator.approve_execution("unknown", True)
-        assert result.error is not None
-        assert "not found" in result.error.lower()
-
-    @pytest.mark.asyncio
-    async def test_denied(self, orchestrator, mock_memory):
-        mock_memory.consume_pending_action.return_value = PendingActionRecord(
-            action_id="a1",
-            tool_id="sys.info",
-            params={
-                "intent": {
-                    "action": "query",
-                    "target": "sys.info",
-                    "parameters": {},
-                    "confidence": 0.9,
-                    "raw_input": "info",
-                },
-                "utterance": "info",
-                "identity": None,
-                "session_id": None,
-            },
-            reason="test",
-            created_at="now",
-            ttl_seconds=600,
-        )
-        result = await orchestrator.approve_execution("a1", False)
-        assert result.error is not None
-        assert "rechazada" in result.error.lower()
-
-    @pytest.mark.asyncio
-    async def test_approved_executes(self, orchestrator, mock_memory, mock_gateway, mock_intent_engine):
-        mock_memory.consume_pending_action.return_value = PendingActionRecord(
-            action_id="a1",
-            tool_id="sys.info",
-            params={
-                "intent": {
-                    "action": "query",
-                    "target": "system.info",
-                    "parameters": {},
-                    "confidence": 0.9,
-                    "raw_input": "info",
-                },
-                "plan": {
-                    "intent": {
-                        "action": "query",
-                        "target": "system.info",
-                        "parameters": {},
-                        "confidence": 0.9,
-                        "raw_input": "info",
-                    },
-                    "steps": [
-                        {
-                            "id": "sys",
-                            "tool_id": "system.info",
-                            "params": {},
-                            "description": "Get system info",
-                            "estimated_impact": "low",
-                        }
-                    ],
-                    "risk_score": 0.0,
-                    "description": "Stored plan",
-                },
-                "utterance": "info",
-                "identity": None,
-                "session_id": None,
-            },
-            reason="test",
-            created_at="now",
-            ttl_seconds=600,
-        )
-        mock_intent_engine.parse.reset_mock()
-        result = await orchestrator.approve_execution("a1", True)
-        assert result.error is None or result.tool_result is not None
-        mock_intent_engine.parse.assert_not_called()
-        assert mock_gateway.execute.await_args.kwargs["tool_id"] == "system.info"
+        assert "deprecated" in result.error.lower()
 
 
 # ===================================================================

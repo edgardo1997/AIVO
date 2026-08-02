@@ -172,6 +172,7 @@ class Orchestrator:
         file_pipeline: Optional[Any] = None,
         web_browsing: Optional[Any] = None,
         execution_pipeline: Optional[ExecutionPipeline] = None,
+        tool_execution_guard: Optional[Any] = None,
         hardening: Optional[Any] = None,
         advisory_service: Optional[Any] = None,
         grounding_engine: Optional[Any] = None,
@@ -253,8 +254,10 @@ class Orchestrator:
             execution_pipeline = ExecutionPipeline(
                 tool_gateway=tool_gateway,
                 audit_service=audit_service,
+                tool_execution_guard=tool_execution_guard,
             )
         self._execution_pipeline = execution_pipeline
+        self._tool_execution_guard = tool_execution_guard
         self._pipeline_enforced = True
         self._retry_handler = RetryHandler()
         self._fallback_handler = FallbackHandler()
@@ -278,21 +281,24 @@ class Orchestrator:
             register(
                 "orchestrator",
                 lambda: ComponentHealth(
-                    name="orchestrator", state=HealthState.HEALTHY,
+                    name="orchestrator",
+                    state=HealthState.HEALTHY,
                     details={"pipeline_enforced": self._pipeline_enforced},
                 ),
             )
             register(
                 "execution_pipeline",
                 lambda: ComponentHealth(
-                    name="execution_pipeline", state=HealthState.HEALTHY,
+                    name="execution_pipeline",
+                    state=HealthState.HEALTHY,
                     details={"enforced": self._pipeline_enforced},
                 ),
             )
             register(
                 "tool_gateway",
                 lambda: ComponentHealth(
-                    name="tool_gateway", state=HealthState.HEALTHY,
+                    name="tool_gateway",
+                    state=HealthState.HEALTHY,
                     details={"tools": len(getattr(self._tool_gateway, "_tools", {}) or {})},
                 ),
             )
@@ -307,7 +313,9 @@ class Orchestrator:
         except Exception as e:
             logger.debug("Observability wiring failed: %s", e)
 
-    async def _run_with_observability(self, coro, *, utterance: str, identity: Optional[dict], session_id: Optional[str], dry_run: bool) -> Any:
+    async def _run_with_observability(
+        self, coro, *, utterance: str, identity: Optional[dict], session_id: Optional[str], dry_run: bool
+    ) -> Any:
         """Wrap the pipeline with a request trace + telemetry (fail-safe)."""
         obs = self._observability
         if obs is None:
@@ -330,31 +338,31 @@ class Orchestrator:
                 if result.plan is not None and getattr(result.plan, "intent", None) is not None:
                     model_id = getattr(result.plan.intent, "action", "") or "unknown"
             except Exception:
-                pass
+                logger.debug("Failed to derive observability model id", exc_info=True)
             try:
                 obs.record_request(model_id, True, latency_ms)
                 obs.record_component_duration("orchestrator.process", latency_ms)
             except Exception:
-                pass
+                logger.warning("Failed to record successful orchestrator telemetry", exc_info=True)
             if span is not None:
                 try:
                     obs.end_request_trace(span, status="ok")
                 except Exception:
-                    pass
+                    logger.warning("Failed to close successful orchestrator trace", exc_info=True)
             await self._maybe_persist_observability()
             return result
-        except Exception as exc:
+        except Exception:
             latency_ms = (_time.monotonic() - start) * 1000
             try:
                 obs.record_request("unknown", False, latency_ms)
                 obs.record_component_duration("orchestrator.process", latency_ms)
             except Exception:
-                pass
+                logger.warning("Failed to record failed orchestrator telemetry", exc_info=True)
             if span is not None:
                 try:
                     obs.end_request_trace(span, status="error")
                 except Exception:
-                    pass
+                    logger.warning("Failed to close failed orchestrator trace", exc_info=True)
             raise
 
     async def _maybe_persist_observability(self) -> None:
@@ -436,6 +444,7 @@ class Orchestrator:
         dry_run: bool = False,
         skip_simulation: bool = False,
         override_plan: Optional[Plan] = None,
+        approved_plan_grant_id: Optional[str] = None,
         timeout: Optional[float] = None,
     ) -> ExecutionResult:
         if self._runtime is not None:
@@ -449,6 +458,7 @@ class Orchestrator:
                 dry_run=dry_run,
                 skip_simulation=skip_simulation,
                 override_plan=override_plan,
+                approved_plan_grant_id=approved_plan_grant_id,
             )
             coro = self._run_with_observability(
                 coro,
@@ -474,7 +484,14 @@ class Orchestrator:
             )
             raise
 
-    async def _runtime_process(self, utterance: str, *, identity: Optional[dict] = None, session_id: Optional[str] = None, dry_run: bool = False) -> ExecutionResult:
+    async def _runtime_process(
+        self,
+        utterance: str,
+        *,
+        identity: Optional[dict] = None,
+        session_id: Optional[str] = None,
+        dry_run: bool = False,
+    ) -> ExecutionResult:
         """Bridge: Orchestrator.process() → SentinelRuntime.process() → ExecutionResult."""
         request = SentinelRequest(
             utterance=utterance,
@@ -486,10 +503,15 @@ class Orchestrator:
         response = await self._runtime.process(request)
         from .intent import Intent
         from .planner import Plan
+
         return ExecutionResult(
             plan=ExecutionPlan(
                 intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=utterance),
-                plan=Plan(steps=[], intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=utterance), description=""),
+                plan=Plan(
+                    steps=[],
+                    intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=utterance),
+                    description="",
+                ),
                 tool_id="",
                 tool_params={},
                 task_type=TaskType.QUICK,
@@ -535,11 +557,14 @@ class Orchestrator:
         dry_run: bool = False,
         skip_simulation: bool = False,
         override_plan: Optional[Plan] = None,
+        approved_plan_grant_id: Optional[str] = None,
     ) -> ExecutionResult:
         self._enforce_pipeline("_process_impl")
         execution_id = uuid.uuid4().hex[:12]
         start = datetime.now(timezone.utc)
         context: Dict[str, Any] = {"execution_id": execution_id, "session_id": session_id}
+        if approved_plan_grant_id:
+            context["approved_plan_grant_id"] = approved_plan_grant_id
         if skip_simulation:
             # Verificar ConsentManager antes de autorizar bypass
             if self._consent_service is not None and identity is not None:
@@ -551,7 +576,6 @@ class Orchestrator:
                         logger.warning(
                             "No ConsentGrant found for %s/%s — fallback to pending action approval", user_id, tool_id
                         )
-            context["_orchestrator_approval"] = True
         if identity is not None:
             context["identity"] = identity
 
@@ -769,9 +793,7 @@ class Orchestrator:
             except Exception as exc:
                 logger.debug("Model strategy decision skipped: %s", exc)
             try:
-                recommendation = self._intelligence.recommend_model(
-                    intent.target or utterance, context
-                )
+                recommendation = self._intelligence.recommend_model(intent.target or utterance, context)
                 context["intelligence_recommendation"] = recommendation
                 exec_plan.capability_recommendation = recommendation.to_dict()
             except Exception as exc:
@@ -935,6 +957,21 @@ class Orchestrator:
                     decision=Decision.APPROVE,
                     plan=plan,
                     reason="Consulta de solo lectura aprobada sin confirmación interactiva.",
+                    context_factors=decision.context_factors,
+                    base_risk_score=decision.base_risk_score,
+                    context_modifier=decision.context_modifier,
+                    final_risk_score=decision.final_risk_score,
+                )
+            # A durable PlanApprovalGrant is the plan-level authority for a
+            # resumed plan: it must not be re-blocked as a fresh cross-confirm.
+            # Step-level bindings are still enforced per step by
+            # ConfirmationBroker.issue_next_step_grant -> ToolExecutionGuard.
+            # An explicit REJECT below remains a hard stop.
+            if context.get("approved_plan_grant_id") and decision.decision == Decision.REQUIRE_CONFIRM:
+                decision = DecisionResult(
+                    decision=Decision.APPROVE,
+                    plan=plan,
+                    reason="Plan aprobado por consentimiento durable (grant aprobado).",
                     context_factors=decision.context_factors,
                     base_risk_score=decision.base_risk_score,
                     context_modifier=decision.context_modifier,
@@ -1116,6 +1153,11 @@ class Orchestrator:
 
         grounding_pre_verified = bool(grounding_step_ids and not dry_run)
         levels = self._planner.resolve_dependencies(Plan(steps=plan.steps, intent=intent, description="Main execution"))
+        if context.get("approved_plan_grant_id"):
+            context["approved_plan_step_indexes"] = {step.id: index for index, step in enumerate(plan.steps)}
+            # Durable grants are a strict sequence: no two independently
+            # authorized steps may race, even if the dependency graph permits it.
+            levels = [[step] for step in plan.steps]
         if plan.steps and not levels and not step_results:
             tool_result = ToolResult.fail(error="Invalid plan dependency graph", tool_id="planner")
         for level in levels:
@@ -1194,6 +1236,35 @@ class Orchestrator:
             grounding_results=grounding_results,
             grounding_satisfied=grounding_satisfied,
         )
+        if context.get("approved_plan_grant_id") and not result.error and all(item.success for item in step_results):
+            broker = getattr(self._tool_gateway, "_confirmation_broker", None)
+            identity = context.get("identity") or {}
+            if broker and isinstance(identity, dict):
+                identity_hash = broker._hash(
+                    {"user_id": identity.get("user_id", ""), "session_id": identity.get("session_id", "")}
+                )
+                if not broker.complete_plan(
+                    context["approved_plan_grant_id"],
+                    user_id=identity.get("user_id", ""),
+                    session_id=identity.get("session_id", ""),
+                    identity_hash=identity_hash,
+                ):
+                    result.error = "durable plan completion failed"
+        elif context.get("approved_plan_grant_id") and result.error:
+            broker = getattr(self._tool_gateway, "_confirmation_broker", None)
+            identity = context.get("identity") or {}
+            if broker and isinstance(identity, dict):
+                broker.fail_plan(
+                    context["approved_plan_grant_id"],
+                    user_id=identity.get("user_id", ""),
+                    session_id=identity.get("session_id", ""),
+                    identity_hash=broker._hash(
+                        {
+                            "user_id": identity.get("user_id", ""),
+                            "session_id": identity.get("session_id", ""),
+                        }
+                    ),
+                )
         if not dry_run and not grounding_satisfied and not result.error and not grounding_pre_verified:
             result.error = "No se pudo obtener la información necesaria para ejecutar la acción."
         if not dry_run:
@@ -1470,8 +1541,40 @@ class Orchestrator:
             )
             step_params.setdefault("elevated", bool(intent.parameters.get("elevated", False)))
         elif step.tool_id == "filesystem.search":
-            step_params.setdefault("pattern", intent.parameters.get("pattern", ""))
-            step_params.setdefault("path", intent.parameters.get("path", ""))
+            # `filesystem.search` is defined in terms of `query` and `root`.
+            # Do not inject an empty legacy `path`: the central argument
+            # validator correctly treats an explicit empty path as invalid.
+            step_params.setdefault("query", intent.parameters.get("query", ""))
+            step_params.setdefault("root", intent.parameters.get("root", "C:\\"))
+
+        execution_grant = None
+        plan_grant_id = step_context.get("approved_plan_grant_id")
+        if plan_grant_id:
+            broker = getattr(self._tool_gateway, "_confirmation_broker", None)
+            identity = step_context.get("identity") or {}
+            user_id = identity.get("user_id", "") if isinstance(identity, dict) else ""
+            session_id = identity.get("session_id", "") if isinstance(identity, dict) else ""
+            identity_hash = broker._hash({"user_id": user_id, "session_id": session_id}) if broker else ""
+            plan = broker._grants.get_plan(plan_grant_id) if broker else None
+            step_index = (step_context.get("approved_plan_step_indexes") or {}).get(step.id)
+            if not plan or step_index is None:
+                return StepResult(
+                    step_id=step.id, tool_id=step.tool_id, success=False, error="durable plan grant context is invalid"
+                )
+            try:
+                execution_grant = broker.issue_next_step_grant(
+                    plan_grant_id=plan_grant_id,
+                    user_id=user_id,
+                    session_id=session_id,
+                    identity_hash=identity_hash,
+                    step_id=step.id,
+                    step_index=step_index,
+                    tool_id=step.tool_id,
+                    params=step_params,
+                    expires_at=plan["expires_at"],
+                )
+            except (PermissionError, ValueError) as exc:
+                return StepResult(step_id=step.id, tool_id=step.tool_id, success=False, error=str(exc))
 
         attempted_tools: List[str] = []
 
@@ -1487,12 +1590,18 @@ class Orchestrator:
                 request_id=execution_id,
                 tool=tid,
             )
-            result = await self._execution_pipeline.execute(
-                tool_id=tid,
-                params=step_params,
-                context=step_context,
-                source="orchestrator",
-            )
+            execute_kwargs = {
+                "tool_id": tid,
+                "params": step_params,
+                "context": step_context,
+                "source": "approved_plan" if execution_grant is not None else "orchestrator",
+            }
+            # Keep non-approved-plan callers compatible with the established
+            # pipeline contract.  Authority is still explicit: approved plans
+            # always carry the typed context, never a null stand-in.
+            if execution_grant is not None:
+                execute_kwargs["execution_grant"] = execution_grant
+            result = await self._execution_pipeline.execute(**execute_kwargs)
             await self._emit(
                 event_types.TOOL_FINISHED,
                 component="tool_gateway",
@@ -1753,8 +1862,9 @@ class Orchestrator:
     ) -> List[Any]:
         async def _exec(tool_id: str, params: Dict[str, Any]):
             return await self._execution_pipeline.execute(
-                tool_id, params, context,
-                skip_security=True,
+                tool_id,
+                params,
+                context,
                 source="rollback",
             )
 
@@ -1766,112 +1876,14 @@ class Orchestrator:
         modified_steps: List[Dict[str, Any]],
         approver_identity: Optional[Dict[str, Any]] = None,
     ) -> ExecutionResult:
-        if not self._memory:
-            return ExecutionResult(
-                plan=ExecutionPlan(
-                    intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=""),
-                    plan=Plan(
-                        intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=""),
-                        steps=[],
-                        risk_score=0.0,
-                        description="",
-                    ),
-                    tool_id="",
-                    tool_params={},
-                    task_type=TaskType.QUICK,
-                ),
-                error="El sistema de aprobación no está disponible en este momento.",
-            )
-        record = self._memory.consume_pending_action(action_id)
-        if record is None:
-            return ExecutionResult(
-                plan=ExecutionPlan(
-                    intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=""),
-                    plan=Plan(
-                        intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=""),
-                        steps=[],
-                        risk_score=0.0,
-                        description="",
-                    ),
-                    tool_id="",
-                    tool_params={},
-                    task_type=TaskType.QUICK,
-                ),
-                error=f"Pending action '{action_id}' not found or expired",
-            )
-        stored_identity = record.params.get("identity") or {}
-        if approver_identity and stored_identity.get("user_id") != approver_identity.get("user_id"):
-            empty_intent = Intent(action="", target="", parameters={}, confidence=0.0, raw_input="")
-            return ExecutionResult(
-                plan=ExecutionPlan(
-                    intent=empty_intent,
-                    plan=Plan(intent=empty_intent, steps=[]),
-                    tool_id="",
-                    tool_params={},
-                    task_type=TaskType.QUICK,
-                ),
-                error="Approval identity does not match the user who requested the action",
-            )
+        """Deprecated compatibility adapter; pending records are diagnostic only.
 
-        if not modified_steps:
-            return ExecutionResult(
-                plan=ExecutionPlan(
-                    intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=""),
-                    plan=Plan(
-                        intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=""),
-                        steps=[],
-                        risk_score=0.0,
-                        description="",
-                    ),
-                    tool_id="",
-                    tool_params={},
-                    task_type=TaskType.QUICK,
-                ),
-                error="Modified plan has no steps",
-            )
-
-        intent_dict = record.params.get("intent", {})
-        intent = Intent(
-            action=intent_dict.get("action", ""),
-            target=intent_dict.get("target", ""),
-            parameters=intent_dict.get("parameters", {}),
-            confidence=intent_dict.get("confidence", 0.0),
-            raw_input=intent_dict.get("raw_input", ""),
-        )
-
-        new_steps = []
-        for i, s in enumerate(modified_steps):
-            new_steps.append(
-                PlanStep(
-                    id=f"step_{i}",
-                    tool_id=s.get("tool_id", ""),
-                    params=s.get("params", {}),
-                    description=s.get("description", ""),
-                    is_reversible=s.get("is_reversible", False),
-                    rollback_tool_id=s.get("rollback_tool_id"),
-                    rollback_params=s.get("rollback_params"),
-                    estimated_impact=s.get("estimated_impact", "low"),
-                    estimated_duration_ms=s.get("estimated_duration_ms"),
-                    depends_on=s.get("depends_on", []),
-                )
-            )
-
-        plan = Plan(
-            intent=intent,
-            steps=new_steps,
-            description=f"Modified plan for {intent.action}.{intent.target}",
-        )
-
-        utterance = record.params.get("utterance", "")
-        identity = record.params.get("identity")
-        session_id = record.params.get("session_id")
-
-        return await self.process(
-            utterance,
-            identity=identity,
-            session_id=session_id,
-            skip_simulation=False,
-            override_plan=plan,
+        Modified plans must be submitted through the durable confirmation flow
+        so their canonical hash and plan grant are established before execution.
+        """
+        return self._deprecated_approval_result(
+            "approve_with_modifications is deprecated and cannot authorize execution; "
+            "reconfirm the modified plan using a durable execution grant."
         )
 
     async def approve_execution(
@@ -1880,105 +1892,61 @@ class Orchestrator:
         approved: bool,
         approver_identity: Optional[Dict[str, Any]] = None,
     ) -> ExecutionResult:
-        if not self._memory:
-            return ExecutionResult(
-                plan=ExecutionPlan(
-                    intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=""),
-                    plan=Plan(
-                        intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=""),
-                        steps=[],
-                        risk_score=0.0,
-                        description="",
-                    ),
-                    tool_id="",
-                    tool_params={},
-                    task_type=TaskType.QUICK,
-                ),
-                error="El sistema de aprobación no está disponible en este momento.",
-            )
-        record = self._memory.consume_pending_action(action_id)
-        if record is None:
-            return ExecutionResult(
-                plan=ExecutionPlan(
-                    intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=""),
-                    plan=Plan(
-                        intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=""),
-                        steps=[],
-                        risk_score=0.0,
-                        description="",
-                    ),
-                    tool_id="",
-                    tool_params={},
-                    task_type=TaskType.QUICK,
-                ),
-                error=f"Pending action '{action_id}' not found or expired",
-            )
-        stored_identity = record.params.get("identity") or {}
-        if approver_identity and stored_identity.get("user_id") != approver_identity.get("user_id"):
-            empty_intent = Intent(action="", target="", parameters={}, confidence=0.0, raw_input="")
-            return ExecutionResult(
-                plan=ExecutionPlan(
-                    intent=empty_intent,
-                    plan=Plan(intent=empty_intent, steps=[]),
-                    tool_id="",
-                    tool_params={},
-                    task_type=TaskType.QUICK,
-                ),
-                error="Approval identity does not match the user who requested the action",
-            )
-        tool_id = (
-            record.params.get("plan", {}).get("steps", [{}])[0].get("tool_id", record.tool_id)
-            if record.params.get("plan")
-            else record.tool_id
-        )
-        user_id = (approver_identity or {}).get("user_id", "unknown")
-        if not approved:
-            if self._consent_service is not None:
-                self._consent_service.record_decision(
-                    action_id=action_id,
-                    user_id=user_id,
-                    tool_id=tool_id,
-                    approved=False,
-                )
-            return ExecutionResult(
-                plan=ExecutionPlan(
-                    intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=""),
-                    plan=Plan(
-                        intent=Intent(action="", target="", parameters={}, confidence=0.0, raw_input=""),
-                        steps=[],
-                        risk_score=0.0,
-                        description="",
-                    ),
-                    tool_id="",
-                    tool_params={},
-                    task_type=TaskType.QUICK,
-                ),
-                error="La acción fue rechazada por el usuario.",
-            )
-        logger.info("Execution APPROVED: %s (action_id=%s)", record.reason, action_id)
-        if self._consent_service is not None:
-            self._consent_service.record_decision(
-                action_id=action_id,
-                user_id=user_id,
-                tool_id=tool_id,
-                approved=True,
-            )
-        utterance = record.params.get("utterance", "")
-        identity = record.params.get("identity")
-        session_id = record.params.get("session_id")
-        stored_plan = self._plan_from_dict(record.params.get("plan", {}))
-        if not stored_plan.steps:
-            return ExecutionResult(
-                plan=self._build_exec_plan(stored_plan.intent, stored_plan, {}),
-                error="Stored approval plan is empty or invalid",
-            )
+        """Deprecated compatibility adapter; it never grants execution authority.
 
-        return await self.process(
-            utterance,
-            identity=identity,
-            session_id=session_id,
-            skip_simulation=True,
-            override_plan=stored_plan,
+        Durable plan and step grants are the only admissible approval artefacts.
+        Legacy pending actions remain diagnostic records and must be reconfirmed
+        through the durable confirmation endpoint.
+        """
+        empty_intent = Intent(action="", target="", parameters={}, confidence=0.0, raw_input="")
+        return ExecutionResult(
+            plan=ExecutionPlan(
+                intent=empty_intent,
+                plan=Plan(intent=empty_intent, steps=[]),
+                tool_id="",
+                tool_params={},
+                task_type=TaskType.QUICK,
+            ),
+            error="approve_execution is deprecated and cannot authorize execution; reconfirm using a durable execution grant.",
+        )
+
+    async def resume_approved_plan(self, plan_grant_id: str, identity: Dict[str, Any]) -> ExecutionResult:
+        """Resume only the immutable plan bound to a durable approval grant."""
+        broker = getattr(self._tool_gateway, "_confirmation_broker", None)
+        user_id = identity.get("user_id", "") if isinstance(identity, dict) else ""
+        session_id = identity.get("session_id", "") if isinstance(identity, dict) else ""
+        identity_hash = broker._hash({"user_id": user_id, "session_id": session_id}) if broker else ""
+        if broker is None:
+            return self._deprecated_approval_result("durable confirmation broker is unavailable")
+        try:
+            resumed = broker.resume_approved_plan(
+                plan_grant_id, user_id=user_id, session_id=session_id, identity_hash=identity_hash
+            )
+            plan = self._plan_from_dict(resumed["payload"])
+            if not plan.steps:
+                return self._deprecated_approval_result("approved plan is empty or invalid")
+            return await self.process(
+                "",
+                identity=identity,
+                session_id=session_id,
+                override_plan=plan,
+                approved_plan_grant_id=plan_grant_id,
+            )
+        except (PermissionError, ValueError) as exc:
+            return self._deprecated_approval_result(str(exc))
+
+    @staticmethod
+    def _deprecated_approval_result(error: str) -> ExecutionResult:
+        empty_intent = Intent(action="", target="", parameters={}, confidence=0.0, raw_input="")
+        return ExecutionResult(
+            plan=ExecutionPlan(
+                intent=empty_intent,
+                plan=Plan(intent=empty_intent, steps=[]),
+                tool_id="",
+                tool_params={},
+                task_type=TaskType.QUICK,
+            ),
+            error=error,
         )
 
     @property
@@ -2168,9 +2136,39 @@ class Orchestrator:
             logger.info("Offline queue: %s", stats)
         return stats
 
-    def _sync_offline_item(self, item: QueueItem) -> bool:
-        logger.info("Syncing offline item %s (%s)", item.id, item.operation_type)
-        return True
+    async def _sync_offline_item(self, item: QueueItem) -> bool:
+        """Re-execute a deferred operation once the network is restored.
+
+        Previously a no-op stub that marked every item as synced without doing
+        anything; now it replays the deferred operation through the same
+        execution pipeline so offline work is actually completed.
+        """
+        op_type = item.operation_type
+        payload = item.payload or {}
+        try:
+            if op_type == "orchestrator.process":
+                utterance = payload.get("utterance", "")
+                if not utterance:
+                    logger.warning("Offline item %s has no utterance to replay", item.id)
+                    return False
+                identity = payload.get("identity")
+                session_id = payload.get("session_id")
+                result = await self.process(
+                    utterance,
+                    identity=identity,
+                    session_id=session_id,
+                    skip_simulation=False,
+                )
+                if result.error:
+                    logger.warning("Offline replay of %s failed: %s", item.id, result.error)
+                    return False
+                logger.info("Offline item %s replayed successfully", item.id)
+                return True
+            logger.warning("Offline item %s has unsupported operation type %r", item.id, op_type)
+            return False
+        except Exception as exc:
+            logger.warning("Offline replay of %s raised: %s", item.id, exc)
+            return False
 
     async def process_offline(
         self,
@@ -2197,7 +2195,7 @@ class Orchestrator:
 
         item = self._offline_queue.enqueue(
             "orchestrator.process",
-            {"utterance": utterance, "session_id": session_id},
+            {"utterance": utterance, "session_id": session_id, "identity": identity},
         )
         logger.info("Operation queued for offline processing: %s", item.id)
         return ExecutionResult(

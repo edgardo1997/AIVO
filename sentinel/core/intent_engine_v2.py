@@ -429,7 +429,6 @@ class IntentEngineV2:
     def _layer_rules(self, text: str) -> Optional[ClassifiedIntent]:
         best_score = 0.0
         best_rule = None
-        best_match = None
 
         for compiled, rule in self._compiled:
             match = compiled.search(text.strip())
@@ -438,7 +437,6 @@ class IntentEngineV2:
                 if score > best_score:
                     best_score = score
                     best_rule = rule
-                    best_match = match
 
         if best_rule is None:
             return None
@@ -454,7 +452,7 @@ class IntentEngineV2:
                 if val is not None:
                     entities[key] = val
             except Exception:
-                pass
+                logger.warning("Intent entity extractor failed for '%s'", key, exc_info=True)
 
         confidence = min(best_score, 0.95)
         return ClassifiedIntent(

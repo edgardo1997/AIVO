@@ -262,7 +262,7 @@ class ResourceIntelligenceLayer:
                 if hasattr(self._network, "is_online"):
                     return self._network.is_online
             except Exception:
-                pass
+                logger.warning("Network monitor failed; treating connectivity as unknown", exc_info=True)
         return True
 
     def _get_battery(self) -> tuple:
@@ -285,7 +285,7 @@ class ResourceIntelligenceLayer:
                 gpu = result.gpus[0]
                 return True, gpu.memory_free_mb
         except Exception:
-            pass
+            logger.warning("Failed to read GPU resources", exc_info=True)
         return False, 0
 
     def _is_power_saver(self) -> bool:
@@ -296,7 +296,7 @@ class ResourceIntelligenceLayer:
                 name = result.active_name.lower()
                 return "powersaver" in name or "power saver" in name or "ahorro" in name
         except Exception:
-            pass
+            logger.warning("Failed to read active power plan", exc_info=True)
         return False
 
     def _get_budget_remaining(self) -> float:
@@ -307,7 +307,7 @@ class ResourceIntelligenceLayer:
                     worst = max(alerts, key=lambda a: a.current_cost / max(a.max_cost, 0.01))
                     return max(0, worst.max_cost - worst.current_cost)
             except Exception:
-                pass
+                logger.warning("Failed to read remaining model budget", exc_info=True)
         return 10.0
 
     def _has_budget(self) -> bool:
@@ -315,7 +315,7 @@ class ResourceIntelligenceLayer:
             try:
                 return len(self._cost_tracker.get_budgets()) > 0
             except Exception:
-                pass
+                logger.warning("Failed to read model budget constraints", exc_info=True)
         return False
 
     def _estimate_model_cost(self, provider: str, model_id: str) -> float:
@@ -323,7 +323,7 @@ class ResourceIntelligenceLayer:
             try:
                 return self._cost_tracker.estimate_cost(provider, model_id, 2000, 500)
             except Exception:
-                pass
+                logger.warning("Failed to estimate model cost for '%s'", model_id, exc_info=True)
         return 0.01
 
     def _get_hardware_requirement(self, model_id: str) -> Optional[Dict[str, Any]]:

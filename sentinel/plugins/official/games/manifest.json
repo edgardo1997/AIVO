@@ -1,0 +1,13 @@
+{
+  "id": "games",
+  "name": "Gaming Boost",
+  "version": "1.0.0",
+  "author": "Sentinel Team",
+  "description": "Detecta juegos activos y solicita el Gaming Mode para optimizar el rendimiento, siempre con restauración del estado anterior.",
+  "entrypoint": "plugin.py",
+  "capabilities": ["events", "games"],
+  "permissions": ["system.read"],
+  "events": ["game.started", "game.closed"],
+  "license": "MIT",
+  "homepage": "https://sentinel.local/plugins/games"
+}

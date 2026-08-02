@@ -1,0 +1,13 @@
+{
+  "id": "automation",
+  "name": "Automation Hub",
+  "version": "1.0.0",
+  "author": "Sentinel Team",
+  "description": "Workflows personalizados, disparadores y horarios: reacciona a tareas completadas y coordina acciones repetitivas.",
+  "entrypoint": "plugin.py",
+  "capabilities": ["automation", "events"],
+  "permissions": ["filesystem.read"],
+  "events": ["task.completed", "task.failed", "automation.triggered"],
+  "license": "MIT",
+  "homepage": "https://sentinel.local/plugins/automation"
+}

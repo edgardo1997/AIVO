@@ -373,24 +373,16 @@ class TestPermissions:
     def test_admin_can_execute_command(self):
         perm_svc.set_level("admin")
         resp = client.post(
-            "/api/sentinel/process",
+            "/v1/execute",
             json={
-                "utterance": "run command echo hello",
+                "tool_id": "executor.command",
+                "params": {"command": "echo hello"},
             },
         )
         assert resp.status_code == 200
         data = resp.json()
-        if data.get("blocked"):
-            approve_resp = client.post(
-                "/api/sentinel/simulate/approve",
-                json={
-                    "action_id": data["action_id"],
-                    "approved": True,
-                },
-            )
-            assert approve_resp.status_code == 200
-            data = approve_resp.json()
-        assert data["tool_result"]["success"] is True
+        assert data["success"] is True
+        assert data["data"]["stdout"]
         perm_svc.set_level("confirm")
 
     def test_executor_command_returns_output(self):

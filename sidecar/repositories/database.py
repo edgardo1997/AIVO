@@ -28,7 +28,7 @@ SENTINEL_DATA_DIR = os.path.abspath(os.path.expanduser("~/.sentinel"))
 SENTINEL_PRODUCTION_DB_PATH = os.path.join(SENTINEL_DATA_DIR, "sentinel.db")
 LEGACY_PRODUCTION_DB_PATH = os.path.abspath(os.path.expanduser("~/.aivo.db"))
 PRODUCTION_DB_PATH = SENTINEL_PRODUCTION_DB_PATH
-LATEST_SCHEMA_VERSION = 7
+LATEST_SCHEMA_VERSION = 10
 
 
 def _schema_version(conn: sqlite3.Connection) -> int:
@@ -361,6 +361,29 @@ class DatabaseManager:
             CREATE INDEX IF NOT EXISTS idx_trigger_history_trigger ON trigger_history(trigger_id);
             CREATE INDEX IF NOT EXISTS idx_trigger_history_ts ON trigger_history(timestamp);
 
+            CREATE TABLE IF NOT EXISTS automation_rules (
+                rule_id       TEXT PRIMARY KEY,
+                condition     TEXT NOT NULL DEFAULT '',
+                action        TEXT NOT NULL DEFAULT '',
+                enabled       INTEGER NOT NULL DEFAULT 1,
+                trigger_count INTEGER NOT NULL DEFAULT 0,
+                created_at    TEXT DEFAULT (datetime('now')),
+                updated_at    TEXT DEFAULT (datetime('now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS ai_workflows (
+                workflow_id   TEXT PRIMARY KEY,
+                name          TEXT NOT NULL,
+                steps         TEXT NOT NULL DEFAULT '[]',
+                status        TEXT NOT NULL DEFAULT 'created',
+                current_step  INTEGER NOT NULL DEFAULT 0,
+                result_data   TEXT NOT NULL DEFAULT '[]',
+                error         TEXT NOT NULL DEFAULT '',
+                resume_data   TEXT NOT NULL DEFAULT '{}',
+                created_at    TEXT DEFAULT (datetime('now')),
+                updated_at    TEXT DEFAULT (datetime('now'))
+            );
+
             CREATE TABLE IF NOT EXISTS user_preferences (
                 session_id TEXT NOT NULL,
                 key        TEXT NOT NULL,
@@ -548,6 +571,9 @@ class DatabaseManager:
         self._ensure_column("user_profiles", "bio", "TEXT DEFAULT ''")
         self._ensure_column("user_profiles", "tags", "TEXT DEFAULT '[]'")
         self._ensure_column("user_profiles", "custom_fields", "TEXT DEFAULT '{}'")
+        self._ensure_column("ai_workflows", "result_data", "TEXT NOT NULL DEFAULT '[]'")
+        self._ensure_column("ai_workflows", "error", "TEXT NOT NULL DEFAULT ''")
+        self._ensure_column("ai_workflows", "resume_data", "TEXT NOT NULL DEFAULT '{}'")
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS vault_entries (
                 id              TEXT PRIMARY KEY,
@@ -569,6 +595,15 @@ class DatabaseManager:
                 details     TEXT DEFAULT ''
             );
             CREATE INDEX IF NOT EXISTS idx_vault_audit_id ON vault_audit(vault_id);
+
+            CREATE TABLE IF NOT EXISTS jwt_revoked (
+                jti         TEXT PRIMARY KEY,
+                user_id     TEXT NOT NULL,
+                token_type  TEXT NOT NULL,
+                revoked_at  TEXT NOT NULL,
+                expires_at  INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_jwt_revoked_expires ON jwt_revoked(expires_at);
         """)
         conn.execute(
             "INSERT OR IGNORE INTO schema_migrations (version, description) VALUES (?, ?)",
@@ -582,6 +617,9 @@ class DatabaseManager:
         5: "Add risk_level, plan_id, params_hash, identity_hash, redacted to pending_actions",
         6: "Repair legacy config timestamp and synchronize schema version",
         7: "Repair authorization and config columns after legacy baseline",
+        8: "Add durable plan and step execution grants with immutable grant audit",
+        9: "Add JWT revocation store for access/refresh token rotation",
+        10: "Bind automation rules and workflows to owning session/identity for post-restart revalidation",
     }
 
     def _run_migrations(self) -> None:
@@ -612,6 +650,65 @@ class DatabaseManager:
                             "updated_at",
                             "TEXT DEFAULT ''",
                         )
+                    if version == 8:
+                        conn.executescript("""
+                              CREATE TABLE IF NOT EXISTS plan_approval_grants (
+                                  grant_id TEXT PRIMARY KEY,
+                                  user_id TEXT NOT NULL,
+                                  session_id TEXT NOT NULL,
+                                  identity_hash TEXT NOT NULL,
+                                  plan_id TEXT NOT NULL,
+                                  plan_hash TEXT NOT NULL,
+                                  plan_payload TEXT NOT NULL,
+                                  risk_level TEXT NOT NULL,
+                                  simulation_evidence TEXT NOT NULL DEFAULT '{}',
+                                  schema_version INTEGER NOT NULL DEFAULT 1,
+                                  status TEXT NOT NULL CHECK(status IN ('pending','approved','in_progress','consumed','rejected','expired','cancelled','failed')),
+                                  created_at TEXT NOT NULL,
+                                  approved_at TEXT,
+                                  expires_at TEXT NOT NULL,
+                                  consumed_at TEXT,
+                                  rejected_at TEXT
+                              );
+                              CREATE TABLE IF NOT EXISTS step_execution_grants (
+                                  step_grant_id TEXT PRIMARY KEY,
+                                  plan_grant_id TEXT NOT NULL REFERENCES plan_approval_grants(grant_id),
+                                  plan_id TEXT NOT NULL,
+                                  plan_hash TEXT NOT NULL,
+                                  step_id TEXT NOT NULL,
+                                  step_index INTEGER NOT NULL,
+                                  tool_id TEXT NOT NULL,
+                                  params_hash TEXT NOT NULL,
+                                  identity_hash TEXT NOT NULL,
+                                  session_id TEXT NOT NULL,
+                                  status TEXT NOT NULL CHECK(status IN ('pending','approved','in_progress','consumed','rejected','expired','cancelled','failed')),
+                                  created_at TEXT NOT NULL,
+                                  expires_at TEXT NOT NULL,
+                                  consumed_at TEXT,
+                                  UNIQUE(plan_grant_id, step_index)
+                              );
+                              CREATE TABLE IF NOT EXISTS execution_grant_audit (
+                                  event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                  grant_id TEXT NOT NULL,
+                                  grant_kind TEXT NOT NULL CHECK(grant_kind IN ('plan','step')),
+                                  event_type TEXT NOT NULL,
+                                  occurred_at TEXT NOT NULL,
+                                  actor_user_id TEXT DEFAULT '',
+                                  session_id TEXT DEFAULT '',
+                                  identity_hash TEXT DEFAULT '',
+                                  plan_id TEXT DEFAULT '',
+                                  step_id TEXT DEFAULT '',
+                                  tool_id TEXT DEFAULT '',
+                                  reason TEXT DEFAULT '',
+                                  metadata_redacted TEXT NOT NULL DEFAULT '{}'
+                              );
+                              CREATE INDEX IF NOT EXISTS idx_plan_grants_status ON plan_approval_grants(status, expires_at);
+                              CREATE INDEX IF NOT EXISTS idx_step_grants_status ON step_execution_grants(status, expires_at);
+                              CREATE INDEX IF NOT EXISTS idx_grant_audit_grant ON execution_grant_audit(grant_id, event_id);
+                        """)
+                        # Legacy pending records lack mandatory bindings. They remain
+                        # readable for diagnostics but can never become grants.
+                        conn.execute("UPDATE pending_actions SET confirmed = 0 WHERE action_id IS NOT NULL")
                         conn.execute(
                             "UPDATE config SET updated_at = datetime('now') WHERE updated_at IS NULL OR updated_at = ''"
                         )
@@ -628,6 +725,25 @@ class DatabaseManager:
                         conn.execute(
                             "UPDATE config SET updated_at = datetime('now') WHERE updated_at IS NULL OR updated_at = ''"
                         )
+                    if version == 9:
+                        conn.executescript("""
+                              CREATE TABLE IF NOT EXISTS jwt_revoked (
+                                  jti TEXT PRIMARY KEY,
+                                  user_id TEXT NOT NULL,
+                                  token_type TEXT NOT NULL,
+                                  revoked_at TEXT NOT NULL,
+                                  expires_at INTEGER NOT NULL
+                              );
+                              CREATE INDEX IF NOT EXISTS idx_jwt_revoked_expires ON jwt_revoked(expires_at);
+                        """)
+                    if version == 10:
+                        for col, decl in (
+                            ("owner_session_id", "TEXT NOT NULL DEFAULT ''"),
+                            ("owner_identity_hash", "TEXT NOT NULL DEFAULT ''"),
+                            ("consent_bound", "INTEGER NOT NULL DEFAULT 0"),
+                        ):
+                            self._ensure_column("automation_rules", col, decl)
+                            self._ensure_column("ai_workflows", col, decl)
                     conn.execute(
                         "INSERT INTO schema_migrations (version, description) VALUES (?, ?)",
                         (version, desc),

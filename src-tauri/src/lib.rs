@@ -41,9 +41,15 @@ fn finish_ndjson_stream(pending: &mut Vec<u8>) -> Result<Option<String>, &'stati
     Ok(Some(text))
 }
 
+fn is_ready_health_response(response: &str) -> bool {
+    response.starts_with("HTTP/1.1 200")
+        && (response.contains("\"status\":\"healthy\"")
+            || response.contains("\"status\":\"degraded\""))
+}
+
 #[cfg(test)]
 mod stream_utf8_tests {
-    use super::{drain_complete_ndjson_lines, finish_ndjson_stream};
+    use super::{drain_complete_ndjson_lines, finish_ndjson_stream, is_ready_health_response};
 
     #[test]
     fn preserves_enye_split_between_chunks() {
@@ -88,6 +94,13 @@ mod stream_utf8_tests {
         assert_eq!(first, vec!["{\"a\":1}\n"]);
         assert_eq!(second, vec!["{\"b\":2}\n"]);
         assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn accepts_the_sidecar_health_contract() {
+        assert!(is_ready_health_response("HTTP/1.1 200 OK\r\n\r\n{\"status\":\"healthy\"}"));
+        assert!(is_ready_health_response("HTTP/1.1 200 OK\r\n\r\n{\"status\":\"degraded\"}"));
+        assert!(!is_ready_health_response("HTTP/1.1 200 OK\r\n\r\n{\"status\":\"failed\"}"));
     }
 }
 use tauri::ipc::Channel;
@@ -322,10 +335,7 @@ fn wait_for_sidecar(timeout_secs: u64, session_token: &str) -> bool {
             );
             if stream.write_all(request.as_bytes()).is_ok() {
                 let mut response = String::new();
-                if stream.read_to_string(&mut response).is_ok()
-                    && response.starts_with("HTTP/1.1 200")
-                    && response.contains("\"status\":\"ok\"")
-                {
+                if stream.read_to_string(&mut response).is_ok() && is_ready_health_response(&response) {
                     return true;
                 }
             }

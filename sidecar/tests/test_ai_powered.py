@@ -118,6 +118,26 @@ class TestAIIntentEngine:
         intent = engine.parse("show cpu usage")
         assert intent.target == "system.cpu"
 
+    def test_recognized_health_intent_is_not_reinterpreted_by_llm_context(self):
+        router = MagicMock()
+        router._key_map = {"openrouter": "sk-test"}
+        router.chat.return_value = {
+            "response": json.dumps(
+                {
+                    "action": "analyze",
+                    "target": "system.memory",
+                    "confidence": 0.95,
+                    "parameters": {},
+                }
+            ),
+        }
+        engine = IntentEngine(model_router=router)
+
+        intent = engine.parse("esta pesada la computadora", {"system_summary": {"cpu_percent": 90}})
+
+        assert intent.target == "system.health"
+        router.chat.assert_not_called()
+
 
 class TestAIDecisionEngine:
     def test_no_router_uses_rule_based(self):

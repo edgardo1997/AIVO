@@ -16,7 +16,7 @@ class TestParallelExecution:
             return ModelResponse(model_id=task["model_id"], provider="test", response_text=f"Response from {task['model_id']}", duration_ms=50, success=True)
 
         coordinator = MultiModelCoordinator(config=MultiModelConfig(min_models=2, max_models=3))
-        result = asyncio.run(coordinator.process("Test message", execute_fn=execute_fn))
+        asyncio.run(coordinator.process("Test message", execute_fn=execute_fn))
         assert len(call_order) >= 1
 
     def test_execution_speed_parallel(self):
@@ -26,7 +26,7 @@ class TestParallelExecution:
 
         start = time.monotonic()
         coordinator = MultiModelCoordinator(config=MultiModelConfig(min_models=2, max_models=3))
-        result = asyncio.run(coordinator.process("Test", execute_fn=slow_fn))
+        asyncio.run(coordinator.process("Test", execute_fn=slow_fn))
         elapsed = time.monotonic() - start
         assert elapsed < 1.0  # parallel execution should be fast
 

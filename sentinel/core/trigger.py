@@ -225,8 +225,13 @@ class TriggerEngine:
                     record.result = f"error: {e}"
                     logger.error("Trigger %s action failed: %s", record.trigger_id, e)
             else:
-                record.action_executed = action is not None
-                record.result = "fired_no_action" if not action else "fired"
+                # A configured action is not evidence that it ran.  The
+                # engine is intentionally fail-closed until a governed
+                # executor is wired: otherwise history would claim success
+                # for an action that never reached policy, consent, audit or
+                # the execution pipeline.
+                record.action_executed = False
+                record.result = "fired_no_action" if action is None else "execution_unavailable"
             fires.append(record)
         with self._lock:
             for record in fires:

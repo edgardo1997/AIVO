@@ -42,7 +42,7 @@ async function refreshAccessToken(): Promise<boolean> {
   } catch { clearTokens(); return false; }
 }
 
-async function getSessionToken(): Promise<string> {
+export async function getSessionToken(): Promise<string> {
   if (_accessToken) return _accessToken;
   const configured = import.meta.env.VITE_SENTINEL_SESSION_TOKEN as string | undefined;
   if (configured) return configured;

@@ -174,7 +174,6 @@ async def diagnostics_endpoint(request: Request) -> Dict[str, Any]:
 
 @router.get("/debug")
 def debug_endpoint(request: Request) -> Dict[str, Any]:
-    state = request.app.state
     result: Dict[str, Any] = {
         "runtime": "SentinelRuntime",
         "active_tasks": 0,

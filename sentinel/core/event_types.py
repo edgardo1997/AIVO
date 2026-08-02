@@ -126,6 +126,8 @@ WORKFLOW_STARTED = "workflow.started"
 WORKFLOW_STEP_EXECUTED = "workflow.step.executed"
 WORKFLOW_COMPLETED = "workflow.completed"
 WORKFLOW_FAILED = "workflow.failed"
+WORKFLOW_CANCELLED = "workflow.cancelled"
+WORKFLOW_DELETED = "workflow.deleted"
 
 # Model Execution
 MODEL_EXECUTION_STARTED = "model.execution.started"
@@ -225,6 +227,8 @@ ALL_EVENTS = frozenset(
         WORKFLOW_STEP_EXECUTED,
         WORKFLOW_COMPLETED,
         WORKFLOW_FAILED,
+        WORKFLOW_CANCELLED,
+        WORKFLOW_DELETED,
         MODEL_EXECUTION_STARTED,
         MODEL_EXECUTION_COMPLETED,
         MODEL_EXECUTION_FAILED,

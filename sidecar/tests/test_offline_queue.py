@@ -231,6 +231,91 @@ class TestOrchestratorOfflineIntegration:
         assert "no está configurada" in (result.error or "").lower()
 
     @pytest.mark.asyncio
+    async def test_offline_sync_replays_deferred_process(self):
+        from sentinel.core.orchestrator import Orchestrator
+        from sentinel.core.intent import IntentEngine
+        from sentinel.core.tool_gateway import ToolGateway
+        from sentinel.core.offline_queue import QueueItem, QueueStatus
+
+        gw = MagicMock(spec=ToolGateway)
+        gw.execute = AsyncMock()
+        q = OfflineQueue()
+        orch = Orchestrator(intent_engine=IntentEngine(), tool_gateway=gw, offline_queue=q)
+        replay = AsyncMock()
+        orch.process = replay
+        replay.return_value = MagicMock(error=None)
+
+        item = QueueItem(
+            id="oq1",
+            operation_type="orchestrator.process",
+            payload={"utterance": "deferred task", "session_id": "s1", "identity": {"user_id": "u1"}},
+        )
+        synced = await orch._sync_offline_item(item)
+        assert synced is True
+        replay.assert_awaited_once()
+        call = replay.await_args
+        assert call.args[0] == "deferred task"
+        assert call.kwargs["session_id"] == "s1"
+        assert call.kwargs["identity"] == {"user_id": "u1"}
+
+    @pytest.mark.asyncio
+    async def test_offline_sync_fails_when_replay_errors(self):
+        from sentinel.core.orchestrator import Orchestrator
+        from sentinel.core.intent import IntentEngine
+        from sentinel.core.tool_gateway import ToolGateway
+        from sentinel.core.offline_queue import QueueItem
+
+        gw = MagicMock(spec=ToolGateway)
+        gw.execute = AsyncMock()
+        q = OfflineQueue()
+        orch = Orchestrator(intent_engine=IntentEngine(), tool_gateway=gw, offline_queue=q)
+        orch.process = AsyncMock(return_value=MagicMock(error="boom"))
+
+        item = QueueItem(
+            id="oq2",
+            operation_type="orchestrator.process",
+            payload={"utterance": "deferred task"},
+        )
+        assert await orch._sync_offline_item(item) is False
+
+    @pytest.mark.asyncio
+    async def test_offline_sync_unsupported_operation_type(self):
+        from sentinel.core.orchestrator import Orchestrator
+        from sentinel.core.intent import IntentEngine
+        from sentinel.core.tool_gateway import ToolGateway
+        from sentinel.core.offline_queue import QueueItem
+
+        gw = MagicMock(spec=ToolGateway)
+        gw.execute = AsyncMock()
+        q = OfflineQueue()
+        orch = Orchestrator(intent_engine=IntentEngine(), tool_gateway=gw, offline_queue=q)
+
+        item = QueueItem(id="oq3", operation_type="unknown.op", payload={})
+        assert await orch._sync_offline_item(item) is False
+
+    @pytest.mark.asyncio
+    async def test_process_offline_persists_identity_in_payload(self):
+        from sentinel.core.orchestrator import Orchestrator
+        from sentinel.core.intent import IntentEngine
+        from sentinel.core.tool_gateway import ToolGateway
+        from sentinel.core.offline_queue import OfflineQueue
+
+        gw = MagicMock(spec=ToolGateway)
+        gw.execute = AsyncMock()
+        q = OfflineQueue()
+        orch = Orchestrator(intent_engine=IntentEngine(), tool_gateway=gw, offline_queue=q)
+        result = await orch.process_offline(
+            "deferred",
+            identity={"user_id": "alice"},
+            session_id="sess-9",
+        )
+        assert result.action_id is not None
+        item = q.get(result.action_id)
+        assert item is not None
+        assert item.payload["identity"] == {"user_id": "alice"}
+        assert item.payload["session_id"] == "sess-9"
+
+    @pytest.mark.asyncio
     async def test_network_transition_callback(self):
         from sentinel.core.orchestrator import Orchestrator
         from sentinel.core.intent import IntentEngine

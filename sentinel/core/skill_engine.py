@@ -99,12 +99,12 @@ class SkillEngine:
         last_data = None
 
         for step in plan.steps:
-            if not self._tool_gateway and not self._execute_step:
+            if not self._execution_pipeline and not self._execute_step:
                 tool_results.append(
                     {
                         "step_id": step.id,
                         "success": False,
-                        "error": "ToolGateway not available",
+                        "error": "No execution route configured (ExecutionPipeline required)",
                     }
                 )
                 overall_success = False
@@ -121,9 +121,6 @@ class SkillEngine:
                     step.tool_id, step.params, step_context,
                     source="skill",
                 )
-                sr = {"success": tr.success, "data": tr.data, "error": tr.error, "duration_ms": tr.duration_ms}
-            elif self._tool_gateway:
-                tr = await self._tool_gateway.execute(step.tool_id, step.params, step_context)
                 sr = {"success": tr.success, "data": tr.data, "error": tr.error, "duration_ms": tr.duration_ms}
 
             step_entry = {

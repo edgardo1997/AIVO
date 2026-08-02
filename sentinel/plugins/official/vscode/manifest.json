@@ -1,0 +1,13 @@
+{
+  "id": "vscode",
+  "name": "VS Code",
+  "version": "1.0.0",
+  "author": "Sentinel Team",
+  "description": "Work with Visual Studio Code from Sentinel: open projects, detect the active workspace, run tasks and inspect git status.",
+  "entrypoint": "plugin.py",
+  "capabilities": ["tools", "commands"],
+  "permissions": ["application.launch", "filesystem.read"],
+  "events": [],
+  "license": "MIT",
+  "homepage": "https://sentinel.local/plugins/vscode"
+}

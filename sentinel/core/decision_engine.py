@@ -143,9 +143,6 @@ class DecisionEngine:
         risk_classification: Optional[RiskClassification] = None,
     ) -> DecisionResult:
         level = self._get_level()
-        if (context or {}).get("_orchestrator_approval"):
-            level = "admin"
-
         # RiskClassification es fuente primaria de decisión
         if risk_classification is not None and level != "admin":
             # Si RiskClassifier dice LOW, permitir salvo que política explicita lo bloquee

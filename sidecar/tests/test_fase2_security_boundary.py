@@ -47,12 +47,10 @@ class TestExecutionPipelineGuardRequired:
         assert not result.success
         assert "ToolExecutionGuard" in (result.error or "")
 
-    async def test_execute_direct_fails_without_gateway(self):
+    async def test_direct_execution_bypass_is_not_exposed(self):
         from sentinel.core.execution_pipeline import ExecutionPipeline
         pipeline = ExecutionPipeline()
-        result = await pipeline._execute_direct("test.tool", {}, {})
-        assert not result.success
-        assert "no toolgateway" in (result.error or "").lower()
+        assert not hasattr(pipeline, "_execute_direct")
 
 
 @pytest.mark.unit
@@ -70,10 +68,6 @@ class TestV1EndpointAuthentication:
                 tree = ast.parse(pyfile.read_text(encoding="utf-8"))
             except SyntaxError:
                 continue
-            routers = [node for node in ast.walk(tree) if isinstance(node, ast.Call) and
-                       getattr(node.func, 'attr', None) in ('get', 'post', 'put', 'patch', 'delete')]
-            decorator_lines = {node.lineno for node in routers}
-
             class EndpointFinder(ast.NodeVisitor):
                 def __init__(self):
                     self.endpoints = []
@@ -115,10 +109,10 @@ class TestConfirmEndpointUsesOrchestrator:
         content = pyfile.read_text(encoding="utf-8")
         assert "get_gateway().confirm" not in content, \
             "/v1/confirm still calls get_gateway().confirm() — must use Orchestrator"
-        assert "get_orchestrator()" in content, \
-            "/v1/confirm no longer references orchestrator"
-        assert "approve_execution" in content, \
-            "/v1/confirm must call orchestrator.approve_execution()"
+        assert "confirm_pending_tool" in content, \
+            "/v1/confirm must resolve confirmation through the broker helper"
+        assert "approve_execution" not in content, \
+            "/v1/confirm must not fall back to legacy Orchestrator approval"
 
 
 @pytest.mark.unit
@@ -148,3 +142,189 @@ class TestGuardWiredInProduction:
                 pytest.fail(f"{rel} still references .confirm() — bypass risk")
             if "gateway.confirm" in content:
                 pytest.fail(f"{rel} still calls gateway.confirm() — bypass risk")
+
+    def test_guard_consent_wiring_in_main(self):
+        """main.py debe conectar ConsentService + RiskClassifier al guard."""
+        pyfile = ROOT / "sidecar" / "main.py"
+        content = pyfile.read_text(encoding="utf-8")
+        assert "set_consent_service" in content, \
+            "ConsentService not wired into guard in main.py"
+        assert "set_risk_classifier" in content, \
+            "RiskClassifier not wired into guard in main.py"
+
+    def test_guard_support_service_propagation(self):
+        """ExecutionPipeline debe propagar audit/consent/risk al guard."""
+        pyfile = ROOT / "sentinel" / "core" / "execution_pipeline.py"
+        content = pyfile.read_text(encoding="utf-8")
+        assert "set_audit_service" in content and "self._guard.set_audit_service" in content, \
+            "Pipeline does not propagate audit to guard"
+        assert "self._guard.set_consent_service" in content, \
+            "Pipeline does not propagate consent to guard"
+        assert "self._guard.set_risk_classifier" in content, \
+            "Pipeline does not propagate risk classifier to guard"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+class TestGuardApprovedExecutionFlow:
+    """Una ejecución ya aprobada debe pasar el guard sin reconfirmación."""
+
+    def _make_guard(self, context=None):
+        from unittest.mock import MagicMock, AsyncMock
+        from sentinel.core import ToolSpec, ToolResult, ToolStatus, ToolGateway
+        from sentinel.security.tool_guard import ToolExecutionGuard
+        from sentinel.security.models import ToolRequest
+
+        gateway = MagicMock(spec=ToolGateway)
+        gateway.get_spec = MagicMock(return_value=ToolSpec(
+            id="executor.command",
+            name="Command",
+            description="Run a command",
+            version="1.0",
+            parameters={},
+            required_permissions=["executor.command"],
+            status=ToolStatus.ACTIVE,
+        ))
+        gateway.execute = AsyncMock(return_value=ToolResult.ok(
+            data={"output": "ok"}, tool_id="executor.command"
+        ))
+        guard = ToolExecutionGuard(tool_gateway=gateway)
+        guard._policy = _require_confirm_policy()
+        return guard, gateway
+
+    async def test_orchestrator_approval_does_not_authorize_execution(self):
+        guard, gateway = self._make_guard()
+        from sentinel.security.models import ToolRequest
+        request = ToolRequest(
+            tool_name="executor.command",
+            arguments={"command": "echo ok"},
+            source="orchestrator",
+            user_context={
+                "_orchestrator_approval": True,
+                "identity": {"user_id": "alice"},
+            },
+            user_id="alice",
+        )
+        result = await guard.execute(request)
+        assert result.success is False
+        gateway.execute.assert_not_awaited()
+
+    async def test_unvalidated_confirmation_grant_does_not_authorize_execution(self):
+        guard, gateway = self._make_guard()
+        from sentinel.security.models import ToolRequest
+        request = ToolRequest(
+            tool_name="executor.command",
+            arguments={"command": "echo ok"},
+            source="orchestrator",
+            user_context={
+                "_confirmation_grant": {
+                    "tool_id": "executor.command",
+                    "user_id": "alice",
+                }
+            },
+            user_id="alice",
+        )
+        result = await guard.execute(request)
+        assert result.success is False
+        gateway.execute.assert_not_awaited()
+
+    async def test_confirmation_grant_with_tampered_params_hash_does_not_authorize_execution(self):
+        """A syntactically complete grant must still bind the exact payload."""
+        guard, gateway = self._make_guard()
+        from sentinel.security.models import ToolRequest
+        request = ToolRequest(
+            tool_name="executor.command",
+            arguments={"command": "echo altered"},
+            source="orchestrator",
+            user_context={
+                "_confirmation_grant": {
+                    "tool_id": "executor.command",
+                    "user_id": "alice",
+                    "params_hash": "0" * 16,
+                    "identity_hash": "0" * 16,
+                },
+                "identity": {"user_id": "alice"},
+            },
+            user_id="alice",
+        )
+        result = await guard.execute(request)
+        assert result.success is False
+        gateway.execute.assert_not_awaited()
+
+    async def test_confirmation_grant_rejected_for_other_user(self):
+        guard, gateway = self._make_guard()
+        from sentinel.security.models import ToolRequest
+        request = ToolRequest(
+            tool_name="executor.command",
+            arguments={"command": "echo ok"},
+            source="orchestrator",
+            user_context={
+                "_confirmation_grant": {
+                    "tool_id": "executor.command",
+                    "user_id": "bob",
+                }
+            },
+            user_id="alice",
+        )
+        result = await guard.execute(request)
+        assert result.success is False, "Grant of another user must not approve"
+
+    async def test_denied_without_approval_no_consent(self):
+        guard, gateway = self._make_guard()
+        from sentinel.security.models import ToolRequest
+        request = ToolRequest(
+            tool_name="executor.command",
+            arguments={"command": "echo ok"},
+            source="orchestrator",
+            user_context={"identity": {"user_id": "alice"}},
+            user_id="alice",
+        )
+        result = await guard.execute(request)
+        assert result.success is False
+        assert "confirmation" in (result.error or "").lower()
+
+    async def test_missing_session_never_reaches_executor(self):
+        guard, gateway = self._make_guard()
+        from sentinel.security.models import ToolRequest
+        request = ToolRequest(
+            tool_name="executor.command",
+            arguments={"command": "echo denied"},
+            source="api",
+            user_context={"identity": {"user_id": "alice"}},
+            user_id="alice",
+            session_id="",
+        )
+        result = await guard.execute(request)
+        assert result.success is False
+        gateway.execute.assert_not_awaited()
+
+
+def _require_confirm_policy():
+    """PolicyEngine que exige confirmación salvo aprobación previa."""
+    from sentinel.core.policy import Policy, PolicyEffect, PolicyResult
+
+    class _RequireConfirmPolicy(Policy):
+        def policy_id(self) -> str:
+            return "test_require_confirm"
+
+        def description(self) -> str:
+            return "Require confirmation"
+
+        async def evaluate(self, tool_id, params, context):
+            grant = context.get("_confirmation_grant") or {}
+            if grant and grant.get("user_id") == (context.get("identity") or {}).get("user_id"):
+                return PolicyResult(
+                    effect=PolicyEffect.ALLOW,
+                    policy_id=self.policy_id(),
+                    reason="granted",
+                )
+            return PolicyResult(
+                effect=PolicyEffect.REQUIRE_CONFIRM,
+                policy_id=self.policy_id(),
+                reason="confirm required",
+            )
+
+    from sentinel.core.policy_engine import PolicyEngine
+    engine = PolicyEngine(default_effect=PolicyEffect.REQUIRE_CONFIRM)
+    engine.register(_RequireConfirmPolicy(), permissions=["executor.command"])
+    return engine

@@ -1,0 +1,107 @@
+/*
+ * Sentinel Design System — Tokens (FASE 8)
+ *
+ * Principios: claro, minimalista, profesional, futurista, confiable.
+ * Prefijo `--sntl-` para no colisionar con el CSS global del Workbench.
+ */
+:root {
+  /* Superficies */
+  --sntl-bg: #0b0e13;
+  --sntl-bg-raised: #12161d;
+  --sntl-bg-card: #171c25;
+  --sntl-bg-hover: #1e2530;
+  --sntl-bg-inset: #0d1016;
+
+  /* Bordes */
+  --sntl-border: #262e3b;
+  --sntl-border-strong: #39445a;
+
+  /* Texto */
+  --sntl-text: #e8ecf3;
+  --sntl-text-secondary: #9aa6b8;
+  --sntl-text-muted: #6b7688;
+
+  /* Acento (producto) */
+  --sntl-accent: #57c8e8;
+  --sntl-accent-soft: rgba(87, 200, 232, 0.14);
+  --sntl-glow: rgba(87, 200, 232, 0.35);
+
+  /* Estados */
+  --sntl-success: #69d394;
+  --sntl-success-soft: rgba(105, 211, 148, 0.14);
+  --sntl-warning: #f5b76e;
+  --sntl-warning-soft: rgba(245, 183, 110, 0.14);
+  --sntl-danger: #ff7a7a;
+  --sntl-danger-soft: rgba(255, 122, 122, 0.14);
+  --sntl-info: #7aa2ff;
+  --sntl-info-soft: rgba(122, 162, 255, 0.14);
+
+  /* Radio */
+  --sntl-radius-sm: 6px;
+  --sntl-radius: 10px;
+  --sntl-radius-lg: 16px;
+
+  /* Sombra */
+  --sntl-shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
+  --sntl-shadow-glow: 0 0 0 1px var(--sntl-accent-soft), 0 0 24px var(--sntl-glow);
+
+  /* Tipografía */
+  --sntl-font-ui: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --sntl-font-mono: 'Cascadia Code', 'Fira Code', ui-monospace, monospace;
+}
+
+/* Shell de producto */
+.sntl-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--sntl-bg);
+  color: var(--sntl-text);
+  font-family: var(--sntl-font-ui);
+}
+
+.sntl-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--sntl-border);
+  background: var(--sntl-bg-raised);
+}
+
+.sntl-header h1 {
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.sntl-header .sntl-sub {
+  font-size: 12px;
+  color: var(--sntl-text-secondary);
+}
+
+.sntl-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px;
+}
+
+.sntl-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.sntl-grid--2 {
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+}
+
+.sntl-empty {
+  display: grid;
+  place-items: center;
+  min-height: 200px;
+  color: var(--sntl-text-muted);
+  font-size: 13px;
+}

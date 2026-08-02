@@ -190,6 +190,30 @@ class StubToolGateway:
 
         self._tools[name] = Tool(id=name, name=name, execute_fn=func)
 
+    def get_spec(self, tool_id: str) -> Any:
+        from sentinel.core.tool import ToolSpec, ToolStatus
+
+        if tool_id in self._tools:
+            tool = self._tools[tool_id]
+            return ToolSpec(
+                id=tool.id,
+                name=tool.name,
+                description="Stub e2e tool",
+                version="1.0.0",
+                parameters={},
+                required_permissions=[],
+                status=ToolStatus.ACTIVE,
+            )
+        return ToolSpec(
+            id=tool_id,
+            name=tool_id,
+            description="Stub e2e tool",
+            version="1.0.0",
+            parameters={},
+            required_permissions=[],
+            status=ToolStatus.ACTIVE,
+        )
+
     async def execute(self, tool_id: str, params: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Any:
         from sentinel.core.tool import ToolResult
         import time
@@ -304,6 +328,24 @@ def create_sentinel_runtime(auto_approve: bool = True) -> Any:
         Configured SentinelRuntime instance with stub components.
     """
     from sentinel.core.runtime import SentinelRuntime
+    from sentinel.core.execution_pipeline import ExecutionPipeline
+    from sentinel.security.tool_guard import ToolExecutionGuard
+
+    gateway = StubToolGateway()
+    audit = StubAuditService()
+    consent = StubConsentService(auto_grant=auto_approve)
+    guard = ToolExecutionGuard(
+        tool_gateway=gateway,
+        policy_engine=StubPolicyEngine(),
+        audit_service=audit,
+        consent_service=consent,
+        risk_classifier=StubRiskClassifier(),
+    )
+    pipeline = ExecutionPipeline(
+        tool_gateway=gateway,
+        tool_execution_guard=guard,
+        audit_service=audit,
+    )
 
     runtime = SentinelRuntime(
         intent_engine=StubIntentEngine(),
@@ -312,14 +354,15 @@ def create_sentinel_runtime(auto_approve: bool = True) -> Any:
         risk_classifier=StubRiskClassifier(),
         decision_engine=StubDecisionEngine(),
         policy_engine=StubPolicyEngine(),
-        consent_service=StubConsentService(auto_grant=auto_approve),
-        tool_gateway=StubToolGateway(),
-        audit_service=StubAuditService(),
+        consent_service=consent,
+        tool_gateway=gateway,
+        audit_service=audit,
         memory=StubMemory(),
         performance_intelligence=StubPerformanceIntelligence(),
         model_router=StubModelRouter(),
         rate_limiter=StubRateLimiter(),
         event_bus=None,
+        execution_pipeline=pipeline,
     )
     return runtime
 

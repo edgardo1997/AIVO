@@ -55,6 +55,7 @@ async def test_transient_step_records_retry_attempts():
     ]
     orchestrator = object.__new__(Orchestrator)
     orchestrator._tool_gateway = gateway
+    orchestrator._execution_pipeline = gateway
     orchestrator._retry_handler = RetryHandler()
     orchestrator._fallback_handler = FallbackHandler()
     orchestrator._feedback = None

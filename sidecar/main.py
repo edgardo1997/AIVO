@@ -96,6 +96,7 @@ def _start_observability_flush():
 async def sentinel_lifespan(_app: FastAPI):
     """Own the runtime services that must not outlive the API process."""
     from repositories.async_engine import close_async_engine, init_async_db
+    from modules import close_intelligence_storage, initialize_intelligence_storage
 
     initialize_runtime()
     from services.local_model_service import runtime as local_model_runtime
@@ -114,6 +115,8 @@ async def sentinel_lifespan(_app: FastAPI):
     # conversation. Installation remains an explicit user action.
     local_model_runtime.start_if_installed_async()
     await init_async_db()
+    if not await initialize_intelligence_storage():
+        raise RuntimeError("Intelligence persistence initialization failed")
     log.info("Async database engine initialized on startup")
     try:
         if _should_enable_fleet_startup():
@@ -141,6 +144,11 @@ async def sentinel_lifespan(_app: FastAPI):
             except Exception:
                 shutdown_clean = False
                 log.exception("Failed to stop %s", service_name)
+        try:
+            await close_intelligence_storage()
+        except Exception:
+            shutdown_clean = False
+            log.exception("Failed to close intelligence storage")
         try:
             await close_async_engine()
         except Exception:
@@ -201,7 +209,7 @@ def _create_app() -> FastAPI:
     application = FastAPI(
         title="Sentinel Sidecar",
         description="Local trust layer for AI orchestration, policy-gated execution, and audit.",
-        version="1.0.0-rc.1",
+        version="1.0.0",
         docs_url="/docs" if docs_enabled else None,
         redoc_url="/redoc" if docs_enabled else None,
         openapi_url="/openapi.json" if docs_enabled else None,
@@ -244,6 +252,8 @@ from routers.v1.agents import router as v1_agents_router
 from routers.v1.models import router as v1_models_router
 from routers.v1.triggers import router as v1_triggers_router
 from routers.v1.profile import router as v1_profile_router
+from routers.v1.admin_fleet import router as v1_admin_fleet_router
+from routers.v1.plans import router as v1_plans_router
 from routers.auth_jwt import router as auth_jwt_router
 from modules.admin import router as admin_router
 from modules.fleet import router as fleet_router
@@ -255,6 +265,9 @@ from routers.events import router as events_router
 from routers.system_live import router as system_live_router
 from routers.consent import router as consent_router
 from sentinel.observability.endpoints import router as observability_router
+from modules.product_experience import router as product_router
+from modules.sentinel_plugins import router as sentinel_plugins_router
+from modules.automations import router as automations_router
 
 
 def _register_routes(application: FastAPI) -> None:
@@ -274,10 +287,15 @@ def _register_routes(application: FastAPI) -> None:
         (v1_models_router, "/v1", ["v1"]),
         (v1_triggers_router, "/v1", ["v1"]),
         (v1_profile_router, "/v1", ["v1"]),
+        (v1_admin_fleet_router, "/v1", ["v1", "admin"]),
+        (v1_plans_router, "/v1", ["v1"]),
         (events_router, "", ["events"]),
         (system_live_router, "", ["system"]),
         (consent_router, "", ["consent"]),
         (observability_router, "/api/observability", ["observability"]),
+        (product_router, "/api/sentinel", ["product"]),
+        (sentinel_plugins_router, "", ["plugins"]),
+        (automations_router, "/api/sentinel", ["automations"]),
     ):
         application.include_router(router, prefix=prefix, tags=tags)
 
@@ -360,6 +378,7 @@ from modules import audit as audit_mod
 from modules import plugins as plugins_mod
 from modules import proactive as proactive_mod
 from modules import triggers as triggers_mod
+from modules import automations as automations_mod
 from modules import ai_provider as ai_mod
 from modules import fleet as fleet_mod
 from modules import filesystem as filesystem_mod
@@ -377,6 +396,7 @@ from modules import (
     register_agent_tools,
     register_fleet_tools,
     register_plugins_tools,
+    register_product_tools,
     register_permissions_tools,
     init_policies,
     register_audit_tools,
@@ -425,8 +445,12 @@ def _wire_runtime_dependencies() -> None:
         audit_svc=audit_mod._svc,
     )
     triggers_mod.wire_dependencies(db=db)
+    automations_mod.wire_dependencies(db=db)
     filesystem_mod.wire_dependencies(audit_svc=audit_mod._svc)
     profile_mod.wire_dependencies(db=db)
+    from modules import product_experience
+
+    product_experience.wire_dependencies(db=db)
 
 
 def _build_agent_registry() -> AgentRegistry:
@@ -452,6 +476,7 @@ def _register_gateway_components(runtime_gateway, runtime_capabilities, runtime_
         register_agent_tools,
         register_fleet_tools,
         register_plugins_tools,
+        register_product_tools,
         register_permissions_tools,
         register_audit_tools,
         register_proactive_tools,
@@ -480,6 +505,7 @@ def _register_gateway_components(runtime_gateway, runtime_capabilities, runtime_
         register(runtime_gateway)
     runtime_gateway.set_trigger_engine(triggers_mod.get_engine())
     triggers_mod.ensure_wired()
+    automations_mod.ensure_wired()
     triggers_v1_setup(engine=triggers_mod.get_engine(), db=db)
     init_policies(runtime_gateway)
 
@@ -560,11 +586,26 @@ def initialize_runtime() -> None:
                 orch.set_consent_service(consent_svc)
                 log.info("ConsentService wired into Orchestrator")
 
+            # Conectar ConsentService + RiskClassifier al ToolExecutionGuard (chokepoint único)
+            from modules import get_execution_pipeline
+
+            _pipeline = get_execution_pipeline()
+            if _pipeline is not None:
+                _pipeline.set_consent_service(consent_svc)
+                _pipeline.set_risk_classifier(consent_svc.classifier)
+                log.info("ConsentService + RiskClassifier wired into ToolExecutionGuard")
+
             gw = runtime_gateway
             cap_registry = runtime_capabilities
             agent_registry = runtime_agents
             _runtime_initialized = True
             _runtime_status = "ready"
+            try:
+                from modules.product_metrics_probe import record_session
+
+                record_session()
+            except Exception:
+                log.debug("session metric not recorded", exc_info=True)
             log.info(
                 "Sentinel runtime initialized (%d tools, %d capabilities)",
                 len(runtime_gateway.list_active()),
@@ -609,7 +650,7 @@ def health():
         status = "failed"
     return {
         "status": status,
-        "version": "1.0.0-rc.1",
+        "version": "1.0.0",
         "runtime": _runtime_status,
         "database": "connected" if db_ok else "disconnected",
         "gateway": f"{len(gw.list_active()) if gw_ok else 0} tools" if gw_ok else "unavailable",
@@ -623,7 +664,7 @@ def info(request: Request):
     identity = getattr(request.state, "identity", None)
     result: dict[str, object] = {
         "name": "Sentinel Sidecar",
-        "version": "1.0.0-rc.1",
+        "version": "1.0.0",
     }
     if identity and identity.is_authenticated:
         result["modules"] = [

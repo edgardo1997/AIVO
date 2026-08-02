@@ -16,8 +16,6 @@ AUTHORIZED_MODULES = frozenset({
     "sentinel/core/execution_pipeline.py",
     # ToolExecutionGuard — wraps gateway inside the guard
     "sentinel/security/tool_guard.py",
-    # Legacy fallback — deprecated, will be removed
-    "sentinel/core/runtime.py",
 })
 
 # Files that may still reference get_gateway() for non-execute operations
@@ -25,14 +23,10 @@ AUTHORIZED_MODULES = frozenset({
 AUTHORIZED_FOR_IMPORT = frozenset({
     "sidecar/modules/__init__.py",      # defines get_gateway and get_execution_pipeline
     "sidecar/modules/sentinel_bridge_helpers.py",  # helper def, not direct execute
-    "sidecar/tests/",                   # test files
 })
 
 # Files that have explicit fallback bypasses (with backward compat comment)
-KNOWN_FALLBACKS = frozenset({
-    "sentinel/core/grounding.py",       # fallback when no execution_pipeline configured
-    "sentinel/core/skill_engine.py",    # fallback when no execution_pipeline configured
-})
+KNOWN_FALLBACKS = frozenset({})
 
 
 def _get_py_files():
@@ -85,6 +79,13 @@ def test_no_direct_gateway_execute_outside_authorized():
                     if isinstance(node.func.value, ast.Name):
                         name = node.func.value.id
                         if name in ("gateway", "_gateway", "_tool_gateway", "get_gateway"):
+                            self.found.append((node.lineno, name))
+                    elif isinstance(node.func.value, ast.Attribute):
+                        # Handle instance fields such as self._gateway.execute().
+                        # The prior verifier only matched bare names, leaving this
+                        # production-call form outside the structural guarantee.
+                        name = node.func.value.attr
+                        if name in ("gateway", "_gateway", "_tool_gateway"):
                             self.found.append((node.lineno, name))
                     elif isinstance(node.func.value, ast.Call):
                         # handle get_gateway().execute()

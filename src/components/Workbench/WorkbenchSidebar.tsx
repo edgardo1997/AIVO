@@ -94,7 +94,7 @@ export function WorkbenchSidebar() {
       <div className="wb-new-nav">
         {viewGroups.map((group: any) => (
           <div key={group.id}>
-            {group.items.slice(0, 3).map((item: any) => (
+            {group.items.slice(0, 4).map((item: any) => (
               <button
                 key={item.key}
                 className={`wb-new-nav-item ${view === item.key ? "active" : ""}`}

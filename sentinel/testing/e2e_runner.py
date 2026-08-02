@@ -1,8 +1,11 @@
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
+import logging
 import time
 
 from sentinel.testing.assertions import E2EAssertions
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -43,8 +46,8 @@ class E2ERunner:
         for fn in self._hooks.get(event, []):
             try:
                 fn(**kwargs)
-            except Exception as e:
-                pass
+            except Exception:
+                logger.warning("E2E hook failed for event '%s'", event, exc_info=True)
 
     async def run_scenario(self, name: str, input_text: str, assertions: List[Callable[[Dict[str, Any]], None]]) -> E2EResult:
         self._fire("before_scenario", name=name, input_text=input_text)

@@ -344,6 +344,6 @@ class IntelligenceOrchestrator:
                 )
                 parts.append(f"Estimated time: {prediction.estimated_display} (confidence: {prediction.confidence:.0%})")
             except Exception:
-                pass
+                logger.warning("Time prediction unavailable for model '%s'", model.id, exc_info=True)
 
         return " | ".join(parts)

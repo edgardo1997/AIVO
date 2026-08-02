@@ -27,6 +27,7 @@ _model_registry = None
 _capability_engine = None
 _model_coordinator = None
 _model_strategy_engine = None
+_storage_engine = None
 
 
 def get_model_registry():
@@ -267,11 +268,12 @@ class _OrchestratorHolder:
             context_provider=_get_environment_profile,
         )
         sim = SimulationEngine()
+        from repositories.database import DatabaseManager as _CanonicalDatabaseManager
+
+        _canonical_db = _CanonicalDatabaseManager()
         cost_tracker = CostTracker(
             db_path=os.path.join(
-                os.path.dirname(cls._memory._db_path)
-                if hasattr(cls._memory, "_db_path") and cls._memory._db_path
-                else ".",
+                os.path.dirname(_canonical_db.db_path) or ".",
                 "cost_tracker.db",
             )
         )
@@ -410,7 +412,7 @@ def _init_gateway():
 
 
 async def _init_storage_and_intelligence(intel, storage):
-    """Inicializa el motor de almacenamiento y el registro de modelos en segundo plano."""
+    """Initialize persistent intelligence storage on the owning application loop."""
     from sentinel.storage.repositories.metric_repository import MetricRepository
     from sentinel.storage.repositories.feedback_repository import FeedbackRepository
     from sentinel.storage.repositories.model_repository import ModelRepository
@@ -440,20 +442,32 @@ async def _init_storage_and_intelligence(intel, storage):
         except Exception as exc:
             _log.warning("Learning recovery skipped: %s", exc)
 
-        try:
-            discovery_result = await intel.discover_models()
-            _log.info(
-                "Model discovery complete: status=%s added=%s updated=%s total=%s",
-                discovery_result.get("status"),
-                discovery_result.get("added"),
-                discovery_result.get("updated"),
-                discovery_result.get("total_after"),
-            )
-            await intel.persist_registry_to_repository()
-        except Exception as exc:
-            _log.warning("Model discovery skipped: %s", exc)
+        # Provider discovery may contact external services. It is deliberately
+        # deferred to the explicit, governed model-discovery action rather
+        # than becoming an unconsented side effect of process startup.
+        return True
     except Exception as exc:
         _log.warning("Intelligence persistence init failed: %s", exc)
+        return False
+
+
+async def initialize_intelligence_storage() -> bool:
+    """Initialize persistence from the application lifespan, never a detached task."""
+    storage = _storage_engine
+    if storage is None:
+        _log.warning("StorageEngine unavailable; intelligence persistence was not initialized")
+        return False
+    orchestrator = get_sentinel_orchestrator()
+    if orchestrator is None:
+        _log.warning("Sentinel Orchestrator unavailable; intelligence persistence was not initialized")
+        return False
+    return await _init_storage_and_intelligence(orchestrator._intelligence, storage)
+
+
+async def close_intelligence_storage() -> None:
+    """Close the aiosqlite connection before its owning event loop terminates."""
+    if _storage_engine is not None:
+        await _storage_engine.close()
 
 
 def get_execution_pipeline():
@@ -482,7 +496,20 @@ def _init_execution_pipeline():
     _execution_pipeline = ExecutionPipeline(
         tool_gateway=gw,
         tool_execution_guard=guard,
+        event_bus=get_event_bus(),
     )
+
+    async def _execute_confirmed(tool_id, params, context):
+        return await _execution_pipeline.execute(tool_id, params, context, source="confirmation")
+
+    gw.set_confirmation_executor(_execute_confirmed)
+    try:
+        from modules.product_metrics_probe import record_first_action
+
+        _execution_pipeline.set_first_action_recorder(record_first_action)
+        _log.info("First-action recorder wired into shared ExecutionPipeline")
+    except Exception:
+        _log.debug("First-action recorder not wired", exc_info=True)
     _execution_pipeline_ready = True
     _log.info("Shared ExecutionPipeline initialized with ToolExecutionGuard")
 
@@ -649,6 +676,28 @@ def register_plugins_tools(gateway):
     _log.info("Plugins tools registered in shared gateway")
 
 
+def register_product_tools(gateway):
+    from .product_experience import _control, _modes
+    from sentinel.tools.product_tools import (
+        ProductCreateProfileTool,
+        ProductFreeResourcesTool,
+        ProductModeActivateTool,
+        ProductModeDeactivateTool,
+        ProductModeRollbackTool,
+        ProductOptimizeTool,
+    )
+
+    modes = _modes()
+    control = _control()
+    gateway.register(ProductModeActivateTool(modes, control))
+    gateway.register(ProductModeDeactivateTool(modes, control))
+    gateway.register(ProductModeRollbackTool(modes, control))
+    gateway.register(ProductOptimizeTool(modes, control))
+    gateway.register(ProductFreeResourcesTool(modes, control))
+    gateway.register(ProductCreateProfileTool(modes, control))
+    _log.info("Product Experience action tools registered in shared gateway")
+
+
 def register_admin_tools(gateway):
     from sentinel.tools.admin_tools import ConfigSetTool, ConfigDeleteTool, BackupTool
 
@@ -667,6 +716,8 @@ def register_permissions_tools(gateway):
         PermissionConfirmTool,
         PermissionAddRuleTool,
         PermissionRemoveRuleTool,
+        PermissionAddBlocklistTool,
+        PermissionRemoveBlocklistTool,
     )
 
     gateway.register(PermissionStatusTool(perm_svc))
@@ -675,6 +726,8 @@ def register_permissions_tools(gateway):
     gateway.register(PermissionConfirmTool(gateway))
     gateway.register(PermissionAddRuleTool(perm_svc))
     gateway.register(PermissionRemoveRuleTool(perm_svc))
+    gateway.register(PermissionAddBlocklistTool(perm_svc))
+    gateway.register(PermissionRemoveBlocklistTool(perm_svc))
     _log.info("Permissions tools registered in shared gateway")
 
 
@@ -998,12 +1051,15 @@ def init_sentinel_orchestrator(
     event_bus=None,
     rate_limit_config=None,
 ):
+    global _storage_engine
     from sentinel.core import IntentEngine, ModelRouter, Planner, DecisionEngine, Orchestrator
 
     if memory is not None:
         from sentinel.core.confirmation import ConfirmationBroker
 
-        gateway.set_confirmation_broker(ConfirmationBroker(memory))
+        confirmation_broker = ConfirmationBroker(memory)
+        gateway.set_confirmation_broker(confirmation_broker)
+        get_execution_pipeline().set_confirmation_broker(confirmation_broker)
 
     from .ai_provider import _svc as ai_svc
     from .permissions import _svc as perm_svc
@@ -1106,6 +1162,7 @@ def init_sentinel_orchestrator(
         context_engine=gateway._context_engine,
         tool_gateway=gateway,
         capability_registry=cap_registry,
+        execution_pipeline=get_execution_pipeline(),
     )
     gateway.set_grounding_engine(grounding_engine)
     intent_engine = IntentEngine(grounding_engine=grounding_engine)
@@ -1157,15 +1214,7 @@ def init_sentinel_orchestrator(
         from sentinel.storage.repositories.feedback_repository import FeedbackRepository
 
         _storage_engine = StorageEngine()
-        import asyncio
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
-        if loop is not None and loop.is_running():
-            loop.create_task(_init_storage_and_intelligence(intelligence, _storage_engine))
-        else:
-            _log.info("StorageEngine deferred — no running event loop")
+        _log.info("StorageEngine registered for application lifespan initialization")
     except Exception as exc:
         _log.warning("StorageEngine setup skipped: %s", exc)
 
@@ -1215,6 +1264,20 @@ def init_sentinel_orchestrator(
         return {"success": tr.success, "data": tr.data, "error": tr.error, "duration_ms": tr.duration_ms}
 
     skill_engine.set_execute_step(_skill_pipeline_step)
+    try:
+        _shared_pipeline = get_execution_pipeline()
+        mr.set_execution_pipeline(_shared_pipeline)
+        if audit_service is not None:
+            _shared_pipeline.set_audit_service(audit_service)
+        _perf_intel = getattr(intelligence, "_performance", None)
+        if _perf_intel is not None:
+            _shared_pipeline.set_performance_intelligence(_perf_intel)
+        _feedback_engine = getattr(intelligence, "_feedback", None)
+        if _feedback_engine is not None:
+            _shared_pipeline.set_feedback_engine(_feedback_engine)
+        _log.info("Shared ExecutionPipeline wired with audit + performance intelligence")
+    except Exception as exc:
+        _log.warning("Shared ExecutionPipeline metrics wiring failed: %s", exc)
     _log.info("AlertManager wired into Orchestrator")
     alert_manager.set_performance_tracker(orchestrator._perf_tracker)
     agent_registry = getattr(gateway, "_agent_registry", None)
@@ -1446,6 +1509,7 @@ def register_automation_tools(gateway):
         AutomationAddRuleTool,
         AutomationRemoveRuleTool,
         AutomationTriggerRuleTool,
+        AutomationImportTool,
     )
 
     svc = get_automation_engine()
@@ -1453,6 +1517,12 @@ def register_automation_tools(gateway):
     gateway.register(AutomationAddRuleTool(svc))
     gateway.register(AutomationRemoveRuleTool(svc))
     gateway.register(AutomationTriggerRuleTool(svc))
+    try:
+        from modules import automations as automations_mod
+
+        gateway.register(AutomationImportTool(automations_mod._import_payload))
+    except Exception:
+        _log.debug("automation.import tool not registered", exc_info=True)
     _log.info("Automation Engine tools registered in shared gateway")
 
 
@@ -1553,6 +1623,7 @@ def register_workflow_tools(gateway):
         WorkflowCreateTool,
         WorkflowExecuteTool,
         WorkflowCancelTool,
+        WorkflowDeleteTool,
     )
 
     svc = get_ai_workflows()
@@ -1560,4 +1631,5 @@ def register_workflow_tools(gateway):
     gateway.register(WorkflowCreateTool(svc))
     gateway.register(WorkflowExecuteTool(svc))
     gateway.register(WorkflowCancelTool(svc))
+    gateway.register(WorkflowDeleteTool(svc))
     _log.info("AI Workflows tools registered in shared gateway")

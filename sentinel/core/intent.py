@@ -406,7 +406,11 @@ class IntentEngine:
             )
             return result
         regex_intent = self._parse_with_regex(utterance)
-        if regex_intent.confidence >= 0.6 or not self._model_router:
+        # A recognized local intent is deterministic and does not require a
+        # model to reinterpret it.  Keeping the threshold below the LLM
+        # fallback boundary also prevents ambient context from changing a
+        # known diagnostic request into a narrower, different action.
+        if regex_intent.confidence >= 0.5 or not self._model_router:
             self._emit(
                 event_types.INTENT_DETECTED,
                 session_id=sid,

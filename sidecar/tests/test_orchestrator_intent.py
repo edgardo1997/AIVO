@@ -47,23 +47,20 @@ class TestExecutorCommandRouting:
         from modules.permissions import _svc as perm_svc
 
         perm_svc.set_level("admin")
-        resp = client.post("/api/sentinel/process", json={"utterance": "run command echo hello123"})
+        # Governed route: execute_direct -> ExecutionPipeline; tool_result must
+        # come from the executor tool, never from the app/system fallback.
+        resp = client.post(
+            "/v1/execute",
+            json={
+                "tool_id": "executor.command",
+                "params": {"command": "echo hello123"},
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
-        if data.get("blocked"):
-            approve_resp = client.post(
-                "/api/sentinel/simulate/approve",
-                json={
-                    "action_id": data["action_id"],
-                    "approved": True,
-                },
-            )
-            assert approve_resp.status_code == 200
-            data = approve_resp.json()
         perm_svc.set_level("confirm")
-        tool_result = data.get("tool_result")
-        assert tool_result is not None, "Expected tool_result in response"
-        assert "success" in tool_result, "Expected success field in tool_result"
+        assert data["success"] is True
+        assert "stdout" in data["data"]
 
 
 class TestExecutorKillRouting:

@@ -93,7 +93,7 @@ class AlertEngine:
                             try:
                                 self._callback(alert)
                             except Exception:
-                                pass
+                                logger.warning("Alert callback failed", exc_info=True)
                         if len(self._alerts) > self._max_alerts:
                             self._alerts = self._alerts[-self._max_alerts:]
             except Exception as e:

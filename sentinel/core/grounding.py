@@ -283,17 +283,19 @@ class GroundingEngine:
                 )
 
         # No hay caché o está obsoleto, obtener desde herramienta
-        if requirement.tool_id and (self._execution_pipeline or self._tool_gateway):
+        if requirement.tool_id:
+            if self._execution_pipeline is None:
+                return GroundingResult(
+                    grounded=False,
+                    error="Grounding execution pipeline not configured",
+                    confidence=0.0,
+                )
             try:
                 tool_params = requirement.tool_params or {}
-                if self._execution_pipeline:
-                    tool_result = await self._execution_pipeline.execute(
-                        requirement.tool_id, tool_params, context=context or {},
-                        skip_security=True,
-                        source="grounding",
-                    )
-                else:
-                    tool_result = await self._tool_gateway.execute(requirement.tool_id, tool_params, context=context or {})
+                tool_result = await self._execution_pipeline.execute(
+                    requirement.tool_id, tool_params, context=context or {},
+                    source="grounding",
+                )
 
                 if tool_result.success and tool_result.data:
                     # Cachear resultado

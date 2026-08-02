@@ -134,7 +134,7 @@ class ModelRouter:
                 self._provider_selector.set_api_key(row["provider_id"], row["api_key"])
                 self._provider_manager.set_api_key(row["provider_id"], row["api_key"])
         except Exception:
-            ...
+            logger.warning("Failed to load model provider keys from storage", exc_info=True)
 
     def save_keys_to_db(self) -> None:
         if self._db is None:
@@ -143,7 +143,7 @@ class ModelRouter:
             try:
                 self._db.execute("INSERT OR REPLACE INTO api_keys (provider_id, api_key) VALUES (?, ?)", (pid, key))
             except Exception:
-                ...
+                logger.warning("Failed to persist model provider key for '%s'", pid, exc_info=True)
 
     def set_api_key(self, provider_id: str, key: str) -> None:
         self._key_map[provider_id] = key
@@ -230,7 +230,7 @@ class ModelRouter:
             try:
                 self._multi_model.model_registry = registry
             except Exception:
-                pass
+                logger.warning("Failed to synchronize registry with multi-model coordinator", exc_info=True)
 
     def set_intelligence(self, intel) -> None:
         """Conecta el router al IntelligenceCoordinator (failover real)."""
@@ -238,13 +238,13 @@ class ModelRouter:
         try:
             intel.set_model_router(self)
         except Exception:
-            pass
+            logger.warning("Failed to connect intelligence coordinator to model router", exc_info=True)
         try:
             self._fallback_manager.set_failure_reporter(
                 lambda provider_id, model, classification: self._notify_failure(provider_id, model)
             )
         except Exception:
-            pass
+            logger.warning("Failed to configure model fallback failure reporting", exc_info=True)
 
     def _notify_success(self, provider_id: str, model_id: str, latency_ms: float = 0.0, task_type: str = "chat") -> None:
         intel = getattr(self, "_intelligence", None)
@@ -264,7 +264,7 @@ class ModelRouter:
                 task_type=task_type,
             ))
         except Exception:
-            pass
+            logger.warning("Failed to notify intelligence coordinator of model success", exc_info=True)
 
     def _notify_failure(self, provider_id: str, model_id: str) -> None:
         intel = getattr(self, "_intelligence", None)
@@ -278,7 +278,7 @@ class ModelRouter:
                 return
             loop.create_task(intel.apply_provider_failure(provider_id, model_id))
         except Exception:
-            pass
+            logger.warning("Failed to notify intelligence coordinator of model failure", exc_info=True)
 
     def set_tool_gateway(self, gateway: Any) -> None:
         self._tool_gateway = gateway
@@ -287,6 +287,9 @@ class ModelRouter:
     def set_tool_guard(self, guard: Any) -> None:
         self._tool_guard = guard
         self._tool_executor.set_tool_guard(guard)
+
+    def set_execution_pipeline(self, pipeline: Any) -> None:
+        self._tool_executor.set_execution_pipeline(pipeline)
 
     def set_task_capability_map(self, task_type: TaskType, capabilities: List[str]) -> None:
         self._task_capability_map[task_type] = capabilities

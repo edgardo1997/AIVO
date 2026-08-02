@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from typing import Any, Dict, List, Optional
 from sentinel.core.event_bus import EventBus
@@ -62,12 +63,16 @@ class AutomationEngine:
     def _emit(self, event_type: str, session_id: str, request_id: str, details: Optional[Dict] = None):
         if self._event_bus is None:
             return
-        self._event_bus.emit(
-            SentinelEvent.new(
-                event_type=event_type,
-                session_id=session_id or "system",
-                request_id=request_id or "",
-                component="automation_engine",
-                details=details,
-            )
+        event = SentinelEvent.new(
+            event_type=event_type,
+            session_id=session_id or "system",
+            request_id=request_id or "",
+            component="automation_engine",
+            details=details,
         )
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            asyncio.run(self._event_bus.emit(event))
+        else:
+            loop.create_task(self._event_bus.emit(event))

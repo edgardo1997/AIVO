@@ -23,6 +23,7 @@ from pathlib import Path
 import httpx
 import psutil
 import pytest
+from main import app as source_app
 
 pytestmark = [
     pytest.mark.e2e,
@@ -37,6 +38,7 @@ SIDECAR_EXE = Path(__file__).resolve().parent.parent / "dist" / "sidecar.exe"
 SENTINEL_ROOT = Path(__file__).resolve().parent.parent.parent
 START_TIMEOUT = 90.0
 SECRET = "e2e-real-test-secret-key"
+SOURCE_VERSION = source_app.version
 
 
 # ---------------------------------------------------------------------------
@@ -175,7 +177,7 @@ class TestE2EReal:
         resp = client.get("/api/info")
         assert resp.status_code == 200
         data = resp.json()
-        assert data["version"] == "1.0.0"
+        assert data["version"] == SOURCE_VERSION
         assert data["name"] == "Sentinel Sidecar"
 
     def test_capabilities(self, client):
@@ -316,7 +318,7 @@ class TestPersistenceAfterRestart:
         resp = httpx.get(f"{base_url}/api/info", headers=headers, timeout=5)
         assert resp.status_code == 200
         data = resp.json()
-        assert data["version"] == "1.0.0"
+        assert data["version"] == SOURCE_VERSION
         assert os.path.getmtime(env["SENTINEL_DB_PATH"]) >= original_db_mtime
 
         resp = httpx.get(f"{base_url}/api/sentinel/capabilities", headers=headers, timeout=5)

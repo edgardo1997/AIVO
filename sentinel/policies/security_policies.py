@@ -91,7 +91,22 @@ class PermissionLevelPolicy(Policy):
         rules = LEVELS.get(level, LEVELS.get("view", {}))
 
         is_dangerous = any(d in tool_id for d in DANGEROUS_TOOLS)
-        is_write = ".write" in tool_id or ".delete" in tool_id or ".create" in tool_id
+        # Tool identifiers are part of the security contract.  A mutating
+        # operation must never inherit the read policy only because its name
+        # does not use the legacy ``.write`` suffix.
+        is_write = any(
+            marker in tool_id
+            for marker in (
+                ".write",
+                ".delete",
+                ".create",
+                ".activate",
+                ".deactivate",
+                ".rollback",
+                ".optimize",
+                ".free_resources",
+            )
+        )
         is_read = not is_write and (
             ".read" in tool_id or ".list" in tool_id or ".search" in tool_id or ".info" in tool_id
         )

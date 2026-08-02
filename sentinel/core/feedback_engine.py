@@ -107,7 +107,7 @@ class FeedbackEngine:
                     )
                 )
             except Exception:
-                pass
+                logger.warning("Failed to emit user feedback event", exc_info=True)
 
     def get_summary(
         self, model_id: Optional[str] = None, task_type: Optional[str] = None

@@ -218,22 +218,6 @@ class IntelligenceEngine:
         except Exception as e:
             logger.warning("Failed to persist recommendation: %s", e)
 
-    # Backward-compatible sync version
-    def recommend(
-        self,
-        task_type: str,
-        required_capabilities: Optional[List[str]] = None,
-        max_cost: Optional[float] = None,
-        context: Optional[Dict[str, Any]] = None,
-    ) -> IntelligenceRecommendation:
-        return IntelligenceRecommendation(
-            model_id="",
-            confidence=0.0,
-            expected_latency_ms=0.0,
-            expected_cost=0.0,
-            reasoning="Sync recommend deprecated — use await recommend_async",
-        )
-
     def get_best_model(
         self,
         task_type: str,
@@ -254,7 +238,6 @@ class IntelligenceEngine:
             return []
 
         candidates = []
-        cap_set = self._capability.get_capabilities(task_type) if hasattr(self._capability, "get_capabilities") else None
         for model_id in self._list_available_models():
             caps = self._capability.get_model_capabilities(model_id) if hasattr(self._capability, "get_model_capabilities") else []
             if required_capabilities:

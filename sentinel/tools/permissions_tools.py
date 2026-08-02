@@ -132,6 +132,32 @@ class PermissionEmergencyTool(Tool):
             return ToolResult.fail(error=str(e), tool_id="permissions.emergency")
 
 
+class PermissionAddBlocklistTool(Tool):
+    def __init__(self, service):
+        self._svc = service
+
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            id="permissions.blocklist_add",
+            name="Add Blocklist Entry",
+            description="Add a policy blocklist pattern",
+            version="1.0.0",
+            parameters={"type": "object", "properties": {"pattern": {"type": "string"}}, "required": ["pattern"]},
+            required_permissions=["permissions.admin"], timeout_seconds=10, category="permissions",
+        )
+
+    async def execute(self, params: Dict[str, Any], context: Dict[str, Any]) -> ToolResult:
+        return ToolResult.ok(data=self._svc.add_blocklist(params["pattern"]), tool_id="permissions.blocklist_add")
+
+
+class PermissionRemoveBlocklistTool(Tool):
+    def __init__(self, service): self._svc = service
+    def spec(self) -> ToolSpec:
+        return ToolSpec(id="permissions.blocklist_remove", name="Remove Blocklist Entry", description="Remove a policy blocklist pattern", version="1.0.0", parameters={"type": "object", "properties": {"item": {"type": "string"}}, "required": ["item"]}, required_permissions=["permissions.admin"], timeout_seconds=10, category="permissions")
+    async def execute(self, params: Dict[str, Any], context: Dict[str, Any]) -> ToolResult:
+        return ToolResult.ok(data=self._svc.remove_blocklist(params["item"]), tool_id="permissions.blocklist_remove")
+
+
 class PermissionAddRuleTool(Tool):
     def __init__(self, service):
         self._svc = service

@@ -56,6 +56,10 @@ class TestSentinelRuntimePipeline:
         gateway.execute = AsyncMock(return_value={"success": True, "data": {"status": "launched"}})
         runtime.set_gateway(gateway)
 
+        pipeline = MagicMock()
+        pipeline.execute = AsyncMock(return_value=MagicMock(success=True, data={"status": "launched"}))
+        runtime.set_execution_pipeline(pipeline)
+
         router = MagicMock()
         router.select.return_value = MagicMock(provider_id="test", model="gpt-4")
         runtime.set_router(router)
@@ -74,7 +78,7 @@ class TestSentinelRuntimePipeline:
         assert response.success is True
         assert intent.parse.called, "IntentEngine debe ser llamado"
         assert planner.plan.called, "Planner debe ser llamado"
-        assert gateway.execute.called, "ToolGateway debe ser llamado"
+        assert pipeline.execute.called, "ExecutionPipeline debe ser llamado"
 
     @pytest.mark.asyncio
     async def test_no_old_components_called(self):

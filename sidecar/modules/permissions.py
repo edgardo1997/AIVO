@@ -59,48 +59,51 @@ def get_permission_status(request: Request):
     return _svc.get_status()
 
 
-@router.post("/level")
-def set_permission_level(req: LevelRequest, request: Request):
-    from modules.auth import request_identity, require_admin_identity
+async def _execute_permission_tool(tool_id: str, params: dict, request: Request):
+    from modules import get_execution_pipeline
+    from modules.auth import request_identity
 
-    require_admin_identity(request)
-    return _svc.set_level(req.level.value)
+    identity = request_identity(request).to_dict()
+    return await get_execution_pipeline().execute(tool_id, params, {"identity": identity}, source="api")
+
+
+@router.post("/level")
+async def set_permission_level(req: LevelRequest, request: Request):
+    result = await _execute_permission_tool("permissions.set_level", {"level": req.level.value}, request)
+    if not result.success:
+        raise HTTPException(status_code=403, detail=result.error or "Permission level change denied")
+    return result.data
 
 
 @router.post("/emergency/{action}")
-def emergency_action(action: str, request: Request):
-    from modules.auth import request_identity, require_admin_identity
-
-    require_admin_identity(request)
-    return _svc.emergency(action)
+async def emergency_action(action: str, request: Request):
+    result = await _execute_permission_tool("permissions.emergency", {"action": action}, request)
+    if not result.success:
+        raise HTTPException(status_code=403, detail=result.error or "Emergency action denied")
+    return result.data
 
 
 @router.post("/confirm")
 async def confirm_action(req: ConfirmRequest, request: Request):
-    from modules import get_gateway
-    from modules.auth import request_identity, require_level
-
-    identity = request_identity(request)
-    require_level(identity, "confirm")
-    result = await get_gateway().confirm(req.action_id, req.approved, identity.to_dict())
+    result = await _execute_permission_tool(
+        "permissions.confirm", {"action_id": req.action_id, "approved": req.approved}, request
+    )
     if result.success:
         return {"status": "confirmed", "result": result.data}
     return {"status": "rejected", "error": result.error}
 
 
 @router.post("/blocklist")
-def add_blocklist(pattern: str, request: Request):
-    from modules.auth import request_identity, require_level
-
-    identity = request_identity(request)
-    require_level(identity, "admin")
-    return _svc.add_blocklist(pattern)
+async def add_blocklist(pattern: str, request: Request):
+    result = await _execute_permission_tool("permissions.blocklist_add", {"pattern": pattern}, request)
+    if not result.success:
+        raise HTTPException(status_code=403, detail=result.error or "Blocklist update denied")
+    return result.data
 
 
 @router.delete("/blocklist/{item}")
-def remove_blocklist(item: str, request: Request):
-    from modules.auth import request_identity, require_level
-
-    identity = request_identity(request)
-    require_level(identity, "admin")
-    return _svc.remove_blocklist(item)
+async def remove_blocklist(item: str, request: Request):
+    result = await _execute_permission_tool("permissions.blocklist_remove", {"item": item}, request)
+    if not result.success:
+        raise HTTPException(status_code=403, detail=result.error or "Blocklist update denied")
+    return result.data

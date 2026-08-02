@@ -1,0 +1,13 @@
+{
+  "id": "security",
+  "name": "Security Scanner",
+  "version": "1.0.0",
+  "author": "Sentinel Team",
+  "description": "Escaneo de amenazas, auditoría de permisos y análisis de red. Solo lectura: nunca modifica el sistema.",
+  "entrypoint": "plugin.py",
+  "capabilities": ["security", "tools"],
+  "permissions": ["system.read", "network.request"],
+  "events": [],
+  "license": "MIT",
+  "homepage": "https://sentinel.local/plugins/security"
+}

@@ -199,7 +199,7 @@ def test_current_code_contains_two_distinct_pending_consent_routes():
     assert "PendingActionRecord(" in orchestrator_source
     assert "self._memory.store_pending_action(pending)" in orchestrator_source
     assert "self._confirmation_broker.request(" in gateway_source
-    assert 'ctx.get("_orchestrator_approval")' in gateway_source
+    assert "_orchestrator_approval" not in gateway_source
 
 
 def test_app_discovery_contract_requires_action_and_lookup_name():

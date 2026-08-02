@@ -118,6 +118,24 @@ class TestTriggerCore:
         assert fires[0].trigger_id == "high-cpu"
         assert fires[0].condition_met is True
 
+    def test_action_without_executor_is_not_reported_as_executed(self):
+        engine = TriggerEngine()
+        engine.add_rule(
+            TriggerRule(
+                id="unwired-action",
+                name="Unwired Action",
+                conditions=[TriggerCondition(metric="cpu_percent", operator=TriggerOperator.GT, value=80)],
+                action=TriggerAction(tool_id="executor.launch", params={"app_name": "notepad"}),
+                cooldown_seconds=1,
+            )
+        )
+
+        fires = engine.evaluate({"cpu_percent": 95})
+
+        assert len(fires) == 1
+        assert fires[0].action_executed is False
+        assert fires[0].result == "execution_unavailable"
+
     def test_evaluate_no_metric_skips(self):
         engine = TriggerEngine()
         engine.add_rule(

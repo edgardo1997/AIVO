@@ -350,7 +350,7 @@ class TestConversationManager:
                 return {"language": {"value": "python"}}
 
         mgr = ConversationManager(operational_memory=FakeMemory())
-        ctx = mgr.build_context(conversation_id="mem1", user_id="user1")
+        mgr.build_context(conversation_id="mem1", user_id="user1")
         nuggets = mgr._load_memory_nuggets("user1", "mem1")
         assert len(nuggets) > 0
         assert any("python" in n for n in nuggets)

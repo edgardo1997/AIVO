@@ -175,7 +175,7 @@ class RankingEngine:
                     stats["avg_latency"] = stats["avg_latency"] or metrics.get("avg_latency_ms", 0) / 1000
                     stats["quality"] = metrics.get("quality_score", 0.5)
             except Exception:
-                pass
+                logger.warning("Failed to load metrics for model '%s'", model_id, exc_info=True)
         return stats
 
     def _compute_score(self, stats: Dict[str, Any]) -> tuple:

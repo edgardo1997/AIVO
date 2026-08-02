@@ -19,7 +19,7 @@ from sentinel.security.models import RiskLevel
 logger = logging.getLogger(__name__)
 
 SENSITIVE_PATH_PATTERNS: Set[str] = {
-    "C:\\", "C:\\Windows", "C:\\System32", "C:\\Program Files",
+    "C:\\Windows", "C:\\System32", "C:\\Program Files",
     "/etc", "/usr", "/bin", "/boot", "/dev", "/proc", "/sys",
     "..", "~", "$HOME", "$SYSTEM",
 }
@@ -102,15 +102,23 @@ class ArgumentValidator:
                 result.valid = False
                 continue
 
+            protected = _is_windows_volume_root(value)
             for pattern in SENSITIVE_PATH_PATTERNS:
                 if value.upper().startswith(pattern.upper()) or value.startswith(pattern):
-                    result.warnings.append(f"'{key}' targets sensitive path: {value}")
-                    result.risk_level = _max_risk(result.risk_level, RiskLevel.HIGH)
-                    if tool_name in ("filesystem.delete", "filesystem.write", "filesystem.format"):
-                        result.risk_level = _max_risk(result.risk_level, RiskLevel.CRITICAL)
-                        result.errors.append(f"'{key}' targets protected system path: {value}")
-                        result.valid = False
+                    protected = True
                     break
+
+            if protected:
+                # A volume root and OS directories are never writable.  Do
+                # not treat `C:\\` as a prefix: that would reject every
+                # legitimate user-owned path on Windows before policy and
+                # consent can govern it.
+                result.warnings.append(f"'{key}' targets sensitive path: {value}")
+                result.risk_level = _max_risk(result.risk_level, RiskLevel.HIGH)
+                if tool_name in ("filesystem.delete", "filesystem.write", "filesystem.format"):
+                    result.risk_level = _max_risk(result.risk_level, RiskLevel.CRITICAL)
+                    result.errors.append(f"'{key}' targets protected system path: {value}")
+                    result.valid = False
 
         return result
 
@@ -199,3 +207,9 @@ _RISK_ORDER = {
 def _max_risk(a: RiskLevel, b: RiskLevel) -> RiskLevel:
     """Return the higher risk level (by declared order, not lexicographic)."""
     return a if _RISK_ORDER.get(a, 0) >= _RISK_ORDER.get(b, 0) else b
+
+
+def _is_windows_volume_root(value: str) -> bool:
+    """Return true only for a Windows drive root (``C:\\``), not its children."""
+    path = PureWindowsPath(value.replace("/", "\\"))
+    return bool(path.drive and path.root and len(path.parts) == 1)

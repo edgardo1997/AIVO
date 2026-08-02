@@ -259,7 +259,7 @@ class ModelStrategyEngine:
                         return local[:1]
                 return [m.id for m in candidates[:1]]
             except Exception:
-                pass
+                logger.warning("Model registry selection failed", exc_info=True)
         return []
 
     def _resolve_capabilities(self, task: str) -> List[str]:
@@ -267,7 +267,7 @@ class ModelStrategyEngine:
             try:
                 return self._capability_analyzer.resolve_capabilities(task)
             except Exception:
-                pass
+                logger.warning("Capability resolution failed for task '%s'", task, exc_info=True)
         return ["reasoning"]
 
     def _intent_str(self, intent: Any) -> str:

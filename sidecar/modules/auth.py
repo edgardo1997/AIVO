@@ -162,8 +162,37 @@ def require_level(identity: IdentityContext, minimum: str) -> IdentityContext:
     return identity
 
 
+def identity_from_bearer_token(presented_token: str) -> IdentityContext | None:
+    """Resolve a real local/JWT bearer token without request-specific side effects.
+
+    HTTP middleware and WebSocket handshakes share this authority so a WebSocket
+    cannot become an unauthenticated alternate entry point to session events.
+    """
+    if not presented_token:
+        return None
+    try:
+        from .jwt_auth import token_to_identity
+
+        identity = token_to_identity(presented_token)
+        if identity is not None:
+            return identity
+    except Exception:
+        pass
+
+    expected_token = os.environ.get("SENTINEL_SESSION_TOKEN", "")
+    if expected_token and secrets.compare_digest(presented_token, expected_token):
+        return IdentityContext.session_identity(
+            hashlib.sha256(expected_token.encode("utf-8")).hexdigest()[:16]
+        )
+    return None
+
+
 # Paths that bypass authentication (health checks, monitoring probes, etc.)
-UNAUTHENTICATED_PATHS = frozenset({"/api/health", "/api/info", "/api/system/live"})
+# The token issuance entry points are deliberately reachable without a bearer
+# token (a client must first authenticate).  Login performs password
+# validation and refresh performs refresh-token rotation before issuing
+# anything.  They remain host-gated to loopback by auth_middleware.
+UNAUTHENTICATED_PATHS = frozenset({"/api/health", "/api/info", "/api/system/live", "/auth/login", "/auth/refresh"})
 
 
 async def auth_middleware(request: Request, call_next):
@@ -211,15 +240,10 @@ async def auth_middleware(request: Request, call_next):
     scheme, _, presented_token = authorization.partition(" ")
 
     if scheme.lower() == "bearer" and presented_token:
-        try:
-            from .jwt_auth import token_to_identity
-
-            identity = token_to_identity(presented_token)
-            if identity is not None:
-                request.state.identity = identity
-                return await continue_authenticated_request()
-        except Exception:
-            pass
+        identity = identity_from_bearer_token(presented_token)
+        if identity is not None:
+            request.state.identity = identity
+            return await continue_authenticated_request()
 
     if getattr(app.state, "_test_mode", False):
         if SENTINEL_ENVIRONMENT == "production":
@@ -235,18 +259,19 @@ async def auth_middleware(request: Request, call_next):
 
     expected_token = os.environ.get("SENTINEL_SESSION_TOKEN", "")
     if expected_token:
-        if not secrets.compare_digest(presented_token, expected_token):
+        identity = identity_from_bearer_token(presented_token)
+        if identity is None:
             return JSONResponse(
                 status_code=401,
                 content={"detail": "Invalid or missing Sentinel session token"},
                 headers={"WWW-Authenticate": "Bearer"},
             )
-        session_id = hashlib.sha256(expected_token.encode("utf-8")).hexdigest()[:16]
         remote_actor = request.headers.get("x-sentinel-remote-actor", "")
         if remote_actor:
+            session_id = hashlib.sha256(expected_token.encode("utf-8")).hexdigest()[:16]
             request.state.identity = IdentityContext.remote_identity(remote_actor, session_id)
         else:
-            request.state.identity = IdentityContext.session_identity(session_id)
+            request.state.identity = identity
         return await continue_authenticated_request()
 
     return JSONResponse(

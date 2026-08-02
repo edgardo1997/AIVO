@@ -5,7 +5,7 @@ import logging
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from modules.jwt_auth import authenticate_user, create_access_token, verify_token
+from modules.jwt_auth import authenticate_user, rotate_refresh_token
 
 log = logging.getLogger("sentinel.auth_jwt")
 
@@ -29,6 +29,7 @@ class RefreshRequest(BaseModel):
 
 class RefreshResponse(BaseModel):
     access_token: str
+    refresh_token: str
     token_type: str = "bearer"
 
 
@@ -42,11 +43,9 @@ def login(body: LoginRequest):
 
 @router.post("/auth/refresh", response_model=RefreshResponse)
 def refresh(body: RefreshRequest):
-    payload = verify_token(body.refresh_token)
-    if not payload:
-        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
-    if payload.get("type") != "refresh":
-        raise HTTPException(status_code=401, detail="Not a refresh token")
-    user_id = payload["sub"]
-    new_access = create_access_token(user_id)
-    return RefreshResponse(access_token=new_access)
+    new_access, new_refresh = rotate_refresh_token(body.refresh_token)
+    if not new_access or not new_refresh:
+        raise HTTPException(status_code=401, detail="Invalid, expired, or already-rotated refresh token")
+    # Rotation invalidates the submitted refresh token server-side, so it can
+    # never be exchanged again (prevents replay).
+    return RefreshResponse(access_token=new_access, refresh_token=new_refresh)

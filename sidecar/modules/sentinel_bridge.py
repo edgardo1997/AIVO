@@ -856,7 +856,18 @@ async def approve_execution(body: dict, request: Request):
     resp = _gateway_response(result)
     if resp:
         return resp
-    return result.data
+    # The legacy approve route is deprecated and never grants authority.  It
+    # must return a structured durable denial: no execution result, explicit
+    # flag requiring durable reconfirmation, and a pointer to the valid flow.
+    data = dict(result.data)
+    return {
+        **data,
+        "approved": False,
+        "requires_reconfirmation": True,
+        "tool_result": None,
+        "error": data.get("error")
+        or "Confirmation requires a valid durable execution grant; legacy actions must be reconfirmed.",
+    }
 
 
 @router.post("/simulate/modify-and-approve")
@@ -874,10 +885,15 @@ async def modify_and_approve(body: dict, request: Request):
     resp = _gateway_response(result)
     if resp:
         return resp
+    # A modified plan always changes effect bytes and therefore the canonical
+    # approved plan hash.  It must be reconfirmed through a durable execution
+    # grant; it is never auto-approved from a legacy action.
     return {
         **result.data,
         "modified": True,
-        "requires_reconfirmation": result.data.get("blocked", False) and bool(result.data.get("action_id")),
+        "requires_reconfirmation": True,
+        "approved": False,
+        "step_results": None,
     }
 
 
@@ -901,10 +917,6 @@ def get_feedback_stats(
     provider_id: Optional[str] = Query(None),
     task_type: Optional[str] = Query(None),
 ):
-    orch = get_orchestrator()
-    store = orch.feedback_store
-    if store is None:
-        return {"stats": []}
     tt = None
     if task_type:
         from sentinel.core.model_router import TaskType
@@ -913,6 +925,10 @@ def get_feedback_stats(
             tt = TaskType(task_type)
         except ValueError:
             return JSONResponse({"error": f"Invalid task_type: {task_type}"}, status_code=400)
+    orch = get_orchestrator()
+    store = orch.feedback_store
+    if store is None:
+        return {"stats": []}
     stats = store.get_stats(provider_id=provider_id, task_type=tt)
     return {
         "stats": [

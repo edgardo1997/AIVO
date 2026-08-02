@@ -15,11 +15,15 @@ Flujo interno obligatorio:
 from __future__ import annotations
 
 import logging
+import json
+import hmac
+import hashlib
 import time
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from sentinel.security.models import (
+    ExecutionGrantContext,
     ToolRequest,
     ExecutionResult,
     RiskLevel,
@@ -53,10 +57,13 @@ class ToolExecutionGuard:
         self._policy = policy_engine
         self._audit = audit_service
         self._consent = consent_service
+        self._confirmation_broker = None
         self._decision = decision_engine
         self._risk = risk_classifier
         self._validator = argument_validator or ArgumentValidator()
         self._rate_limiter = rate_limiter or ToolRateLimiter()
+        self._last_policy_result: Optional[Any] = None
+        self._execution_grants: Any = None
 
     # ── Setters (inyección post-construcción) ─────────────────
 
@@ -72,6 +79,13 @@ class ToolExecutionGuard:
     def set_consent_service(self, service: Any) -> None:
         self._consent = service
 
+    def set_confirmation_broker(self, broker: Any) -> None:
+        """Use the shared durable broker for pending confirmations."""
+        self._confirmation_broker = broker
+
+    def set_execution_grant_repository(self, repository: Any) -> None:
+        self._execution_grants = repository
+
     def set_decision_engine(self, engine: Any) -> None:
         self._decision = engine
 
@@ -86,6 +100,7 @@ class ToolExecutionGuard:
         Este es el ÚNICO método que debe llamar a ToolGateway.execute().
         """
         start = time.monotonic()
+        self._last_policy_result = None
         logger.info(
             "ToolExecutionGuard: %s from %s (user=%s, session=%s)",
             request.tool_name, request.source, request.user_id, request.session_id,
@@ -103,6 +118,10 @@ class ToolExecutionGuard:
             )
 
         risk_level = validation.risk_level
+
+        grant_failure = self._consume_execution_grant(request)
+        if grant_failure is not None:
+            return grant_failure
 
         # 2. Check rate limit
         rate_result = self._rate_limiter.check(request.tool_name)
@@ -128,27 +147,16 @@ class ToolExecutionGuard:
                 )
 
         # 4. Calculate risk
-        if self._risk and request.user_context.get("intent"):
-            try:
-                risk = self._risk.classify(
-                    request.user_context.get("intent"),
-                    request.tool_name,
-                    request.arguments,
-                )
-                if hasattr(risk, "level"):
-                    risk_level = _max_risk(risk_level, getattr(RiskLevel, risk.level.upper(), RiskLevel.LOW))
-            except Exception as e:
-                logger.warning("Risk classification failed: %s", e)
+        risk_level = self._classify_risk(request, risk_level)
 
         # 5. Check policy
         policy_result = await self._evaluate_policy(request, risk_level)
         if policy_result.decision in (SecurityDecision.DENIED,):
             return policy_result
-        if policy_result.decision == SecurityDecision.REQUIRE_CONFIRMATION:
-            return policy_result
-
         # 6. Execute via ToolGateway
         result = await self._execute_via_gateway(request)
+        if policy_result.user_confirmed:
+            result.user_confirmed = True
 
         # 7. Audit
         audit_entry = self._build_audit_entry(request, result, risk_level, SecurityDecision.APPROVED)
@@ -175,12 +183,18 @@ class ToolExecutionGuard:
                 spec = self._gateway.get_spec(request.tool_name)
                 if spec and hasattr(spec, "required_permissions"):
                     required_permissions = list(spec.required_permissions)
+            # A policy may inspect this context to determine whether it still
+            # needs consent.  Do not expose an unverified grant as authority.
+            policy_context = dict(request.user_context or {})
+            if not self._is_already_approved(request):
+                policy_context.pop("_confirmation_grant", None)
             policy_result = await self._policy.evaluate(
                 tool_id=request.tool_name,
                 params=request.arguments,
-                context=request.user_context,
+                context=policy_context,
                 required_permissions=required_permissions,
             )
+            self._last_policy_result = policy_result
 
             effect = getattr(policy_result, "effect", None)
             if effect is not None:
@@ -189,6 +203,14 @@ class ToolExecutionGuard:
                 if effect_str in ("deny", "DENY"):
                     reason = getattr(policy_result, "reason", "Blocked by policy")
                     policy_id = getattr(policy_result, "policy_id", "unknown")
+                    if policy_id == "identity_permissions":
+                        reason = json.dumps(
+                            {
+                                "error_type": "AUTHENTICATION_REQUIRED",
+                                "message": reason,
+                                "required": ["user_id", "session_id"],
+                            }
+                        )
                     return ExecutionResult(
                         success=False,
                         error=reason,
@@ -203,26 +225,37 @@ class ToolExecutionGuard:
                     reason = getattr(policy_result, "reason", "Requires confirmation")
                     policy_id = getattr(policy_result, "policy_id", "unknown")
 
-                    confirmed = await self._request_confirmation(request, reason, risk_level)
-                    if not confirmed:
+                    if self._is_already_approved(request):
+                        return ExecutionResult(
+                            success=True,
+                            risk_level=risk_level,
+                            decision=SecurityDecision.APPROVED,
+                            policy_id=policy_id,
+                            policy_reason=reason,
+                            tool_name=request.tool_name,
+                            user_confirmed=True,
+                        )
+
+                    action_id = self._request_confirmation(request, reason, risk_level)
+                    if not action_id:
                         return ExecutionResult(
                             success=False,
-                            error=f"Confirmation denied: {reason}",
+                            error=f"Confirmation service unavailable: {reason}",
                             risk_level=risk_level,
                             decision=SecurityDecision.DENIED,
                             policy_id=policy_id,
                             policy_reason=reason,
                             tool_name=request.tool_name,
-                            user_confirmed=False,
                         )
                     return ExecutionResult(
-                        success=True,
+                        success=False,
+                        data={"action_id": action_id},
                         risk_level=risk_level,
-                        decision=SecurityDecision.APPROVED,
+                        decision=SecurityDecision.REQUIRE_CONFIRMATION,
                         policy_id=policy_id,
                         policy_reason=reason,
                         tool_name=request.tool_name,
-                        user_confirmed=True,
+                        requires_confirmation=True,
                     )
         except Exception as e:
             logger.error("Policy evaluation failed for %s: %s", request.tool_name, e)
@@ -241,28 +274,119 @@ class ToolExecutionGuard:
             tool_name=request.tool_name,
         )
 
-    async def _request_confirmation(
-        self, request: ToolRequest, reason: str, risk_level: RiskLevel
-    ) -> bool:
-        if self._consent is None:
-            return False
+    def _classify_risk(self, request: ToolRequest, current: RiskLevel) -> RiskLevel:
+        """Clasifica el riesgo de la solicitud con el RiskClassifier del sistema.
+
+        Construye un Intent/Plan mínimo a partir del ToolRequest para que la
+        firma del RiskClassifier (intent, plan, context) sea respetada.
+        """
+        if self._risk is None:
+            return current
         try:
-            result = await self._consent.request_confirmation(
-                action_id=request.execution_id or request.tool_name,
-                description=f"Execute {request.tool_name}: {reason}",
-                risk_level=risk_level.value,
-                user_id=request.user_id,
-                session_id=request.session_id,
-                context={
-                    "tool": request.tool_name,
-                    "arguments": request.arguments,
-                    "source": request.source,
-                },
+            from sentinel.core.intent import Intent
+            from sentinel.core.planner import Plan, PlanStep
+
+            intent_data = request.user_context.get("intent")
+            if isinstance(intent_data, Intent):
+                intent = intent_data
+            elif isinstance(intent_data, dict):
+                intent = Intent(
+                    action=intent_data.get("action", "execute"),
+                    target=intent_data.get("target", request.tool_name),
+                    parameters=intent_data.get("parameters") or {},
+                )
+            else:
+                intent = Intent(
+                    action="execute",
+                    target=request.tool_name,
+                    parameters=request.arguments,
+                )
+            plan = Plan(
+                steps=[
+                    PlanStep(
+                        id="s1",
+                        tool_id=request.tool_name,
+                        params=request.arguments,
+                        estimated_impact="medium",
+                    )
+                ],
+                intent=intent,
             )
-            return bool(result)
+            risk = self._risk.classify(intent, plan, request.user_context)
+            if hasattr(risk, "level"):
+                return _max_risk(current, getattr(RiskLevel, risk.level.upper(), RiskLevel.LOW))
+        except Exception as e:
+            logger.warning("Risk classification failed: %s", e)
+        return current
+
+    def _is_already_approved(self, request: ToolRequest) -> bool:
+        """Accept only the exact parameters and identity issued by the broker."""
+        ctx = request.user_context or {}
+        grant = ctx.get("_confirmation_grant") or {}
+        if not request.session_id:
+            return False
+        if not request.user_id or grant.get("user_id") != request.user_id or grant.get("tool_id") != request.tool_name:
+            return False
+        expected_params_hash = self._confirmation_hash(request.arguments)
+        if not grant.get("params_hash") or not hmac.compare_digest(grant["params_hash"], expected_params_hash):
+            return False
+        identity = ctx.get("identity") or {}
+        expected_identity_hash = self._confirmation_hash({
+            "user_id": request.user_id,
+            "session_id": identity.get("session_id", ""),
+        })
+        return bool(grant.get("identity_hash")) and hmac.compare_digest(
+            grant["identity_hash"], expected_identity_hash
+        )
+
+    def _consume_execution_grant(self, request: ToolRequest) -> Optional[ExecutionResult]:
+        raw_grant = (request.user_context or {}).get("execution_grant")
+        if raw_grant is None and request.source != "approved_plan":
+            return None
+        if not isinstance(raw_grant, ExecutionGrantContext):
+            return ExecutionResult(success=False, error="ExecutionGrantContext is required for approved plan execution", decision=SecurityDecision.DENIED, tool_name=request.tool_name)
+        grant = raw_grant
+        identity = (request.user_context or {}).get("identity") or {}
+        identity_hash = self._confirmation_hash({"user_id": request.user_id, "session_id": request.session_id})
+        params_hash = self._confirmation_hash({"tool_id": request.tool_name, "params": request.arguments, "plan_id": grant.plan_id, "identity_hash": identity_hash})
+        if (not request.user_id or not request.session_id or grant.user_id != request.user_id or grant.session_id != request.session_id or grant.tool_id != request.tool_name or grant.identity_hash != identity_hash or grant.params_hash != params_hash or identity.get("user_id") != request.user_id or identity.get("session_id") != request.session_id or self._execution_grants is None):
+            return ExecutionResult(success=False, error="Execution grant binding mismatch", decision=SecurityDecision.DENIED, tool_name=request.tool_name)
+        binding = {"plan_grant_id": grant.plan_grant_id, "plan_id": grant.plan_id, "plan_hash": grant.plan_hash, "step_id": grant.step_id, "step_index": grant.step_index, "tool_id": grant.tool_id, "params_hash": grant.params_hash, "identity_hash": grant.identity_hash, "session_id": grant.session_id}
+        try:
+            consumed = self._execution_grants.consume_step(grant.step_grant_id, binding)
+        except Exception:
+            logger.exception("Durable execution grant validation failed")
+            consumed = False
+        if not consumed:
+            return ExecutionResult(success=False, error="Execution grant rejected, expired, or already consumed", decision=SecurityDecision.DENIED, tool_name=request.tool_name)
+        request.user_context["validated_execution_grant"] = grant
+        return None
+
+    @staticmethod
+    def _confirmation_hash(value: Any) -> str:
+        raw = json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+
+    def _request_confirmation(
+        self, request: ToolRequest, reason: str, risk_level: RiskLevel
+    ) -> Optional[str]:
+        if self._confirmation_broker is None:
+            return None
+        if not request.user_id or not request.session_id:
+            logger.warning("Confirmation rejected: authenticated user and non-empty session are required")
+            return None
+        try:
+            return self._confirmation_broker.request(
+                tool_id=request.tool_name,
+                params=request.arguments,
+                context=request.user_context,
+                reason=f"Execute {request.tool_name}: {reason}",
+                risk_level=risk_level.value,
+                plan_id=str(request.user_context.get("plan_id", "")),
+            )
         except Exception as e:
             logger.warning("Confirmation request failed: %s", e)
-            return False
+            return None
 
     async def _execute_via_gateway(self, request: ToolRequest) -> ExecutionResult:
         if self._gateway is None:
@@ -278,7 +402,6 @@ class ToolExecutionGuard:
             context["_guard_execution"] = True
             context["execution_id"] = request.execution_id
             context["source"] = request.source
-
             result = await self._gateway.execute(
                 request.tool_name,
                 request.arguments,
@@ -291,6 +414,9 @@ class ToolExecutionGuard:
                 risk_level=RiskLevel.LOW,
                 decision=SecurityDecision.APPROVED,
                 tool_name=request.tool_name,
+                policy_result=getattr(result, "policy_result", None),
+                quality_result=getattr(result, "quality_result", None),
+                requires_confirmation=getattr(result, "requires_confirmation", False),
             )
         except Exception as e:
             logger.exception("Gateway execution failed for '%s'", request.tool_name)

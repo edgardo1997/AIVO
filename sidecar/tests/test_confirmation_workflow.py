@@ -144,6 +144,32 @@ class TestPolicyConfirmedCheck:
         )
         assert result.effect == PolicyEffect.REQUIRE_CONFIRM
 
+    def test_policy_ignores_orchestrator_approval(self):
+        policy = PermissionLevelPolicy(get_level=lambda: "confirm")
+        import asyncio
+
+        result = asyncio.run(
+            policy.evaluate(
+                tool_id="executor.command",
+                params={"command": "rm -rf /"},
+                context={"_orchestrator_approval": True},
+            )
+        )
+        assert result.effect == PolicyEffect.REQUIRE_CONFIRM
+
+    def test_policy_requires_confirm_without_orchestrator_approval(self):
+        policy = PermissionLevelPolicy(get_level=lambda: "confirm")
+        import asyncio
+
+        result = asyncio.run(
+            policy.evaluate(
+                tool_id="executor.command",
+                params={"command": "rm -rf /"},
+                context={},
+            )
+        )
+        assert result.effect == PolicyEffect.REQUIRE_CONFIRM
+
     def test_policy_denies_at_view_level_even_if_confirmed(self, perm_svc, sample_action):
         perm_svc.confirm_action(sample_action, approved=True)
         policy = PermissionLevelPolicy(
@@ -272,6 +298,20 @@ class TestAuditAndNoBypass:
             )
         )
         assert result.effect == PolicyEffect.ALLOW
+
+    def test_product_system_mutations_are_denied_at_view_level(self):
+        policy = PermissionLevelPolicy(get_level=lambda: "view")
+        import asyncio
+
+        for tool_id in (
+            "product.mode.activate",
+            "product.mode.deactivate",
+            "product.mode.rollback",
+            "product.control.optimize",
+            "product.control.free_resources",
+        ):
+            result = asyncio.run(policy.evaluate(tool_id=tool_id, params={}, context={}))
+            assert result.effect == PolicyEffect.DENY
 
     def test_write_tool_confirm_flow(self, perm_svc):
         aid = str(uuid.uuid4())[:12]

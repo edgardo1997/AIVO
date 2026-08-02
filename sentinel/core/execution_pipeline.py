@@ -3,9 +3,8 @@
 Flujo:
   execute(tool_id, params, context)
        │
-       ├─ skip_security=False ─→ ToolExecutionGuard.execute(ToolRequest)
-       │                              └→ ToolGateway.execute()
-       ├─ skip_security=True  ─→ ToolGateway.execute()  (grounding/rollback)
+       ├─ ToolExecutionGuard.execute(ToolRequest)
+       │    └→ ToolGateway.execute()
        │
        ├─ AuditService (siempre)
        ├─ PerformanceIntelligence (cuando está conectado)
@@ -20,7 +19,7 @@ from typing import Any, Dict, Optional
 
 from sentinel.core.tool_gateway import ToolGateway
 from sentinel.core.tool import ToolResult
-from sentinel.security.models import ToolRequest
+from sentinel.security.models import ExecutionGrantContext, ToolRequest
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +45,23 @@ class ExecutionPipeline:
         self._perf_intel = performance_intelligence
         self._feedback = feedback_engine
         self._event_bus = event_bus
+        self._first_action_recorder: Optional[Any] = None
+
+        # A confirmation must ALWAYS resume through this same pipeline. Wiring
+        # it here at construction closes the confirmation loop by construction:
+        # any stack that pairs a real gateway with a real pipeline can never
+        # leave the confirmation execution unavailable. This is the single
+        # source of the "Confirmation execution pipeline is unavailable" gate.
+        if self._gateway is not None and hasattr(self._gateway, "set_confirmation_executor"):
+
+            async def _confirmation_execute(tool_id: str, params: Dict[str, Any], context: Dict[str, Any]):
+                return await self.execute(tool_id, params, context, source="confirmation")
+
+            self._gateway.set_confirmation_executor(_confirmation_execute)
+
+    def set_first_action_recorder(self, recorder: Optional[Any]) -> None:
+        """Wire a callback invoked once per session on the first successful execution."""
+        self._first_action_recorder = recorder
 
     def set_tool_gateway(self, gateway: ToolGateway) -> None:
         self._gateway = gateway
@@ -55,6 +71,22 @@ class ExecutionPipeline:
 
     def set_audit_service(self, service: Any) -> None:
         self._audit = service
+        if self._guard is not None and hasattr(self._guard, "set_audit_service"):
+            self._guard.set_audit_service(service)
+
+    def set_consent_service(self, service: Any) -> None:
+        if self._guard is not None and hasattr(self._guard, "set_consent_service"):
+            self._guard.set_consent_service(service)
+
+    def set_confirmation_broker(self, broker: Any) -> None:
+        if self._guard is not None and hasattr(self._guard, "set_confirmation_broker"):
+            self._guard.set_confirmation_broker(broker)
+        if self._guard is not None and hasattr(self._guard, "set_execution_grant_repository"):
+            self._guard.set_execution_grant_repository(getattr(broker, "_grants", None))
+
+    def set_risk_classifier(self, classifier: Any) -> None:
+        if self._guard is not None and hasattr(self._guard, "set_risk_classifier"):
+            self._guard.set_risk_classifier(classifier)
 
     def set_performance_intelligence(self, pi: Any) -> None:
         self._perf_intel = pi
@@ -68,8 +100,8 @@ class ExecutionPipeline:
         params: Dict[str, Any],
         context: Optional[Dict[str, Any]] = None,
         *,
-        skip_security: bool = False,
         source: str = "orchestrator",
+        execution_grant: Optional[ExecutionGrantContext] = None,
     ) -> ToolResult:
         """Ejecuta una herramienta a través del pipeline unificado.
 
@@ -77,48 +109,38 @@ class ExecutionPipeline:
             tool_id: ID de la herramienta a ejecutar
             params: Parámetros de la herramienta
             context: Contexto de ejecución
-            skip_security: Si True, salta ToolExecutionGuard (solo para grounding/rollback)
             source: Origen de la ejecución (orchestrator, grounding, rollback, skill)
 
         Returns:
             ToolResult con el resultado de la ejecución
         """
         ctx: Dict[str, Any] = dict(context or {})
+        if execution_grant is not None:
+            ctx["execution_grant"] = execution_grant
         start = time.monotonic()
 
-        if skip_security:
-            result = await self._execute_direct(tool_id, params, ctx)
-        else:
-            result = await self._execute_guarded(tool_id, params, ctx, source)
+        result = await self._execute_guarded(tool_id, params, ctx, source)
 
         elapsed = (time.monotonic() - start) * 1000
         if result.duration_ms is None:
             result.duration_ms = elapsed
 
         self._record_metrics(tool_id, params, result, ctx, elapsed)
+        if result.success and self._first_action_recorder is not None:
+            try:
+                self._first_action_recorder(tool_id=tool_id, session_id=self._extract_session_id(ctx))
+            except Exception:
+                logger.debug("first_action metric not recorded", exc_info=True)
         return result
 
-    async def _execute_direct(
-        self,
-        tool_id: str,
-        params: Dict[str, Any],
-        context: Dict[str, Any],
-    ) -> ToolResult:
-        """Ejecuta directamente a través de ToolGateway, saltando el guard."""
-        if self._gateway is None:
-            return ToolResult.fail(
-                error="Execution pipeline has no ToolGateway configured",
-                tool_id=tool_id,
-            )
-        try:
-            context["_pipeline_execution"] = True
-            return await self._gateway.execute(tool_id, params, context)
-        except Exception as e:
-            logger.exception("Direct execution failed for '%s'", tool_id)
-            return ToolResult.fail(
-                error=f"Pipeline direct execution error: {e}",
-                tool_id=tool_id,
-            )
+    def _extract_session_id(self, context: Dict[str, Any]) -> str:
+        identity = context.get("identity", {})
+        session_id = ""
+        if isinstance(identity, dict):
+            session_id = identity.get("session_id", "")
+            if not session_id and isinstance(identity.get("metadata"), dict):
+                session_id = identity["metadata"].get("session_id", "")
+        return session_id or context.get("session_id", "")
 
     async def _execute_guarded(
         self,
@@ -130,7 +152,7 @@ class ExecutionPipeline:
         """Ejecuta a través de ToolExecutionGuard — no permite bypass."""
         if self._guard is None:
             logger.error(
-                "Security violation: no ToolExecutionGuard configured but skip_security=False for %s", tool_id
+                "Security violation: no ToolExecutionGuard configured for %s", tool_id
             )
             return ToolResult.fail(
                 error="Execution blocked: ToolExecutionGuard is required but not configured",
@@ -153,7 +175,11 @@ class ExecutionPipeline:
         if isinstance(identity, dict):
             user_id = identity.get("user_id", "")
             session_id = identity.get("session_id", "")
+            if not session_id and isinstance(identity.get("metadata"), dict):
+                session_id = identity["metadata"].get("session_id", "")
         session_id = session_id or context.get("session_id", "")
+        if session_id:
+            context["session_id"] = session_id
         execution_id = context.get("execution_id", "")
 
         request = ToolRequest(
@@ -174,12 +200,19 @@ class ExecutionPipeline:
                     data=guard_result.data,
                     tool_id=tool_id,
                     policy_decision=policy_decision,
+                    policy_result=getattr(guard_result, "policy_result", None),
+                    quality_result=getattr(guard_result, "quality_result", None),
+                    requires_confirmation=getattr(guard_result, "requires_confirmation", False),
                 )
             return ToolResult(
                 success=False,
-                error=guard_result.error or f"Blocked by ToolExecutionGuard",
+                data=guard_result.data,
+                error=guard_result.error or "Blocked by ToolExecutionGuard",
                 tool_id=tool_id,
                 policy_decision=policy_decision,
+                policy_result=getattr(guard_result, "policy_result", None),
+                quality_result=getattr(guard_result, "quality_result", None),
+                requires_confirmation=getattr(guard_result, "requires_confirmation", False),
             )
         except Exception as e:
             logger.exception("ToolExecutionGuard failed for '%s'", tool_id)
@@ -203,13 +236,16 @@ class ExecutionPipeline:
                 user_id = identity.get("user_id", "") if isinstance(identity, dict) else ""
                 self._audit.log_action(
                     action="tool_execution",
-                    resource=f"{tool_id}:{result.tool_id or tool_id}",
-                    status="completed" if result.success else "failed",
-                    user_id=user_id,
                     details={
+                        "tool_id": result.tool_id or tool_id,
+                        "source": context.get("source", ""),
                         "duration_ms": elapsed_ms,
+                        "success": result.success,
+                        "policy_decision": getattr(result, "policy_decision", None),
                         "error": result.error,
                     },
+                    status="completed" if result.success else "failed",
+                    user=user_id,
                 )
             except Exception as e:
                 logger.debug("Audit log failed for %s: %s", tool_id, e)

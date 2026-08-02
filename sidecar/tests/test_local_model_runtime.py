@@ -79,3 +79,30 @@ def test_warmup_runs_one_bounded_inference_only_once(tmp_path: Path, monkeypatch
     assert payload["max_tokens"] == 1
     assert requests[0][1] == 30
     assert runtime.status()["warmed"] is True
+
+
+def test_start_tolerates_concurrent_stop_during_readiness_poll(tmp_path: Path, monkeypatch):
+    runtime = SentinelLocalModelRuntime(root=tmp_path)
+    runtime.runtime_dir.mkdir(parents=True)
+    runtime.model_path.parent.mkdir(parents=True)
+    (runtime.runtime_dir / "llama-server.exe").touch()
+    runtime.model_path.touch()
+
+    class Process:
+        def poll(self): return None
+        def terminate(self): pass
+        def wait(self, timeout=None): pass
+        def kill(self): pass
+
+    process = Process()
+    calls = {"healthy": 0}
+    monkeypatch.setattr("sentinel.local_model.runtime.subprocess.Popen", lambda *_args, **_kwargs: process)
+
+    def healthy():
+        calls["healthy"] += 1
+        return calls["healthy"] > 1
+
+    monkeypatch.setattr(runtime, "_healthy", healthy)
+    monkeypatch.setattr(runtime, "_warmup", lambda: True)
+    monkeypatch.setattr("sentinel.local_model.runtime.time.sleep", lambda _seconds: runtime.stop())
+    assert runtime.start() is True

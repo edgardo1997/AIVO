@@ -117,7 +117,7 @@ class BackupManager:
                         os.remove(b.path)
                         removed += 1
                 except Exception:
-                    pass
+                    logger.warning("Failed to remove backup '%s'", b.path, exc_info=True)
         return removed
 
     @property

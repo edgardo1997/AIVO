@@ -1,0 +1,114 @@
+/* Product views (FASE 8) — estilos específicos de las vistas de producto. */
+@import "../../design/index.css";
+
+.sntl-error {
+  background: var(--sntl-danger-soft);
+  border: 1px solid rgba(255, 122, 122, 0.35);
+  color: var(--sntl-danger);
+  border-radius: var(--sntl-radius-sm);
+  padding: 10px 12px;
+  font-size: 12.5px;
+  margin-bottom: 14px;
+}
+
+.sntl-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.sntl-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: auto;
+}
+
+.sntl-active-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--sntl-success-soft);
+  border: 1px solid rgba(105, 211, 148, 0.35);
+  border-radius: var(--sntl-radius);
+  padding: 10px 14px;
+  font-size: 13px;
+  margin-bottom: 14px;
+}
+
+.sntl-active-banner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.sntl-tip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--sntl-info-soft);
+  border: 1px solid rgba(122, 162, 255, 0.35);
+  border-radius: var(--sntl-radius);
+  padding: 10px 14px;
+  font-size: 13px;
+  margin-bottom: 14px;
+  color: var(--sntl-info);
+}
+
+.sntl-dialog-note {
+  font-size: 12px;
+  color: var(--sntl-text-muted);
+  line-height: 1.5;
+}
+
+.sntl-star {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  color: var(--sntl-text-muted);
+  transition: color 0.15s ease, transform 0.1s ease;
+}
+
+.sntl-star:hover {
+  transform: scale(1.15);
+}
+
+.sntl-star[data-active="true"] {
+  color: var(--sntl-warning);
+}
+
+.sntl-kpi-row {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  margin-bottom: 16px;
+}
+
+.sntl-kpi .sntl-bar {
+  margin-top: 6px;
+}
+
+.sntl-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sntl-bar-row {
+  display: grid;
+  grid-template-columns: 44px 1fr 40px;
+  align-items: center;
+  gap: 10px;
+}
+
+.sntl-bar-day {
+  color: var(--sntl-text-secondary);
+}
+
+.sntl-bar-num {
+  text-align: right;
+  color: var(--sntl-text-muted);
+}

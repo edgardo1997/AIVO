@@ -74,6 +74,8 @@ class StorageEngine:
                 await self._conn.close()
             except Exception as e:
                 logger.warning("StorageEngine close error: %s", e)
+            finally:
+                self._conn = None
         self._initialized = False
         logger.info("StorageEngine closed")
 
@@ -157,11 +159,23 @@ class StorageEngine:
     def _resolve_url(self) -> str:
         url = self._config.database_url
         if not url:
+            url = os.environ.get("SENTINEL_STORAGE_DATABASE_URL", "")
+        if not url:
             url = os.environ.get("SENTINEL_DATABASE_URL", "")
         if not url:
+            storage_path = os.environ.get("SENTINEL_STORAGE_DB_PATH", "")
             data_dir = os.environ.get("SENTINEL_DATA_DIR", "")
-            if data_dir:
+            canonical_path = os.environ.get("SENTINEL_DB_PATH", "")
+            if storage_path:
+                db_path = Path(storage_path)
+            elif data_dir:
                 db_path = Path(data_dir) / "sentinel.db"
+            elif canonical_path:
+                # Single-file persistence: intelligence state lives in the same
+                # canonical sidecar database, versioned independently of the
+                # sidecar schema (see storage_engine_migrations). It must not
+                # change the canonical sidecar database user_version.
+                db_path = Path(canonical_path)
             else:
                 db_path = Path(os.environ.get("LOCALAPPDATA", ".")) / "Sentinel" / "sentinel.db"
             db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -177,6 +191,7 @@ class StorageEngine:
 
     async def _connect_sqlite(self, url: str) -> Any:
         import aiosqlite
+
         path = url.replace("sqlite:///", "")
         conn = await aiosqlite.connect(path, timeout=self._config.timeout)
         conn.row_factory = aiosqlite.Row
@@ -187,6 +202,7 @@ class StorageEngine:
     async def _connect_postgres(self, url: str) -> Any:
         try:
             import asyncpg
+
             conn = await asyncpg.connect(url.replace("postgresql://", "postgres://"))
             return conn
         except ImportError:
@@ -199,8 +215,10 @@ class StorageEngine:
         antes de aplicar migraciones nuevas (FASE 5.9).
         """
         import importlib.resources as pkg_resources
+
         try:
             from sentinel.storage import migrations as migrations_pkg
+
             try:
                 files = sorted(pkg_resources.files(migrations_pkg).glob("*.sql"))
             except (AttributeError, TypeError):
@@ -238,12 +256,29 @@ class StorageEngine:
             await self._conn.commit()
 
     async def _schema_version(self) -> int:
-        rows = await self._conn.execute("PRAGMA user_version")
+        """Return the intelligence schema version from its own tracking table.
+
+        The intelligence schema shares the canonical SQLite file with the
+        sidecar (single-file persistence) but must never touch the sidecar's
+        ``PRAGMA user_version``, which the sidecar owns. Version is tracked in
+        ``storage_engine_migrations`` instead.
+        """
+        await self._conn.execute(
+            "CREATE TABLE IF NOT EXISTS storage_engine_migrations ("
+            " version INTEGER PRIMARY KEY,"
+            " description TEXT NOT NULL DEFAULT '',"
+            " applied_at TEXT NOT NULL DEFAULT (datetime('now'))"
+            ")"
+        )
+        rows = await self._conn.execute("SELECT MAX(version) AS v FROM storage_engine_migrations")
         row = await rows.fetchone()
-        return int(row[0]) if row else 0
+        return int(row[0]) if row and row[0] is not None else 0
 
     async def _set_schema_version(self, version: int) -> None:
-        await self._conn.execute(f"PRAGMA user_version = {int(version)}")
+        await self.execute(
+            "INSERT OR REPLACE INTO storage_engine_migrations (version, description) VALUES (:version, :description)",
+            {"version": int(version), "description": "intelligence schema"},
+        )
 
     async def _backup_before_migration(self) -> None:
         """Copia de seguridad del archivo SQLite antes de migraciones nuevas."""
@@ -256,6 +291,7 @@ class StorageEngine:
         try:
             import shutil
             from datetime import datetime
+
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
             target = f"{path}.backup-{ts}"
             shutil.copy2(path, target)
@@ -282,7 +318,7 @@ class StorageEngine:
             "CREATE TABLE IF NOT EXISTS executions (execution_id TEXT PRIMARY KEY, timestamp TEXT, user_request TEXT DEFAULT '', intent TEXT DEFAULT '', task_type TEXT DEFAULT '', selected_model TEXT DEFAULT '', tools_used TEXT DEFAULT '[]', duration REAL DEFAULT 0.0, success INTEGER DEFAULT 1, failure_reason TEXT, risk_level TEXT DEFAULT '', cost REAL DEFAULT 0.0, confidence_score REAL DEFAULT 0.0, error TEXT)",
             "CREATE INDEX IF NOT EXISTS idx_executions_timestamp ON executions(timestamp)",
             # user preferences (FASE 5.7)
-            "CREATE TABLE IF NOT EXISTS user_preferences (user_id TEXT NOT NULL, key TEXT NOT NULL, value TEXT DEFAULT 'null', source TEXT DEFAULT 'observed', evidence_count INTEGER DEFAULT 1, confidence REAL DEFAULT 0.5, created_at TEXT, updated_at TEXT, PRIMARY KEY (user_id, key))",
+            "CREATE TABLE IF NOT EXISTS intelligence_user_preferences (user_id TEXT NOT NULL, key TEXT NOT NULL, value TEXT DEFAULT 'null', source TEXT DEFAULT 'observed', evidence_count INTEGER DEFAULT 1, confidence REAL DEFAULT 0.5, created_at TEXT, updated_at TEXT, PRIMARY KEY (user_id, key))",
             "CREATE INDEX IF NOT EXISTS idx_perf_model_task ON model_performance(model_name, task_type)",
         ]
         for sql in migrations:

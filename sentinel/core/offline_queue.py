@@ -5,6 +5,7 @@ Provides sync with exponential backoff, persistence via optional SQLite,
 and full CRUD for queue management.
 """
 
+import inspect
 import json
 import logging
 import time
@@ -144,7 +145,10 @@ class OfflineQueue:
             if not item:
                 break
             try:
-                success = sync_fn(item)
+                result = sync_fn(item)
+                if inspect.isawaitable(result):
+                    result = await result
+                success = bool(result)
                 if success:
                     self.mark_synced(item.id)
                     synced += 1

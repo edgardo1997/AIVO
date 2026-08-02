@@ -110,3 +110,37 @@ class AutomationTriggerRuleTool(Tool):
         if params.get("action"):
             res["action_result"] = self._svc.execute_action(params["action"], session_id=sid, request_id=rid)
         return ToolResult.ok(data=res, tool_id="automation.trigger")
+
+
+class AutomationImportTool(Tool):
+    """Import automation rules and workflows through the governed pipeline."""
+
+    def __init__(self, import_fn):
+        self._import_fn = import_fn
+
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            id="automation.import",
+            name="Import Automations",
+            description="Import automation rules and workflows from a sentinel-automations payload",
+            version="1.0.0",
+            category=_CAT,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "payload": {
+                        "type": "object",
+                        "description": "sentinel-automations payload (automation_rules + workflows)",
+                    },
+                },
+                "required": ["payload"],
+            },
+            required_permissions=["system.write"],
+        )
+
+    async def execute(self, params: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> ToolResult:
+        try:
+            result = self._import_fn(params.get("payload") or {})
+            return ToolResult.ok(data=result, tool_id="automation.import")
+        except Exception as e:
+            return ToolResult.fail(error=str(e), tool_id="automation.import")

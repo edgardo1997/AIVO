@@ -740,5 +740,5 @@ class ModelDiscovery:
                 if stored:
                     return stored
             except Exception:
-                pass
+                logger.warning("Failed to reveal API key for provider '%s'", provider_id, exc_info=True)
         return ""

@@ -49,14 +49,12 @@ def _close_stream_iterator(iterator) -> None:
 def _gateway_response(result, not_found=False):
     if not result.success:
         err = result.error or ""
-        if result.policy_decision:
-            status = 403
-        elif "not found" in err.lower():
+        if "not found" in err.lower() or not_found:
             status = 404
         elif "already exists" in err.lower():
             status = 409
-        elif not_found:
-            status = 404
+        elif result.policy_decision:
+            status = 403
         else:
             status = 400
         return JSONResponse({"error": result.error}, status_code=status)
@@ -106,6 +104,17 @@ def get_orchestrator():
     from modules import get_sentinel_orchestrator
 
     return get_sentinel_orchestrator()
+
+
+async def confirm_pending_tool(action_id: str, approved: bool, identity: Dict[str, Any]):
+    """Consume a durable tool confirmation and resume only through the pipeline."""
+    from modules import get_gateway
+
+    gateway = get_gateway()
+    broker = getattr(gateway, "_confirmation_broker", None)
+    if broker is None or broker.peek(action_id) is None:
+        return None
+    return await gateway.confirm(action_id, approved, identity)
 
 
 def get_advisory_service():

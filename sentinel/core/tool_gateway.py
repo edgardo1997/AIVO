@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 from dataclasses import asdict
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
@@ -16,6 +17,7 @@ from .grounding import GroundingEngine, GroundingRequirement, GroundingCategory
 from .events import SentinelEvent
 from .event_bus import EventBus
 from . import event_types
+from sentinel.security.models import ExecutionGrantContext
 
 if TYPE_CHECKING:
     from .capability_registry import CapabilityRegistry
@@ -52,6 +54,10 @@ class ToolGateway:
     def set_confirmation_broker(self, broker: Any) -> None:
         self._confirmation_broker = broker
 
+    def set_confirmation_executor(self, executor: Any) -> None:
+        """Set the governed route used after a one-time confirmation grant."""
+        self._confirmation_executor = executor
+
     def set_observability(self, service: Any) -> None:
         self._observability = service
 
@@ -84,8 +90,15 @@ class ToolGateway:
     async def confirm(self, action_id: str, approved: bool, identity: Dict[str, Any]) -> ToolResult:
         if self._confirmation_broker is None:
             return ToolResult.fail("Confirmation service is unavailable")
+        if not identity.get("user_id") or not identity.get("session_id"):
+            return ToolResult.fail("Confirmation requires an authenticated identity with a non-empty session")
         try:
-            grant = self._confirmation_broker.consume(action_id, identity.get("user_id", ""), approved)
+            grant = self._confirmation_broker.consume(
+                action_id,
+                identity.get("user_id", ""),
+                approved,
+                session_id=identity.get("session_id", ""),
+            )
         except PermissionError as exc:
             if self._audit_service:
                 self._audit_service.log_action(
@@ -104,8 +117,17 @@ class ToolGateway:
             )
         context = dict(grant.context)
         context["identity"] = identity
-        context["_confirmation_grant"] = {"action_id": action_id, "tool_id": grant.tool_id, "user_id": grant.user_id}
-        return await self.execute(grant.tool_id, grant.params, context)
+        context["_confirmation_grant"] = {
+            "action_id": action_id,
+            "tool_id": grant.tool_id,
+            "user_id": grant.user_id,
+            "params_hash": grant.params_hash,
+            "identity_hash": grant.identity_hash,
+        }
+        executor = getattr(self, "_confirmation_executor", None)
+        if executor is None:
+            return ToolResult.fail("Confirmation execution pipeline is unavailable")
+        return await executor(grant.tool_id, grant.params, context)
 
     def set_event_bus(self, event_bus: EventBus) -> None:
         self._event_bus = event_bus
@@ -205,6 +227,13 @@ class ToolGateway:
         context: Optional[Dict[str, Any]] = None,
     ) -> ToolResult:
         ctx: Dict[str, Any] = dict(context or {})
+        if ctx.get("source") == "approved_plan":
+            grant = ctx.get("execution_grant")
+            if not isinstance(grant, ExecutionGrantContext) or ctx.get("validated_execution_grant") is not grant:
+                return ToolResult.fail(
+                    "Approved-plan execution requires a validated ExecutionGrantContext",
+                    tool_id=tool_id,
+                )
         identity = ctx.get("identity")
         if hasattr(identity, "to_dict"):
             identity = identity.to_dict()
@@ -236,6 +265,19 @@ class ToolGateway:
         spec = tool.spec()
         if spec.status == ToolStatus.DISABLED:
             return ToolResult.fail(error=f"Tool '{tool_id}' is disabled", tool_id=tool_id)
+
+        if not spec.required_permissions:
+            result = ToolResult.fail(
+                error=f"Blocked: tool '{tool_id}' does not declare required permissions (fail-closed)",
+                tool_id=tool_id,
+            )
+            result.policy_decision = "_missing_permissions"
+            result.policy_result = {
+                "effect": "deny",
+                "policy_id": "_missing_permissions",
+                "reason": result.error,
+            }
+            return result
 
         await self._emit(event_types.TOOL_SELECTED, tool_id=tool_id, context=ctx)
 
@@ -270,7 +312,21 @@ class ToolGateway:
             return result
 
         policy_data = None
-        if self._policy_engine and spec.required_permissions:
+        guard_policy_result = ctx.get("_guard_policy_result")
+        if guard_policy_result is not None:
+            policy_data = {
+                **asdict(guard_policy_result),
+                "effect": guard_policy_result.effect.value,
+            }
+            if guard_policy_result.effect == PolicyEffect.DENY:
+                result = ToolResult.fail(
+                    error=f"Blocked by policy '{guard_policy_result.policy_id}': {guard_policy_result.reason}",
+                    tool_id=tool_id,
+                )
+                result.policy_decision = guard_policy_result.policy_id
+                result.policy_result = policy_data
+                return result
+        elif self._policy_engine and spec.required_permissions:
             policy_result = await self._policy_engine.evaluate(
                 tool_id=tool_id,
                 params=params,
@@ -291,7 +347,8 @@ class ToolGateway:
                 result.policy_result = policy_data
                 return result
 
-            already_approved = bool(ctx.get("_orchestrator_approval") or ctx.get("_confirmation_grant"))
+            # Only a broker-issued grant may satisfy a confirmation requirement.
+            already_approved = bool(ctx.get("_confirmation_grant"))
             if policy_result.effect == PolicyEffect.REQUIRE_CONFIRM and not already_approved:
                 action_id = None
                 if self._confirmation_broker is not None:

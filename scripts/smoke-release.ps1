@@ -33,7 +33,7 @@ try {
       $headers = @{ Authorization = "Bearer $token" }
       $health = Invoke-RestMethod -Uri "$baseUrl/api/health" -Headers $headers -TimeoutSec 1
       $info = Invoke-RestMethod -Uri "$baseUrl/api/info" -Headers $headers -TimeoutSec 1
-      if ($health.status -eq "healthy" -and $info.version -eq "1.0.0-rc.1") { $ready = $true; break }
+      if ($health.status -eq "healthy" -and $info.version -eq "1.0.0") { $ready = $true; break }
     } catch {}
   }
   if (-not $ready) {

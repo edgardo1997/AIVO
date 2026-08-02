@@ -581,25 +581,18 @@ class TestPermissions:
     def test_admin_executes_command_via_pipeline(self):
         try:
             perm_svc.set_level("admin")
+            # Governed durable-adjacent route: execute_direct -> ExecutionPipeline.
             resp = client.post(
-                "/api/sentinel/process",
+                "/v1/execute",
                 json={
-                    "utterance": "run command echo hello",
+                    "tool_id": "executor.command",
+                    "params": {"command": "echo hello"},
                 },
             )
             assert resp.status_code == 200
             data = resp.json()
-            if data.get("blocked"):
-                approve = client.post(
-                    "/api/sentinel/simulate/approve",
-                    json={
-                        "action_id": data["action_id"],
-                        "approved": True,
-                    },
-                )
-                assert approve.status_code == 200
-                data = approve.json()
-            assert data["tool_result"]["success"] is True
+            assert data["success"] is True
+            assert data["data"]["stdout"] is not None
         finally:
             perm_svc.set_level("confirm")
 

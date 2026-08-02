@@ -113,14 +113,26 @@ class TestCircuitBreakerUnit:
 
 class TestCircuitBreakerIntegration:
     def test_router_skips_open_provider(self):
-        mr = ModelRouter()
+        mr = ModelRouter(
+            providers=[
+                ProviderSpec("openrouter", "OpenRouter", [TaskType.QUICK], requires_key=False),
+                ProviderSpec("fallback", "Fallback", [TaskType.QUICK], requires_key=False),
+            ]
+        )
         mr._circuit_breaker.record_failure("openrouter")
         mr._circuit_breaker.record_failure("openrouter")
         mr._circuit_breaker.record_failure("openrouter")
-        # openrouter now open, should fall through to other providers
-        # but with no keys configured, all will fail
+        attempts = []
+
+        def failed_fallback(decision, provider, messages, model_override=None, **kwargs):
+            attempts.append(decision.provider_id)
+            raise ConnectionError("test fallback unavailable")
+
+        mr._call_provider = failed_fallback
+        # The open provider must be skipped; the isolated fallback then fails.
         with pytest.raises(RuntimeError):
             mr.chat([{"role": "user", "content": "hi"}], task_type=TaskType.QUICK)
+        assert attempts and set(attempts) == {"fallback"}
 
     def test_router_records_success_on_success(self):
         mr = ModelRouter(providers=[ProviderSpec("openrouter", "OpenRouter", [TaskType.QUICK], requires_key=False)])

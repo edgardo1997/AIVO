@@ -13,6 +13,7 @@ os.environ.setdefault("SENTINEL_JWT_SECRET", "sentinel-test-jwt-secret-not-for-p
 _test_data_dir = tempfile.mkdtemp(prefix="sentinel-tests-")
 os.environ["SENTINEL_DB_PATH"] = os.path.join(_test_data_dir, "sentinel-test.db")
 os.environ["AIVO_DB_PATH"] = os.environ["SENTINEL_DB_PATH"]
+os.environ["SENTINEL_PRODUCT_DIR"] = os.path.join(_test_data_dir, "product")
 _sidecar_dir = os.path.join(os.path.dirname(__file__), "..")
 _aivo_dir = os.path.join(_sidecar_dir, "..")
 sys.path.insert(0, os.path.abspath(_sidecar_dir))

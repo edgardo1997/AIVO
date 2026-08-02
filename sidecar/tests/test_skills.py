@@ -8,6 +8,7 @@ import pytest
 
 from sentinel.core.skill import SkillSpec, SkillResult, SkillRegistry, BUILTIN_SKILLS
 from sentinel.core.skill_engine import SkillEngine
+from sentinel.core.tool import ToolResult
 
 
 class TestSkillSpec:
@@ -208,37 +209,40 @@ class TestSkillEngine:
         assert result.success is False
 
     @pytest.mark.asyncio
-    async def test_execute_with_gateway(self):
+    async def test_execute_with_pipeline(self):
         reg = SkillRegistry()
         s = SkillSpec(id="test.exec", name="Test Exec", description="d", category="c", tools=["test.tool"])
         reg.register(s)
         gw = MagicMock()
         gw.get_spec.return_value = MagicMock()
-        gw.execute = AsyncMock()
-        gw.execute.return_value.success = True
-        gw.execute.return_value.data = {"done": True}
-        gw.execute.return_value.error = None
-        gw.execute.return_value.duration_ms = 10.0
-        engine = SkillEngine(registry=reg, tool_gateway=gw)
+
+        async def _exec(tool_id, params, context, source="skill"):
+            return ToolResult(success=True, data={"done": True}, tool_id=tool_id, duration_ms=10.0)
+
+        ep = MagicMock()
+        ep.execute = AsyncMock(side_effect=_exec)
+        engine = SkillEngine(registry=reg, tool_gateway=gw, execution_pipeline=ep)
         result = await engine.execute("test.exec", {"x": 1})
         assert result.success is True
-        gw.execute.assert_called_once()
+        ep.execute.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_execute_step_failure_stops(self):
+    async def test_execute_pipeline_failure_stops(self):
         reg = SkillRegistry()
         s = SkillSpec(id="test.fail", name="Test Fail", description="d", category="c", tools=["tool.a", "tool.b"])
         reg.register(s)
         gw = MagicMock()
         gw.get_spec.return_value = MagicMock()
-        gw.execute = AsyncMock()
-        gw.execute.return_value.success = False
-        gw.execute.return_value.error = "step failed"
-        gw.execute.return_value.duration_ms = 5.0
-        engine = SkillEngine(registry=reg, tool_gateway=gw)
+
+        async def _exec(tool_id, params, context, source="skill"):
+            return ToolResult(success=False, error="step failed", tool_id=tool_id, duration_ms=5.0)
+
+        ep = MagicMock()
+        ep.execute = AsyncMock(side_effect=_exec)
+        engine = SkillEngine(registry=reg, tool_gateway=gw, execution_pipeline=ep)
         result = await engine.execute("test.fail", {})
         assert result.success is False
-        assert gw.execute.call_count == 1
+        assert ep.execute.call_count == 1
 
     def test_find_skills(self):
         reg = SkillRegistry()

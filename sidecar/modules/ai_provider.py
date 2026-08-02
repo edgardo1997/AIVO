@@ -1,6 +1,6 @@
 import logging
 from typing import Optional
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from services.ai_service import AIService
 
@@ -36,14 +36,29 @@ class SystemAnalyzeRequest(BaseModel):
     metrics: dict
 
 
+async def _execute_ai_tool(tool_id: str, params: dict, request: Request):
+    from modules import get_execution_pipeline
+    from modules.auth import request_identity
+
+    return await get_execution_pipeline().execute(
+        tool_id, params, {"identity": request_identity(request).to_dict()}, source="api"
+    )
+
+
 @router.post("/chat")
-def chat(req: ChatRequest):
-    return _svc.chat(req.message, req.system_prompt or None, req.context or None, req.provider or None)
+async def chat(req: ChatRequest, request: Request):
+    result = await _execute_ai_tool("ai.chat", req.model_dump(), request)
+    if not result.success:
+        raise HTTPException(status_code=403, detail=result.error or "AI chat denied")
+    return result.data
 
 
 @router.post("/analyze")
-def analyze_metrics(req: SystemAnalyzeRequest):
-    return _svc.analyze_metrics(req.metrics)
+async def analyze_metrics(req: SystemAnalyzeRequest, request: Request):
+    result = await _execute_ai_tool("ai.analyze", req.model_dump(), request)
+    if not result.success:
+        raise HTTPException(status_code=403, detail=result.error or "AI analysis denied")
+    return result.data
 
 
 @router.get("/config")
@@ -56,16 +71,16 @@ def get_config(request: Request):
 
 
 @router.post("/config")
-def set_config(cfg: ConfigModel, request: Request):
-    from modules.auth import request_identity, require_level
+async def set_config(cfg: ConfigModel, request: Request):
+    from modules import get_execution_pipeline
+    from modules.auth import request_identity
 
-    identity = request_identity(request)
-    require_level(identity, "admin")
-    data = cfg.model_dump()
-    delete_key = data.pop("delete_key", None)
-    if delete_key and data.get("provider"):
-        _svc.delete_provider_key(data["provider"])
-    return _svc.set_config(data)
+    result = await get_execution_pipeline().execute(
+        "ai.config", cfg.model_dump(), {"identity": request_identity(request).to_dict()}, source="api"
+    )
+    if not result.success:
+        raise HTTPException(status_code=403, detail=result.error or "AI configuration denied")
+    return result.data
 
 
 @router.get("/providers")
@@ -95,7 +110,7 @@ def validate_model(req: ValidateModelRequest, request: Request):
 
 @router.post("/local-model/install")
 def install_local_model():
-    from services.local_model_service import runtime
-
-    runtime.ensure_started_async()
-    return runtime.status()
+    raise HTTPException(
+        status_code=503,
+        detail="Local model installation is disabled until it is implemented as a consent-governed pipeline tool.",
+    )

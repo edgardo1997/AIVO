@@ -245,7 +245,7 @@ class ModelRanking:
                     )
                 )
             except Exception:
-                pass
+                logger.warning("Failed to emit model ranking update event", exc_info=True)
 
         return result
 
@@ -271,8 +271,6 @@ class ModelRanking:
         reasoning_total = 0
         tool_success = 0
         tool_total = 0
-        vision_metrics = 0
-
         for m in metrics:
             tt = m.task_type.lower()
             if tt in ("coding", "code", "development"):

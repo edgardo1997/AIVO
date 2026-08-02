@@ -64,21 +64,14 @@ class EventStreamService:
                         if not clients:
                             del self._sessions[sid]
 
-    async def handle_websocket(self, websocket: WebSocket, session_id: str = "") -> None:
-        await websocket.accept()
+    async def handle_websocket(self, websocket: WebSocket, session_id: str, subprotocol: str) -> None:
+        await websocket.accept(subprotocol=subprotocol)
         await self.register(session_id, websocket)
         try:
             while True:
-                msg = await websocket.receive_text()
-                try:
-                    cmd = json.loads(msg)
-                    if cmd.get("action") == "subscribe" and cmd.get("session_id"):
-                        await self.unregister(session_id, websocket)
-                        session_id = cmd["session_id"]
-                        await self.register(session_id, websocket)
-                        await websocket.send_json({"type": "subscribed", "session_id": session_id})
-                except (json.JSONDecodeError, TypeError):
-                    await websocket.send_json({"type": "error", "message": "invalid JSON"})
+                # The handshake-derived session is immutable for the connection.
+                # Do not let an event client switch to another user's session.
+                await websocket.receive_text()
         except Exception:
             pass
         finally:

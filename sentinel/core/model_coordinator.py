@@ -358,7 +358,6 @@ class ModelCoordinator:
                     results.append(r)
 
         else:
-            task_map = {t.task_id: t for t in plan.tasks}
             completed: Set[str] = set()
             remaining = list(plan.tasks)
             while remaining:

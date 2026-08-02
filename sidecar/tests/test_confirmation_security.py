@@ -2,11 +2,13 @@
 
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 import pytest
 from sentinel.core.confirmation import ConfirmationBroker
-from sentinel.core.operational_memory import InMemoryBackend, OperationalMemoryConfig
+from sentinel.core.operational_memory import InMemoryBackend, OperationalMemoryConfig, PendingActionRecord, SQLiteBackend
+from repositories.database import DatabaseManager
 
 
 @pytest.fixture
@@ -23,6 +25,23 @@ def broker(memory):
 
 
 class TestConfirmationSecurity:
+    def test_sqlite_confirmation_consumption_is_single_use_under_race(self):
+        """Two concurrent approvers may race, but only one can receive a grant."""
+        memory = SQLiteBackend(db=DatabaseManager(), config=OperationalMemoryConfig(max_pending_actions=100))
+        broker = ConfirmationBroker(memory, ttl_seconds=60)
+        action_id = broker.request(
+            "filesystem.write", {"path": "/test"}, {"identity": {"user_id": "race-user", "role": "user"}}, "test"
+        )
+
+        def approve():
+            return broker.consume(action_id, "race-user", approved=True)
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            grants = [future.result() for future in (pool.submit(approve), pool.submit(approve))]
+
+        assert sum(grant is not None for grant in grants) == 1
+        assert memory.get_pending_action(action_id) is None
+
     def test_request_creates_approval(self, broker, memory):
         aid = broker.request(
             "filesystem.write",
@@ -111,6 +130,17 @@ class TestConfirmationSecurity:
         grant = broker.consume(aid, "alice", approved=True)
         assert grant is None
 
+    def test_confirmation_rejects_replay_from_a_different_session(self, memory):
+        broker = ConfirmationBroker(memory, ttl_seconds=60)
+        action_id = broker.request(
+            tool_id="filesystem.write",
+            params={"path": "C:/safe.txt"},
+            context={"identity": {"user_id": "alice", "session_id": "session-a"}},
+            reason="test",
+        )
+        with pytest.raises(PermissionError, match="Identity hash mismatch"):
+            broker.consume(action_id, "alice", approved=True, session_id="session-b")
+
     def test_tampered_params_rejected(self, broker, memory):
         aid = broker.request(
             "filesystem.write",
@@ -162,6 +192,22 @@ class TestConfirmationSecurity:
     def test_consume_nonexistent(self, broker):
         grant = broker.consume("no-such-id", "alice", approved=True)
         assert grant is None
+
+    def test_broker_does_not_consume_a_non_tool_pending_action(self, broker, memory):
+        memory.store_pending_action(
+            PendingActionRecord(
+                action_id="plan-pending",
+                tool_id="executor.command",
+                params={"plan": {"steps": []}},
+                reason="plan approval",
+                created_at=datetime.now(timezone.utc).isoformat(),
+                ttl_seconds=600,
+            )
+        )
+
+        assert broker.peek("plan-pending") is None
+        assert broker.consume("plan-pending", "alice", approved=True) is None
+        assert memory.get_pending_action("plan-pending") is not None
 
     def test_request_no_identity_raises(self, broker):
         with pytest.raises(ValueError, match="user"):

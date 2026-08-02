@@ -3,7 +3,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from sentinel.core.model_feedback import ModelFeedbackStore, TaskType
@@ -12,6 +12,7 @@ from sentinel.core.planner import Planner
 from sentinel.core.tool_gateway import ToolGateway
 from sentinel.core.intent import Intent
 from sentinel.core.model_router import ModelRouter, RouterDecision
+from sentinel.core.tool import ToolResult
 
 
 @pytest.fixture(autouse=True)
@@ -108,6 +109,10 @@ class TestOrchestratorRecordsFeedback:
         )
 
         store = ModelFeedbackStore()
+        execution_pipeline = AsyncMock()
+        execution_pipeline.execute.return_value = ToolResult.ok(data={}, tool_id="system.cpu")
+        intelligence = MagicMock()
+        intelligence.learn_from_model_result = AsyncMock()
         orch = Orchestrator(
             intent_engine=MagicMock(),
             tool_gateway=ToolGateway(),
@@ -116,6 +121,8 @@ class TestOrchestratorRecordsFeedback:
             context_engine=None,
             memory=None,
             model_feedback_store=store,
+            execution_pipeline=execution_pipeline,
+            intelligence=intelligence,
         )
         orch._intent_engine.parse.return_value = Intent(
             action="query",
@@ -129,9 +136,9 @@ class TestOrchestratorRecordsFeedback:
 
         asyncio.run(orch.process("cpu", skip_simulation=True))
 
-        assert store.total_records >= 1
-        stats = store.get_stats()
-        assert any(s.provider_id == "ollama" for s in stats)
+        intelligence.learn_from_model_result.assert_awaited_once()
+        assert intelligence.learn_from_model_result.await_args.kwargs["model_id"] == "llama3"
+        assert intelligence.learn_from_model_result.await_args.kwargs["success"] is True
 
     def test_feedback_records_failure_when_step_fails(self):
         router = MagicMock(spec=ModelRouter)
@@ -145,6 +152,12 @@ class TestOrchestratorRecordsFeedback:
         )
 
         store = ModelFeedbackStore()
+        execution_pipeline = AsyncMock()
+        execution_pipeline.execute.return_value = ToolResult.fail(
+            error="test failure", tool_id="system.cpu"
+        )
+        intelligence = MagicMock()
+        intelligence.learn_from_model_result = AsyncMock()
         orch = Orchestrator(
             intent_engine=MagicMock(),
             tool_gateway=ToolGateway(),
@@ -153,6 +166,8 @@ class TestOrchestratorRecordsFeedback:
             context_engine=None,
             memory=None,
             model_feedback_store=store,
+            execution_pipeline=execution_pipeline,
+            intelligence=intelligence,
         )
         orch._intent_engine.parse.return_value = Intent(
             action="query",
@@ -166,9 +181,8 @@ class TestOrchestratorRecordsFeedback:
 
         asyncio.run(orch.process("cpu", skip_simulation=True))
 
-        stats = store.get_stats(provider_id="ollama", task_type=TaskType.QUICK)
-        assert len(stats) == 1
-        assert stats[0].total >= 1
+        intelligence.learn_from_model_result.assert_awaited_once()
+        assert intelligence.learn_from_model_result.await_args.kwargs["success"] is False
 
 
 class TestSmartSelectUsesFeedback:
@@ -201,8 +215,9 @@ class TestSmartSelectUsesFeedback:
             default_model="gpt-4o",
             priority=20,
         )
-        router._key_map = {"openrouter": "sk-test"}
-        router._strategy = "smart"
+        router._provider_selector._providers = router._providers
+        router.set_api_key("openrouter", "sk-test")
+        router.set_strategy("smart")
 
         decision = router.select(TaskType.QUICK, context={"permission_level": "admin"})
         assert decision.provider_id == "ollama"
@@ -237,8 +252,9 @@ class TestSmartSelectUsesFeedback:
             default_model="gpt-4o",
             priority=20,
         )
-        router._key_map = {"openrouter": "sk-test"}
-        router._strategy = "smart"
+        router._provider_selector._providers = router._providers
+        router.set_api_key("openrouter", "sk-test")
+        router.set_strategy("smart")
 
         decision = router.select(TaskType.QUICK, context={"permission_level": "admin"})
         assert decision.provider_id == "openrouter"
@@ -265,8 +281,9 @@ class TestSmartSelectUsesFeedback:
             default_model="gpt-4o",
             priority=20,
         )
-        router._key_map = {"openrouter": "sk-test"}
-        router._strategy = "smart"
+        router._provider_selector._providers = router._providers
+        router.set_api_key("openrouter", "sk-test")
+        router.set_strategy("smart")
 
         store = ModelFeedbackStore()
         router.set_feedback_store(store)

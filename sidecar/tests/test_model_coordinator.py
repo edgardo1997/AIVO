@@ -348,7 +348,6 @@ class TestModelCoordinator:
         call_order = []
 
         def fake_chat(messages, **kw):
-            task_name = messages[0]["content"].split(".")[0] if "." in messages[0]["content"] else "unknown"
             call_order.append(messages[0]["content"])
             return {"response": "ok", "usage": {}}
 

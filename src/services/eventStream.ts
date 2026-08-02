@@ -1,3 +1,5 @@
+import { getSessionToken } from "../api";
+
 const WS_BASE = "ws://127.0.0.1:8765";
 
 export interface LiveEvent {
@@ -19,24 +21,33 @@ export interface LiveEvent {
 
 export class EventStreamClient {
   private ws: WebSocket | null = null;
-  private sessionId = "";
   private handlers = new Map<string, Set<(event: LiveEvent) => void>>();
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
   private reconnectDelay = 1000;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private destroyHandlers = new Set<() => void>();
+  private connectionGeneration = 0;
 
-  connect(sessionId = ""): void {
+  connect(_sessionId = ""): void {
     this.disconnect();
-    this.sessionId = sessionId;
+    // The backend derives the session from the authenticated handshake.
+    // It is therefore never selected by a user-controlled query parameter.
     this.reconnectAttempts = 0;
-    this._connect();
+    const generation = ++this.connectionGeneration;
+    void this._connect(generation);
   }
 
-  private _connect(): void {
-    const url = `${WS_BASE}/ws/events${this.sessionId ? `?session_id=${encodeURIComponent(this.sessionId)}` : ""}`;
-    this.ws = new WebSocket(url);
+  private async _connect(generation: number): Promise<void> {
+    let token: string;
+    try {
+      token = await getSessionToken();
+    } catch {
+      return;
+    }
+    if (!token || generation !== this.connectionGeneration) return;
+    const protocol = `sentinel.${token}`;
+    this.ws = new WebSocket(`${WS_BASE}/ws/events`, protocol);
 
     this.ws.onopen = () => {
       this.reconnectAttempts = 0;
@@ -72,7 +83,7 @@ export class EventStreamClient {
     this.reconnectAttempts++;
     const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
     this.reconnectTimer = setTimeout(() => {
-      this._connect();
+      void this._connect(this.connectionGeneration);
     }, delay);
   }
 
@@ -98,6 +109,7 @@ export class EventStreamClient {
   }
 
   disconnect(): void {
+    this.connectionGeneration++;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;

@@ -19,6 +19,7 @@ import { Plugins } from "../Plugins/Plugins";
 import { Policies } from "../Policies/Policies";
 import { Proactive } from "../Proactive/Proactive";
 import { Profile } from "../Profile/Profile";
+import { ControlCenterView, MetricsView, ModelCenterView, ModesView } from "../Product";
 import { Reports } from "../Reports/Reports";
 import { Sentinel } from "../Sentinel/Sentinel";
 import { Triggers } from "../Triggers/Triggers";
@@ -29,6 +30,10 @@ export type ViewKey =
   | "livedashboard"
   | "monitor"
   | "sentinel"
+  | "modes"
+  | "modelcenter"
+  | "controlcenter"
+  | "metrics"
   | "files"
   | "knowledge"
   | "memory"
@@ -59,6 +64,16 @@ export type ViewGroup = {
 
 // oxlint-disable-next-line react/only-export-components
 export const viewGroups: ViewGroup[] = [
+  {
+    id: "product",
+    label: "Producto",
+    items: [
+      { key: "modes", label: "Modos", icon: "◈", description: "Modos de uso con respaldo" },
+      { key: "modelcenter", label: "Modelos", icon: "◇", description: "Centro de modelos" },
+      { key: "controlcenter", label: "Control", icon: "◎", description: "Centro de control del sistema" },
+      { key: "metrics", label: "Métricas", icon: "◉", description: "Métricas de producto" },
+    ],
+  },
   {
     id: "system",
     label: "Sistema",
@@ -142,6 +157,10 @@ export function ViewRouter({ view, onNavigate }: { view: ViewKey; onNavigate?: (
     case "help": return <Help />;
     case "knowledge": return <KnowledgeBase />;
     case "memory": return <Memory />;
+    case "metrics": return <MetricsView />;
+    case "modes": return <ModesView />;
+    case "modelcenter": return <ModelCenterView />;
+    case "controlcenter": return <ControlCenterView />;
     case "monitor": return <Monitor />;
     case "observability": return <Observability />;
     case "permissions": return <Permissions />;

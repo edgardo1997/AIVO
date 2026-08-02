@@ -1,8 +1,10 @@
 import json
+import hashlib
 import logging
 import math
 import os
 import threading
+import re
 import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -131,9 +133,9 @@ class OllamaEmbeddingProvider(EmbeddingProvider):
 
 
 class _TokenEmbeddingProvider(EmbeddingProvider):
-    """Character-based embedding using token-like hashing.
+    """Token-based embedding using stable feature hashing.
 
-    Falls back to a simple frequency vector derived from character n-grams.
+    Falls back to a simple frequency vector derived from text tokens.
     Produces 256-dim vectors. Not semantically meaningful, but better than
     random — allows keyword matching via cosine similarity.
     """
@@ -146,16 +148,22 @@ class _TokenEmbeddingProvider(EmbeddingProvider):
         return "token:256"
 
     def _hash_feat(self, s: str, idx: int) -> float:
-        h = hash(f"{s}_{idx}_{self._SEED}") & 0xFFFFFFFF
+        digest = hashlib.blake2b(
+            f"{s}_{idx}_{self._SEED}".encode("utf-8"), digest_size=4
+        ).digest()
+        h = int.from_bytes(digest, "big")
         return (h % 10000) / 10000.0
 
     def embed(self, texts: List[str]) -> List[List[float]]:
         vecs: List[List[float]] = []
         for t in texts:
             vec = [0.0] * self._dim
-            for i, ch in enumerate(t):
-                bi = i % self._dim
-                vec[bi] += self._hash_feat(ch, i)
+            for token in re.findall(r"\w+", t.lower()):
+                digest = hashlib.blake2b(
+                    f"{token}_{self._SEED}".encode("utf-8"), digest_size=4
+                ).digest()
+                bi = int.from_bytes(digest, "big") % self._dim
+                vec[bi] += 1.0
             mag = math.sqrt(sum(v * v for v in vec))
             if mag > 0:
                 vec = [v / mag for v in vec]

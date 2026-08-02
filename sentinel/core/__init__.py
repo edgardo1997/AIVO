@@ -47,7 +47,11 @@ from .automation_engine import AutomationEngine
 from .ai_workflows import AIWorkflows
 from .capability_engine import CapabilityEngine, CapabilitySet, IntentType
 from .intent_engine_v2 import IntentEngineV2, IntentCategory, ClassifiedIntent
-from .intelligence_orchestrator import IntelligenceOrchestrator, IntelligenceDecision, ExecutionStrategy
+from .intelligence_orchestrator import (
+    IntelligenceOrchestrator,
+    IntelligenceDecision,
+    ExecutionStrategy as IntelligenceExecutionStrategy,
+)
 from .intelligence_coordinator import IntelligenceCoordinator
 from .conversation_manager import ConversationManager, ConversationContext, ContextPackage, PersonalityLayer, SummaryEngine, MemoryGate
 from .model_coordinator import ModelCoordinator, ModelTask, MultiModelPlan, ModelTaskResult, MultiModelResult, ExecutionStrategy

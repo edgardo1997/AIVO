@@ -34,6 +34,24 @@ BUDGET_DB_MS = 500  # database operations
 BUDGET_MEMORY_MS = 200  # operational memory operations
 
 
+def _orchestrator_tool_rate_limiter():
+    """Locate the ToolExecutionGuard's ToolRateLimiter instance."""
+    from sentinel.security.tool_rate_limiter import ToolRateLimiter
+    from modules.sentinel_bridge import get_orchestrator
+
+    orchestrator = get_orchestrator()
+    guard = getattr(getattr(orchestrator, "_execution_pipeline", None), "_guard", None)
+    router = getattr(orchestrator, "_model_router", None)
+    if guard is None and router is not None:
+        guard = getattr(router, "_tool_guard", None)
+    if guard is None:
+        return None
+    rate_limiter = getattr(guard, "_rate_limiter", None)
+    if isinstance(rate_limiter, ToolRateLimiter):
+        return rate_limiter
+    return None
+
+
 @pytest.fixture(scope="module", autouse=True)
 def benchmark_configuration():
     """Keep benchmark-only mutations isolated from the regression suite."""
@@ -42,7 +60,26 @@ def benchmark_configuration():
     _rate_limiter.allow = lambda key, limit=999999: type(  # noqa: ARG005
         "_", (), {"allowed": True, "remaining": 999, "retry_after": 0}
     )()
+    tool_limiter = _orchestrator_tool_rate_limiter()
+    original_check = getattr(tool_limiter, "check", None)
+    if original_check is not None:
+        def _noop_check(tool_name):
+            return type(
+                "_",
+                (),
+                {
+                    "allowed": True,
+                    "blocked": False,
+                    "current_count": 1,
+                    "max_calls": 999999,
+                    "window_seconds": 60,
+                },
+            )()
+
+        tool_limiter.check = _noop_check  # type: ignore[method-assign]
     yield
+    if original_check is not None and tool_limiter is not None:
+        tool_limiter.check = original_check  # type: ignore[method-assign]
     _rate_limiter.allow = original_allow
     perm_svc.set_level("confirm")
 

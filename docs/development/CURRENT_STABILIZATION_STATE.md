@@ -1,12 +1,30 @@
 # CURRENT STABILIZATION STATE
 
 Fecha: 2026-08-02
-Commit base: `1ee215b` (F7 observabilidad producción)
-Objetivo de sesión: migrar approvals legacy al flujo durable (P0-1) y cerrar P0-2 (frontera única).
+Commit base: `1ee215b` (F7 observabilidad producción) → branch
+`feature/sentinel-intelligence-migration`; cierre del audit completo (P0–P4).
 
-## Objetivo activo
-Continuar Objetivo 4 (baseline amplio) y 6 (siguiente defecto de mayor impacto).
-2026-08-sesión-2: cerrar migración de consumidores legacy de `/simulate/approve` y regresión del decision path.
+## Estado: audit cerrado y release 1.0.0 consolidado
+- Hallazgos del `docs/audits/SENTINEL_FULL_SYSTEM_AUDIT_2026-08-02.md` cerrados:
+  - P0-1 durable consent cableado, P0-2 frontera única, P1-3 login/JWT rotation
+    con revocación jti, P1-4 automations ligadas a sesión (v10), P1-5 feed
+    `update.json` generado, P2-6 legacy.py eliminado, P2-7 persistencia
+    single-file, P2-8 budgets persistidos, P3-9 offline replay real,
+    P3-10/A6 `jwt_revoked` en baseline schema, P4-11/A11 Authenticode externo
+    documentado.
+- Build de release regenerado (MSI + NSIS) con el código post-audit, instaladores
+  firmados con la clave de updater, `update.json` y manifest/SBOM verificados,
+  smoke test del sidecar empaquetado OK.
+- Suite `-m performance` verde (23 passed); fix del benchmark que agotaba el
+  rate limit `process.*` (20/60s) en los rounds.
+- Features nuevas (no fixes) NO se implementan durante esta estabilización;
+  candidatas en `docs/development/ROADMAP.md` (ver FEAT-1: inferencia local
+  gestionada, propuesta para 1.1.0).
+
+## Externos pendientes (bloqueados por entorno)
+- Authenticode signing (requiere `signtool`/Microsoft Artifact Signing).
+- E2E con proveedor LLM real (requiere credenciales/proveedor activo).
+- Suite e2e LLM/simulación completa (presupuesto de red, 49s timeouts).
 
 ## Tareas cerradas
 - O1: 6 tests legacy de `sidecar/tests/test_simulation_blocking.py` migrados al flujo durable. Archivo 16/16 verde.

@@ -64,11 +64,15 @@ class ToolExecutionGuard:
         self._rate_limiter = rate_limiter or ToolRateLimiter()
         self._last_policy_result: Optional[Any] = None
         self._execution_grants: Any = None
+        if self._gateway is not None and hasattr(self._gateway, "set_execution_guard"):
+            self._gateway.set_execution_guard(self)
 
     # ── Setters (inyección post-construcción) ─────────────────
 
     def set_tool_gateway(self, gateway: Any) -> None:
         self._gateway = gateway
+        if self._gateway is not None and hasattr(self._gateway, "set_execution_guard"):
+            self._gateway.set_execution_guard(self)
 
     def set_policy_engine(self, engine: Any) -> None:
         self._policy = engine
@@ -402,6 +406,7 @@ class ToolExecutionGuard:
             context["_guard_execution"] = True
             context["execution_id"] = request.execution_id
             context["source"] = request.source
+            context["issuing_guard"] = self
             result = await self._gateway.execute(
                 request.tool_name,
                 request.arguments,

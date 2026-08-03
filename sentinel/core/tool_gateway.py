@@ -47,9 +47,14 @@ class ToolGateway:
         self._hardening: Any = None
         self._confirmation_broker: Any = None
         self._observability: Any = None
+        self._execution_guard: Any = None
 
     def set_hardening(self, hardening: Any) -> None:
         self._hardening = hardening
+
+    def set_execution_guard(self, guard: Any) -> None:
+        """Bind the sole authority permitted to issue tool execution contexts."""
+        self._execution_guard = guard
 
     def set_confirmation_broker(self, broker: Any) -> None:
         self._confirmation_broker = broker
@@ -256,6 +261,26 @@ class ToolGateway:
                 "reason": "Authenticated user identity is required",
             }
             return result
+
+        if self._execution_guard is not None:
+            issuing_guard = ctx.get("issuing_guard")
+            if issuing_guard is not self._execution_guard:
+                result = ToolResult.fail(
+                    error=json.dumps(
+                        {
+                            "error_type": "GOVERNANCE_CONTRACT_VIOLATION",
+                            "message": "ToolGateway.execute was called without a validated governance context",
+                        }
+                    ),
+                    tool_id=tool_id,
+                )
+                result.policy_decision = "governance_contract"
+                result.policy_result = {
+                    "effect": "deny",
+                    "policy_id": "governance_contract",
+                    "reason": "No validated issuing guard in execution context",
+                }
+                return result
 
         await self._emit(event_types.TOOL_SEARCHING, tool_id=tool_id, context=ctx)
         tool = self._tools.get(tool_id)

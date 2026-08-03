@@ -227,4 +227,4 @@ Conclusion:
 
 ## Next step
 
-Phase 8 — Connection, streaming and cancellation.  Audit the streaming path, client lifecycle, retry/fallback, cancellation propagation and persistence timing.  Do not begin production changes until the audit and a clear baseline are established.
+Phase 8 — Connection, streaming and cancellation (8A/B complete).  Audit the streaming path, client lifecycle, retry/fallback, cancellation propagation and persistence timing.  Do not begin production changes until the audit and a clear baseline are established.

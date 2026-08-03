@@ -3,6 +3,7 @@ from typing import Any, Callable, Dict, Iterator, List, Optional
 import logging
 import os
 import time
+import uuid
 
 from sentinel.core.router_types import (
     TaskType, ProviderSpec, RouterDecision, ProviderAvailability,
@@ -118,6 +119,9 @@ class ModelRouter:
         self._cost_tracker = tracker
         self._provider_selector.set_cost_tracker(tracker)
 
+    def set_resource_intelligence(self, layer: Any) -> None:
+        self._provider_selector.set_resource_intelligence(layer)
+
     def set_model_ranking(self, ranking: Any) -> None:
         self._provider_selector.set_ranking_engine(ranking)
 
@@ -154,6 +158,11 @@ class ModelRouter:
         self._provider_selector.delete_api_key(provider_id)
         self._provider_manager.delete_api_key(provider_id)
         return bool(self._key_map.pop(provider_id, None))
+
+    def close(self):
+        """Close lifecycle-managed provider clients."""
+        if self._provider_manager is not None:
+            self._provider_manager.close()
 
     def has_api_key(self, provider_id: str) -> bool:
         return provider_id in self._key_map and bool(self._key_map[provider_id])
@@ -393,7 +402,10 @@ class ModelRouter:
     def _try_select_from_registry(self, task_type: TaskType, context: Optional[Dict[str, Any]] = None) -> Optional[RouterDecision]:
         return self._provider_selector._try_select_from_registry(task_type, context=context)
 
-    def select(self, task_type: TaskType, context: Optional[Dict[str, Any]] = None) -> RouterDecision:
+    def select(self, task_type: TaskType, context: Optional[Dict[str, Any]] = None, explicit_provider: Optional[str] = None, explicit_model: Optional[str] = None) -> RouterDecision:
+        # If explicit provider/model is specified, bypass registry and go directly to provider selector
+        if explicit_provider or explicit_model:
+            return self._record_decision(self._provider_selector.select(task_type, context=context, explicit_provider=explicit_provider, explicit_model=explicit_model))
         registry_decision = self._try_select_from_registry(task_type, context)
         if registry_decision is not None:
             return self._record_decision(registry_decision)
@@ -501,10 +513,15 @@ class ModelRouter:
         mm_result = await self._multi_model.process(user_message, execute_fn=execute_fn, context=context)
         return mm_result.to_dict()
 
-    def chat_stream(self, messages: List[Dict[str, str]], task_type: TaskType = TaskType.QUICK, model_override: Optional[str] = None, context: Optional[Dict[str, Any]] = None) -> Iterator[Dict[str, Any]]:
+    def chat_stream(self, messages: List[Dict[str, str]], task_type: TaskType = TaskType.QUICK, model_override: Optional[str] = None, context: Optional[Dict[str, Any]] = None, explicit_provider: Optional[str] = None, explicit_model: Optional[str] = None) -> Iterator[Dict[str, Any]]:
         context = context or {}
-        decision = self.select(task_type, context=context)
+        routing_start = time.monotonic()
+        decision = self.select(task_type, context=context, explicit_provider=explicit_provider, explicit_model=explicit_model)
         candidates = self._filter_open_providers(self._build_fallback_chain(decision, task_type, context=context))
+        routing_end = time.monotonic()
+        routing_ms = (routing_end - routing_start) * 1000
+        logger.info(f"[TIMING] Router Selection: {routing_ms:.2f}ms, Provider: {decision.provider_id}")
+        
         if not candidates:
             raise RuntimeError(f"All providers unavailable for {task_type.value}")
         primary_id = candidates[0].provider_id
@@ -512,6 +529,33 @@ class ModelRouter:
         start_time = time.monotonic()
         offline_fallback_happened = False
         budget_remaining = TOTAL_TIMEOUT_BUDGET
+        
+        # Count tokens in messages with graceful fallback
+        input_tokens = None
+        token_counting_method = "exact"
+        try:
+            import tiktoken
+            encoder = tiktoken.get_encoding("cl100k_base")
+            input_tokens = sum(len(encoder.encode(str(msg.get("content", "")))) for msg in messages)
+            logger.info(f"[TIMING] Input Tokens: {input_tokens} (exact), Messages: {len(messages)}")
+        except ImportError:
+            # Fallback to heuristic token counting
+            token_counting_method = "estimated"
+            input_tokens = sum((len(str(msg.get("content", ""))) + 3) // 4 for msg in messages)
+            logger.info(f"[TIMING] Input Tokens: {input_tokens} (estimated, tiktoken unavailable), Messages: {len(messages)}")
+        except Exception as e:
+            # Fallback to heuristic token counting on any error
+            token_counting_method = "estimated"
+            input_tokens = sum((len(str(msg.get("content", ""))) + 3) // 4 for msg in messages)
+            logger.info(f"[TIMING] Input Tokens: {input_tokens} (estimated, tiktoken error: {e}), Messages: {len(messages)}")
+        
+        safe_trace = {k: v for k, v in (decision.selection_trace or {}).items() if k in {
+            "strategy", "eligible", "excluded", "resource_rejections", "resource_score_components",
+            "snapshot_summary", "preferred_rejection", "offline_reason",
+            "requested_provider", "requested_model", "actual_provider", "actual_model",
+        }}
+        correlation_id = (context or {}).get("correlation_id") or str(uuid.uuid4())
+
         for index, candidate in enumerate(candidates):
             provider = self._providers.get(candidate.provider_id)
             if provider is None:
@@ -523,6 +567,28 @@ class ModelRouter:
             if is_offline_fallback:
                 offline_fallback_happened = True
                 yield {"type": "offline_fallback", "primary": primary_id, "used": candidate.provider_id, "reason": self._offline_reason, "explanation": f"Internet no disponible ({self._offline_reason}). Usando modelo local ({candidate.provider_id}) como fallback."}
+            is_fallback = candidate.provider_id != decision.provider_id
+            fallback_reason = None
+            if is_fallback:
+                fallback_reason = last_error or candidate.reason or "fallback"
+            yield {
+                "type": "meta",
+                "provider": candidate.provider_id,
+                "model": model_override or candidate.model,
+                "requested_provider": decision.provider_id,
+                "requested_model": decision.model,
+                "actual_provider": candidate.provider_id,
+                "actual_model": model_override or candidate.model,
+                "strategy": decision.strategy,
+                "fallback_required": is_fallback,
+                "fallback_reason": fallback_reason,
+                "selection_trace": safe_trace,
+                "route": "conversation",
+                "correlation_id": correlation_id,
+                "token_counting_method": token_counting_method,
+                "input_tokens": input_tokens,
+                "routing_ms": routing_ms,
+            }
             try:
                 for chunk in self._call_provider_stream(candidate, provider, messages, model_override, timeout_budget=remaining):
                     if chunk["type"] == "delta" and chunk.get("text"):

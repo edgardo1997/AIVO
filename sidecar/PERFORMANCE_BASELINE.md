@@ -124,9 +124,23 @@ Tier decision time is a negligible addition to the existing `ProviderSelector.se
 - The performance component is calculated only when a `ProviderPerformanceStore` is wired; without it `ProviderSelector` soft scoring is unchanged.
 - Targeted regression suites:
   - `tests/test_provider_performance.py`: **18 passed**
-  - `tests/test_provider_manager_performance.py`: **8 passed**
+  - `tests/test_provider_manager_performance.py`: **11 passed** (including client reuse and lifecycle)
   - `tests/test_provider_selector_resource.py` + `test_model_tier.py` + `test_performance_harness.py` + `test_context_budget.py`: **74 passed**
   - `tests/test_context_window.py`: **5 passed**
 - Full `pytest -q`:
   - **3005 passed**, 14 skipped, **0 failed** in 869.59 s
   - `tests/test_filesystem.py` repeated 20 times: 20/20 passed
+- Phase 8 targeted regression:
+  - `test_provider_manager_stream.py` + `test_provider_manager_performance.py` + `test_chat_pipeline.py` + `test_fallback_chaining.py` + `test_context_window.py`: **88 passed**
+
+## Phase 8 — Connection, streaming and cancellation
+
+- Client reuse baseline:
+  - `ProviderManager` now caches one `OpenAI` client per `(provider_id, api_key, base_url)`
+  - Credential changes close and recreate the client
+  - `ModelRouter.close()` closes all cached provider clients
+  - `tests/test_provider_manager_performance.py` client lifecycle tests: **3 passed**
+- Known findings:
+  - `OpenAIProvider` in `sentinel/providers/openai_provider.py` is currently unused and duplicates `ProviderManager` client creation
+  - `ProviderManager` `call_provider_stream` uses a single `timeout=CONNECT_TIMEOUT` (10 s) for the streaming `create()` call; this should be split into connect/read/first-token timeouts
+  - `sentinel_bridge` stream loop `next()` is executed in a thread, so cancellation cannot truly abort a blocked `read()` until that call returns

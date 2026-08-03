@@ -14,6 +14,23 @@ class ProviderManager:
         self._providers: Dict[str, Any] = {}
         self._key_map: Dict[str, str] = {}
         self._performance_store: Optional[ProviderPerformanceStore] = None
+        self._clients: Dict[str, Any] = {}
+        self._client_configs: Dict[str, tuple] = {}
+
+    def close(self):
+        for client in self._clients.values():
+            try:
+                client.close()
+            except Exception:
+                logger.debug("Failed to close OpenAI client for %s", client, exc_info=True)
+        self._clients.clear()
+        self._client_configs.clear()
+
+    def __del__(self):
+        try:
+            self.close()
+        except Exception:
+            pass
 
     def set_performance_store(self, store: Optional[ProviderPerformanceStore]) -> None:
         self._performance_store = store
@@ -50,10 +67,23 @@ class ProviderManager:
     def register_provider(self, provider_id: str, handler: Any) -> None:
         self._providers[provider_id] = handler
 
+    def _drop_client(self, provider_id: str) -> None:
+        client = self._clients.pop(provider_id, None)
+        if client is not None:
+            try:
+                client.close()
+            except Exception:
+                logger.debug("Failed to close OpenAI client for %s", provider_id, exc_info=True)
+        self._client_configs.pop(provider_id, None)
+
     def set_api_key(self, provider_id: str, key: str) -> None:
         self._key_map[provider_id] = key
+        self._drop_client(provider_id)
 
     def delete_api_key(self, provider_id: str) -> bool:
+        had = provider_id in self._key_map
+        if had:
+            self._drop_client(provider_id)
         return bool(self._key_map.pop(provider_id, None))
 
     def has_api_key(self, provider_id: str) -> bool:
@@ -68,7 +98,15 @@ class ProviderManager:
         if not api_key and provider and provider.is_local:
             api_key = provider_id
         base_url = PROVIDER_URLS.get(provider_id, "https://api.openai.com/v1")
-        return OpenAI(api_key=api_key, base_url=base_url, timeout=CONNECT_TIMEOUT, max_retries=0)
+        config = (api_key, base_url)
+        cached = self._clients.get(provider_id)
+        if cached is not None and self._client_configs.get(provider_id) == config:
+            return cached
+        self._drop_client(provider_id)
+        client = OpenAI(api_key=api_key, base_url=base_url, timeout=CONNECT_TIMEOUT, max_retries=0)
+        self._clients[provider_id] = client
+        self._client_configs[provider_id] = config
+        return client
 
     def call_provider(self, decision: RouterDecision, provider: ProviderSpec, messages: List[Dict[str, str]], model_override: Optional[str] = None, timeout: Optional[float] = None, tools: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
         model = model_override or decision.model

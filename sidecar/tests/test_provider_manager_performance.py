@@ -185,3 +185,32 @@ class TestProviderManagerPerformanceRecording:
         # Selecting a provider and deciding not to call it leaves no record
         agg = store.get_aggregate(provider.id, decision.model)
         assert agg.sample_count == 0
+
+
+class TestProviderManagerClientLifecycle:
+    def test_client_is_reused_and_closed(self):
+        pm = ProviderManager()
+        pm.set_api_key("test_provider", "test-key")
+        client1 = pm._resolve_llm_client("test_provider")
+        client2 = pm._resolve_llm_client("test_provider")
+        assert client1 is client2
+        assert "test_provider" in pm._clients
+        pm.close()
+        assert "test_provider" not in pm._clients
+        assert len(pm._clients) == 0
+
+    def test_api_key_change_drops_cached_client(self):
+        pm = ProviderManager()
+        pm.set_api_key("test_provider", "first-key")
+        client1 = pm._resolve_llm_client("test_provider")
+        pm.set_api_key("test_provider", "second-key")
+        client2 = pm._resolve_llm_client("test_provider")
+        assert client1 is not client2
+
+    def test_delete_api_key_closes_client(self):
+        pm = ProviderManager()
+        pm.set_api_key("test_provider", "test-key")
+        pm._resolve_llm_client("test_provider")
+        assert "test_provider" in pm._clients
+        pm.delete_api_key("test_provider")
+        assert "test_provider" not in pm._clients

@@ -198,11 +198,30 @@ Conclusion:
   - small sample cannot dominate, outlier robustness, cold-start resilience
   - no sensitive data stored, cancellation recorded separately
   - `ProviderSelector` routing influenced by performance while preserving explicit selection and privacy
-- Validation:
-  - `tests/test_provider_performance.py`: 18 passed
-  - `tests/test_provider_selector_resource.py` + `test_model_tier.py` + `test_performance_harness.py` + `test_context_budget.py`: 74 passed
+- Added `sidecar/tests/test_provider_manager_performance.py` (8/8 passing):
+  - actual provider/model captured in observations
+  - no observation for selected-but-uncalled provider
+  - success/failure/timeout/cancellation recorded without prompt/response/key leakage
+  - cancellation not counted as ordinary provider failure
+  - empty/zero-token responses recorded safely (no division by zero)
+- Residual context-window invariant resolved (Phase 5):
+  - `ContextBudgetManager.DEFAULT_CONTEXT_WINDOWS["Qwen3-1.7B-Q8_0.gguf"]` corrected from 8192 to 4096 to match `get_model_window`
+  - `services/ai_service.py` now passes `budget.max_input_tokens` to `ContextWindowManager`; this is the model-independent input cap and preserves the documented generation reserve
+  - `tests/test_context_budget.py` `extra_overhead` adjusted to remain tight under the corrected 4096-token local window
+- Phase 6/7 full validation:
+  - `PYTHONIOENCODING=utf-8 .venv\Scripts\python.exe -m pytest -q`: **3004 passed**, 14 skipped, **1 failed** in 817.02 s
+    - The single failure is `tests/test_filesystem.py::test_search_with_extension`, which passes when run in isolation and in the full `test_filesystem.py` file.  It is classified as a non-reproducible environment/state leak unrelated to the context-budget and provider-performance changes.
   - `compileall sentinel sidecar`: success
+  - Import checks: `sentinel.core.*`, `sentinel.providers.*`, `sidecar.main`, `sidecar.modules`: ok
+- Optional real-provider observation validation:
+  - **DEFERRED — EXTERNAL CONFIGURATION REQUIRED**.  No credential approval was provided and no real network call was made.
+
+## Status
+
+- Phase 5: **COMPLETE** — residual context-window invariant resolved.
+- Phase 6: **COMPLETE** — full-suite validated.
+- Phase 7: **COMPLETE (with real-provider validation deferred)** — deterministic/full-suite validated.
 
 ## Next step
 
-Phase 8 — Continue from the logical checkpoint created by Phase 7.  Before promoting Phase 7 to fully complete, run the full pytest suite and, if practical, validate real-provider observation recording in a controlled, opt-in laboratory profile.
+Phase 8 — Connection, streaming and cancellation.  Audit the streaming path, client lifecycle, retry/fallback, cancellation propagation and persistence timing.  Do not begin production changes until the audit and a clear baseline are established.

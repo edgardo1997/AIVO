@@ -170,7 +170,8 @@ class ProviderPerformanceStore:
 
         ttft = sorted(o.ttft_ms for o in observations if o.ttft_ms is not None)
         speeds = sorted(o.generation_tokens_per_second for o in observations if o.generation_tokens_per_second > 0)
-        failures = sum(1 for o in observations if not o.success)
+        # Cancellations are recorded but not counted as ordinary provider failures
+        failures = sum(1 for o in observations if not o.success and not o.cancelled)
         timeouts = sum(1 for o in observations if o.timeout)
         fallbacks = sum(1 for o in observations if o.fallback_triggered)
 

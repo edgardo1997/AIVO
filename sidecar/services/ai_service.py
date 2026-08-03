@@ -1,13 +1,15 @@
 import logging
+import uuid
 from typing import Iterator, Optional
 from repositories.ai_repository import AIRepository
 from sentinel.core.model_router import ModelRouter, TaskType, classify_provider_error
 from sentinel.core.context_window import ContextWindowManager, count_messages_tokens
+from sentinel.core.context_budget import ContextBudgetManager, RequestPurpose
 from sentinel.conversation import ConversationAvailabilityLayer, ConversationRequest, SentinelCoreConversation
 
 log = logging.getLogger("sentinel.ai_service")
 
-SYSTEM_PROMPT = """Eres la inteligencia conversacional de Sentinel, una plataforma que puede analizar el equipo, abrir aplicaciones, ejecutar scripts y modificar archivos mediante un pipeline gobernado (intención → plan → políticas → ejecución → auditoría). Cuando el usuario pida algo que Sentinel puede hacer, dile que sí puede hacerlo y reformula su petición como una instrucción directa para que el pipeline la procese. Si el pipeline ya ejecutó una acción y te pasaron el resultado, explícalo con precisión. Si no hay resultado de pipeline, ayuda con conocimiento general o dile al usuario que pida la acción directamente. Sé práctico y conciso. Responde en el mismo idioma del usuario."""
+SYSTEM_PROMPT = """Eres la inteligencia conversacional de Sentinel, una plataforma que puede analizar el equipo, abrir aplicaciones, ejecutar scripts y modificar archivos mediante un pipeline gobernado (intención → plan → políticas → ejecución → auditoría). Sentinel sí puede abrir aplicaciones instaladas cuando el usuario lo solicita mediante el pipeline. Si pregunta cómo abrir una aplicación, indícale que escriba una instrucción directa como «Abre WhatsApp»; Sentinel buscará la aplicación y la abrirá si está instalada y las políticas lo permiten. Nunca digas que Sentinel no tiene acceso a aplicaciones. Nunca afirmes que una acción ocurrió si no recibiste un resultado de herramienta que lo confirme. Cuando el usuario pida algo que Sentinel puede hacer, dile que sí puede hacerlo y reformula su petición como una instrucción directa para que el pipeline la procese. Si el pipeline ya ejecutó una acción y te pasaron el resultado, explícalo con precisión. Si no hay resultado de pipeline, ayuda con conocimiento general o dile al usuario que pida la acción directamente. Sé práctico y conciso. Responde en el mismo idioma del usuario."""
 
 ANALYZE_PROMPT = """You are a system analysis AI. Analyze the provided metrics and identify issues, trends, and recommendations. Be specific and actionable. Format your response as bullet points covering: 1) Critical Issues, 2) Warnings, 3) Recommendations."""
 
@@ -231,6 +233,11 @@ class AIService:
             for entry in self._vault.list_entries(category="ai_provider"):
                 pid = entry.id.removeprefix("ai-provider-")
                 if pid:
+                    provider_key_status[pid] = True
+        if self._router:
+            for provider_info in self._router.list_providers():
+                pid = provider_info["id"]
+                if self._router.has_api_key(pid):
                     provider_key_status[pid] = True
         return {
             "provider": provider,
@@ -501,6 +508,9 @@ class AIService:
         context: list = None,
         purpose: str = "conversation",
         tool_result=None,
+        explicit_provider: str = None,
+        explicit_model: str = None,
+        correlation_id: Optional[str] = None,
     ) -> Iterator[dict]:
         """Stream an answer while preserving router selection and safe fallback."""
         cfg = self.repo.load()
@@ -509,8 +519,17 @@ class AIService:
         messages.extend(
             item for item in (context or []) if isinstance(item, dict) and "role" in item and "content" in item
         )
+        if model == "Qwen3-1.7B-Q8_0.gguf" and not message.startswith("<no_think>"):
+            message = f"<no_think>{message}"
         messages.append({"role": "user", "content": message})
-        local_prompt_budget = 3072 if model == "Qwen3-1.7B-Q8_0.gguf" else None
+        try:
+            request_purpose = RequestPurpose(purpose)
+        except ValueError:
+            request_purpose = RequestPurpose.CONVERSATION
+        budget = ContextBudgetManager().budget_for(model, purpose=request_purpose)
+        # max_input_tokens is the model-aware input cap; ContextWindowManager
+        # owns the generation reserve and actual token counting/trimming.
+        local_prompt_budget = budget.max_input_tokens
         managed_messages = self._context_manager.manage(messages, model=model, max_tokens=local_prompt_budget)[
             "messages"
         ]
@@ -520,13 +539,22 @@ class AIService:
             purpose=purpose,
             tool_result=tool_result,
         )
+        correlation_id = correlation_id or str(uuid.uuid4())
 
         if self._router is not None:
             try:
+                import time
+                router_start = time.perf_counter()
                 yield from self._router.chat_stream(
                     managed_messages,
                     task_type=self._task_type_for_message(message),
+                    explicit_provider=explicit_provider,
+                    explicit_model=explicit_model,
+                    context={"correlation_id": correlation_id},
                 )
+                router_end = time.perf_counter()
+                router_duration = (router_end - router_start) * 1000
+                log.info(f"[TIMING] Router Chat Stream: {router_duration:.2f}ms")
                 return
             except RuntimeError as error:
                 if "available" in str(error).lower() or "unavailable" in str(error).lower():
@@ -539,6 +567,7 @@ class AIService:
                             yield from self._router.chat_stream(
                                 managed_messages,
                                 task_type=self._task_type_for_message(message),
+                                context={"correlation_id": correlation_id},
                             )
                             return
                     except Exception:
@@ -548,7 +577,22 @@ class AIService:
                 log.exception("Advanced streaming failed; using core conversation")
 
         core = self._conversation.respond(request).to_dict()
-        yield {"type": "meta", "provider": None, "model": None}
+        requested_provider = explicit_provider or cfg.get("provider") or "sentinel_local"
+        requested_model = explicit_model or cfg.get("model") or self._get_default_model(requested_provider)
+        yield {
+            "type": "meta",
+            "provider": "sentinel_core",
+            "model": "core",
+            "requested_provider": requested_provider,
+            "requested_model": requested_model,
+            "actual_provider": "sentinel_core",
+            "actual_model": "core",
+            "strategy": "core_fallback",
+            "fallback_required": True,
+            "fallback_reason": "all_providers_failed",
+            "route": "conversation",
+            "correlation_id": correlation_id,
+        }
         yield {"type": "delta", "text": core["response"]}
         yield {"type": "done"}
 

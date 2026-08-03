@@ -174,7 +174,7 @@ class TestProviderPerformanceStore:
         ))
         agg = store.get_aggregate("cancelled", "m")
         assert agg.sample_count == 1
-        assert agg.failure_rate == 1.0
+        assert agg.failure_rate == 0.0
         assert not agg.timeout_rate
 
     def test_median_percentile_helpers(self):

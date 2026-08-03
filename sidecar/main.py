@@ -59,6 +59,9 @@ def _configure_logging() -> logging.Logger:
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         handlers=handlers,
     )
+    from sentinel.security.secret_redaction import SecretRedactionFilter
+
+    logging.getLogger().addFilter(SecretRedactionFilter())
     protect_path(os.path.join(log_dir, "sidecar.log"), directory=False)
     return logging.getLogger("sentinel")
 

@@ -1142,6 +1142,7 @@ def init_sentinel_orchestrator(
         registry=skill_registry,
         tool_gateway=gateway,
         model_router=mr,
+        execution_pipeline=get_execution_pipeline(),
     )
 
     from sentinel.core.alerting import AlertManager
@@ -1263,14 +1264,6 @@ def init_sentinel_orchestrator(
         observability_engine=getattr(gateway, "_observability", None),
     )
 
-    async def _skill_pipeline_step(tool_id, params, ctx):
-        result = await orchestrator.execute_direct(tool_id, params, identity=ctx.get("identity"))
-        tr = result.tool_result
-        if tr is None:
-            return {"success": False, "data": None, "error": result.error or "Execution blocked", "duration_ms": None}
-        return {"success": tr.success, "data": tr.data, "error": tr.error, "duration_ms": tr.duration_ms}
-
-    skill_engine.set_execute_step(_skill_pipeline_step)
     try:
         _shared_pipeline = get_execution_pipeline()
         mr.set_execution_pipeline(_shared_pipeline)

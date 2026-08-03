@@ -26,7 +26,9 @@ class SkillEngine:
         self._registry = registry
         self._tool_gateway = tool_gateway
         self._model_router = model_router
-        self._execute_step = execute_step
+        if execute_step is not None:
+            logger.warning("SkillEngine execute_step callback is deprecated and will be ignored; use execution_pipeline")
+        self._execute_step = None
         self._execution_pipeline = execution_pipeline
 
     @property
@@ -99,7 +101,7 @@ class SkillEngine:
         last_data = None
 
         for step in plan.steps:
-            if not self._execution_pipeline and not self._execute_step:
+            if not self._execution_pipeline:
                 tool_results.append(
                     {
                         "step_id": step.id,
@@ -114,14 +116,11 @@ class SkillEngine:
             step_context["skill_id"] = skill_id
             step_context["skill_name"] = skill.name
 
-            if self._execute_step:
-                sr = await self._execute_step(step.tool_id, step.params, step_context)
-            elif self._execution_pipeline:
-                tr = await self._execution_pipeline.execute(
-                    step.tool_id, step.params, step_context,
-                    source="skill",
-                )
-                sr = {"success": tr.success, "data": tr.data, "error": tr.error, "duration_ms": tr.duration_ms}
+            tr = await self._execution_pipeline.execute(
+                step.tool_id, step.params, step_context,
+                source="skill",
+            )
+            sr = {"success": tr.success, "data": tr.data, "error": tr.error, "duration_ms": tr.duration_ms}
 
             step_entry = {
                 "step_id": step.id,
@@ -182,7 +181,7 @@ class SkillEngine:
         )
 
     def set_execute_step(self, fn: callable) -> None:
-        self._execute_step = fn
+        raise RuntimeError("SkillEngine execute_step is removed; configure execution_pipeline instead")
 
     async def suggest(
         self,

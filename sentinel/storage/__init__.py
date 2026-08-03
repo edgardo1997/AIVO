@@ -12,7 +12,6 @@ from sentinel.storage.models import (
 from sentinel.storage.repositories.model_repository import ModelRepository
 from sentinel.storage.repositories.feedback_repository import FeedbackRepository
 from sentinel.storage.repositories.metric_repository import MetricRepository
-from sentinel.storage.repositories.conversation_repository import ConversationRepository
 from sentinel.storage.repositories.decision_repository import DecisionRepository
 from sentinel.storage.repositories.execution_repository import ExecutionRepository
 from sentinel.storage.repositories.model_performance_repository import ModelPerformanceRepository
@@ -32,7 +31,6 @@ __all__ = [
     "ModelRepository",
     "FeedbackRepository",
     "MetricRepository",
-    "ConversationRepository",
     "DecisionRepository",
     "ExecutionRepository",
     "ModelPerformanceRepository",

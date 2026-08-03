@@ -82,7 +82,7 @@ class TestPersistentIntelligence:
     @pytest.mark.asyncio
     async def test_conversacion_persistente(self, engine):
         """Test 3: guardar session, cerrar, abrir, recuperar contexto."""
-        repo = ConversationRepository(engine)
+        repo = ConversationRepository(engine, allow_legacy=True)
         session_id = "test-session-123"
 
         msg1 = ConversationRecord(
@@ -102,7 +102,7 @@ class TestPersistentIntelligence:
 
         # Simular reinicio
         await engine.reconnect()
-        repo2 = ConversationRepository(engine)
+        repo2 = ConversationRepository(engine, allow_legacy=True)
 
         messages = await repo2.get_session_messages(session_id)
         assert len(messages) == 2

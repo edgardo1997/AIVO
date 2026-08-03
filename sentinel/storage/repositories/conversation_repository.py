@@ -1,13 +1,20 @@
-"""ConversationRepository — Persistir sesiones y mensajes.
+"""ConversationRepository — LEGACY / QUARANTINED.
 
-Guarda: sesiones, mensajes, contexto, decisiones relacionadas.
-Permite recuperar contexto después de reinicio.
+This repository and the `conversations` table it writes to are no longer the
+authoritative conversation store. The sidecar `DatabaseManager`
+(`conversation_threads`) is the single durable source of truth for user
+conversation data.
+
+Construction in production is prohibited. Use `allow_legacy=True` (or set
+`SENTINEL_ALLOW_LEGACY_CONVERSATION_REPO=1`) only for explicit migration or
+compatibility testing.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import os
 from typing import Any, Dict, List, Optional
 
 from sentinel.storage.database import StorageEngine
@@ -17,7 +24,20 @@ logger = logging.getLogger(__name__)
 
 
 class ConversationRepository:
-    def __init__(self, engine: StorageEngine):
+    def __init__(
+        self,
+        engine: StorageEngine,
+        allow_legacy: bool = False,
+    ):
+        env_ok = os.environ.get("SENTINEL_ALLOW_LEGACY_CONVERSATION_REPO", "") == "1"
+        if not (allow_legacy or env_ok):
+            raise RuntimeError(
+                "ConversationRepository is a legacy / quarantined component. "
+                "It cannot be constructed in production. Use sidecar.repositories.database "
+                "(conversation_threads) as the authoritative conversation store. "
+                "Pass allow_legacy=True or set SENTINEL_ALLOW_LEGACY_CONVERSATION_REPO=1 "
+                "only for migration testing."
+            )
         self._engine = engine
 
     async def save_message(self, record: ConversationRecord) -> None:

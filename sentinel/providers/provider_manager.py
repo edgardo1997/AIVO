@@ -3,6 +3,9 @@ import logging
 import os
 import time
 from typing import Any, Callable, Dict, Iterator, List, Optional
+
+import httpx
+
 from sentinel.core.router_types import TaskType, ProviderSpec, RouterDecision, PROVIDER_URLS, CALL_TIMEOUT, LOCAL_CALL_TIMEOUT, CONNECT_TIMEOUT, FIRST_TOKEN_TIMEOUT_NONLOCAL, FIRST_TOKEN_TIMEOUT_LOCAL, STREAM_IDLE_TIMEOUT, classify_provider_error
 from sentinel.core.provider_performance import ProviderPerformanceObservation, ProviderPerformanceStore
 
@@ -115,7 +118,12 @@ class ProviderManager:
         try:
             client = self._resolve_llm_client(provider.id, provider)
             max_tokens = 256 if decision.task_type == TaskType.QUICK else 768
-            kwargs = dict(model=model, messages=messages, timeout=timeout, max_tokens=max_tokens)
+            kwargs = dict(
+                model=model,
+                messages=messages,
+                timeout=httpx.Timeout(timeout=timeout, connect=CONNECT_TIMEOUT),
+                max_tokens=max_tokens,
+            )
             if tools:
                 kwargs["tools"] = tools
                 kwargs["tool_choice"] = "auto"
@@ -151,7 +159,14 @@ class ProviderManager:
             client = self._resolve_llm_client(provider.id, provider)
             first_token_timeout = FIRST_TOKEN_TIMEOUT_LOCAL if provider.is_local else FIRST_TOKEN_TIMEOUT_NONLOCAL
             max_tokens = 256 if decision.task_type == TaskType.QUICK else 768
-            kwargs = dict(model=model, messages=messages, stream=True, timeout=CONNECT_TIMEOUT, max_tokens=max_tokens)
+            read_timeout = timeout_budget if timeout_budget is not None else first_token_timeout
+            kwargs = dict(
+                model=model,
+                messages=messages,
+                stream=True,
+                timeout=httpx.Timeout(timeout=read_timeout, connect=CONNECT_TIMEOUT),
+                max_tokens=max_tokens,
+            )
             
             # TIMING STAGE 1: Provider Request Started
             provider_request_started_at = time.monotonic()
@@ -263,6 +278,13 @@ class ProviderManager:
                 total_provider_ms=(time.monotonic() - provider_request_started_at) * 1000,
             )
             logger.error("Stream error for %s: %s", provider.id, str(e)[:200])
+            raise
+        except GeneratorExit:
+            self._record(
+                provider.id, model, success=False, cancelled=True,
+                total_provider_ms=(time.monotonic() - provider_request_started_at) * 1000,
+            )
+            logger.info("Stream cancelled for %s/%s", provider.id, model)
             raise
         except Exception as e:
             self._record(

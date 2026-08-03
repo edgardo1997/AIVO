@@ -219,11 +219,30 @@ Conclusion:
 - Optional real-provider observation validation:
   - **DEFERRED — EXTERNAL CONFIGURATION REQUIRED**.  No credential approval was provided and no real network call was made.
 
+### Phase 8 — Connection, streaming and cancellation
+
+- 8A Architecture and lifecycle audit:
+  - Backend stream path mapped: `sentinel_bridge` `/chat/stream` → `AIService.stream_chat` → `ModelRouter.chat_stream` → `ProviderManager.call_provider_stream` → `OpenAI` client → NDJSON events → persistence
+  - `sentinel_bridge` already checks `request.is_disconnected()` each iteration and cancels the blocking `next()` iterator; `persist()` runs on `done` or interruption
+  - `ModelRouter.chat_stream` is the authoritative owner of fallback and circuit-breaker retries; `ProviderManager` is the authoritative owner of provider HTTP clients
+- 8B Persistent provider clients:
+  - `sentinel/providers/provider_manager.py`: caches one `OpenAI` client per `provider_id`, keyed on `(api_key, base_url)`; credential changes close/invalidate; `ProviderManager.close()` and `__del__()` close all; `ModelRouter.close()` delegates
+  - `sidecar/tests/test_provider_manager_performance.py`: added client reuse and lifecycle tests
+- 8C/D Timeout and event contract:
+  - `ProviderManager.call_provider` and `call_provider_stream` now pass explicit `httpx.Timeout(connect=..., read=...)` to `openai` instead of a single `float`, using `timeout_budget` for streaming
+- 8E Cancellation propagation:
+  - `ProviderManager.call_provider_stream` records a `cancelled=True` performance observation on `GeneratorExit` and re-raises
+  - `sentinel_bridge` emits a `cancelled` terminal event when the request disconnects before `done`
+- Validation:
+  - Targeted: `test_provider_manager_stream.py` + `test_provider_manager_performance.py` + `test_chat_pipeline.py` + `test_fallback_chaining.py`: **63 passed**
+  - `compileall` for `sentinel/providers/provider_manager.py`, `sidecar/modules/sentinel_bridge.py`: success
+
 ## Status
 
 - Phase 5: **COMPLETE** — residual context-window invariant resolved.
 - Phase 6: **COMPLETE** — full-suite validated.
 - Phase 7: **COMPLETE (with real-provider validation deferred)** — deterministic/full-suite validated.
+- Phase 8A–E: **IN PROGRESS** — audit, persistent clients, split timeout and cancellation event complete.
 
 ## Next step
 

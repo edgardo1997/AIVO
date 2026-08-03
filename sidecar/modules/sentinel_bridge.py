@@ -441,11 +441,23 @@ async def sentinel_chat_stream(body: dict, request: Request):
     """Stream a governed conversation as newline-delimited JSON events."""
     from modules.ai_provider import _svc as ai_svc
 
+    # STAGE 1: User Input Received
+    stage_1_start = time.perf_counter()
     message = str(body.get("message", "")).strip()
     history = body.get("context", [])
     raw_session_id = body.get("session_id")
     session_id = _validate_conversation_id(raw_session_id) if raw_session_id else None
     identity = request_identity(request).to_dict()
+    correlation_id = request.headers.get("x-correlation-id") or request.headers.get("X-Correlation-Id") or str(uuid.uuid4())
+    log.info(f"[correlation_id={correlation_id}] Conversation stream started")
+    
+    # Extract explicit provider/model selection from request
+    explicit_provider = body.get("provider")
+    explicit_model = body.get("model")
+    
+    stage_1_end = time.perf_counter()
+    stage_1_duration = (stage_1_end - stage_1_start) * 1000
+    log.info(f"[TIMING] Stage 1 - User Input: {stage_1_duration:.2f}ms")
 
     async def events():
         if not message:
@@ -465,12 +477,14 @@ async def sentinel_chat_stream(body: dict, request: Request):
             if persisted or not response_parts:
                 return
             try:
+                # Avoid repeated string concatenation by joining once
+                response_text = "".join(response_parts)
                 await asyncio.to_thread(
                     _persist_conversation_turn,
                     identity["user_id"],
                     session_id,
                     message,
-                    "".join(response_parts),
+                    response_text,
                     provider=response_provider,
                     model=response_model,
                     pipeline=pipeline_trace,
@@ -484,11 +498,21 @@ async def sentinel_chat_stream(body: dict, request: Request):
         result_data = None
         pipeline_trace = None
         pipeline_summary = "No orchestration context is available for this turn."
+        
+        # STAGE 2: Intent Detection
+        stage_2_start = time.perf_counter()
         orchestrator = get_orchestrator()
         preflight_intent = orchestrator.classify_intent(message)
         requires_pipeline = preflight_intent.confidence >= 0.6
+        stage_2_end = time.perf_counter()
+        stage_2_duration = (stage_2_end - stage_2_start) * 1000
+        log.info(f"[TIMING] Stage 2 - Intent Detection: {stage_2_duration:.2f}ms (confidence={preflight_intent.confidence:.2f})")
+        
+        # STAGE 3: Pipeline Execution (if required)
+        stage_3_start = time.perf_counter()
         if requires_pipeline:
             try:
+                # STAGE 3: Pipeline Execution (includes planner, policies, tool routing)
                 gw_result = await _pipeline_execute(
                     "process.execute",
                     {"utterance": message, "session_id": session_id, "dry_run": False},
@@ -511,15 +535,22 @@ async def sentinel_chat_stream(body: dict, request: Request):
                     pipeline_summary = " | ".join(parts)
             except Exception:
                 log.exception("Streaming orchestration unavailable; conversation remains active")
+            stage_3_end = time.perf_counter()
+            stage_3_duration = (stage_3_end - stage_3_start) * 1000
+            log.info(f"[TIMING] Stage 3 - Pipeline Execution: {stage_3_duration:.2f}ms")
         else:
             pipeline_summary = (
                 "Conversation-only route selected: no executable system intent was detected, "
                 "so no tool was planned or authorized."
             )
+            stage_3_end = time.perf_counter()
+            stage_3_duration = (stage_3_end - stage_3_start) * 1000
+            log.info(f"[TIMING] Stage 3 - Pipeline Execution (skipped): {stage_3_duration:.2f}ms")
 
         yield _ndjson(
             {
                 "type": "pipeline",
+                "correlation_id": correlation_id,
                 "pipeline": pipeline_trace,
                 "stage": "generating",
                 "planning_ms": round((time.perf_counter() - turn_started) * 1000, 1),
@@ -547,7 +578,17 @@ async def sentinel_chat_stream(body: dict, request: Request):
         ]
         wants_deep_analysis = actionable and any(kw in message.lower() for kw in analysis_keywords)
         if actionable and verified and not wants_deep_analysis:
-            yield _ndjson({"type": "meta", "provider": "sentinel_core", "model": None})
+            yield _ndjson({
+                "type": "meta",
+                "provider": "sentinel_core",
+                "model": "core",
+                "actual_provider": "sentinel_core",
+                "actual_model": "core",
+                "requested_provider": None,
+                "requested_model": None,
+                "fallback_required": False,
+                "route": "governed",
+            })
             yield _ndjson({"type": "delta", "text": verified})
             response_parts.append(verified)
             response_provider = "sentinel_core"
@@ -565,26 +606,48 @@ async def sentinel_chat_stream(body: dict, request: Request):
             if raw_data and isinstance(raw_data, dict):
                 import json
 
+                # Use compact JSON for streaming to reduce bandwidth and parsing overhead
                 enriched_context.append(
                     {
                         "role": "system",
-                        "content": f"Raw tool data (use this for analysis):\n{json.dumps(raw_data, indent=2, default=str)}",
+                        "content": f"Raw tool data (use this for analysis):\n{json.dumps(raw_data, separators=(',', ':'), default=str)}",
                     }
                 )
         enriched_context.append({"role": "system", "content": f"Sentinel pipeline context:\n{pipeline_summary}"})
+        
+        # STAGE 4: Prompt Construction
+        stage_4_start = time.perf_counter()
+        prompt_size_chars = sum(len(str(c.get("content", ""))) for c in enriched_context)
+        prompt_size_tokens = prompt_size_chars // 4  # Rough estimate
+        log.info(f"[TIMING] Stage 4 - Prompt Construction: {prompt_size_chars} chars, ~{prompt_size_tokens} tokens")
+        
+        # STAGE 5: Provider Request (includes network latency)
+        stage_5_start = time.perf_counter()
         iterator = ai_svc.stream_chat(
             message=message,
             context=enriched_context,
+            correlation_id=correlation_id,
             system_prompt=(
                 "Eres la inteligencia de Sentinel. Puedes analizar el equipo, abrir apps, ejecutar "
                 "scripts y modificar archivos mediante el pipeline gobernado. Si el usuario pide algo "
                 "que Sentinel puede hacer, dile que sí se puede y reformula como instrucción directa. "
+                "Sentinel puede abrir aplicaciones instaladas mediante el pipeline: si preguntan cómo "
+                "abrir una app, indica que escriban «Abre <nombre de la app>». Nunca digas que Sentinel "
+                "no tiene acceso a aplicaciones ni afirmes que una acción ocurrió sin un resultado de herramienta. "
                 "Si el pipeline ya ejecutó la acción, USA LOS DATOS CRUDOS (Raw tool data) para hacer "
                 "un análisis detallado y útil. No repitas solo el resumen; interpreta los números "
                 "y da recomendaciones específicas. Si no hay pipeline, "
                 "ayuda o pide al usuario que haga la solicitud directamente. Sé conciso."
             ),
+            explicit_provider=explicit_provider,
+            explicit_model=explicit_model,
         )
+        stage_5_end = time.perf_counter()
+        stage_5_duration = (stage_5_end - stage_5_start) * 1000
+        log.info(f"[TIMING] Stage 5 - Provider Request Init: {stage_5_duration:.2f}ms")
+        
+        # STAGE 6: Streaming (includes network latency, TTFT, generation speed)
+        stage_6_start = time.perf_counter()
         pending_next = None
         try:
             while not await request.is_disconnected():
@@ -597,21 +660,52 @@ async def sentinel_chat_stream(body: dict, request: Request):
                 if event is _STREAM_END:
                     await persist(interrupted=True)
                     return
+                if event.get("type") == "error" and not event.get("message"):
+                    event = {
+                        **event,
+                        "message": str(event.get("error") or "El modelo no pudo completar la respuesta."),
+                        "retryable": True,
+                    }
                 if event.get("type") == "meta":
                     response_provider = event.get("provider")
                     response_model = event.get("model")
                 elif event.get("type") == "delta":
+                    # ProviderManager emits OpenAI-style ``content`` deltas;
+                    # the desktop stream contract uses ``text``.
+                    if not event.get("text") and event.get("content"):
+                        event = {**event, "text": event["content"]}
                     if first_delta_at is None:
                         first_delta_at = time.perf_counter()
+                        ttft_ms = (first_delta_at - generation_started) * 1000
+                        log.info(f"[TIMING] Stage 6 - Time to First Token (TTFT): {ttft_ms:.2f}ms")
                     response_parts.append(str(event.get("text", "")))
                 elif event.get("type") == "done":
+                    # Join once for metrics calculation
+                    response_text = "".join(response_parts)
+                    stage_6_end = time.perf_counter()
+                    stage_6_duration = (stage_6_end - stage_6_start) * 1000
                     performance_metrics = _generation_metrics(
-                        generation_started, first_delta_at, "".join(response_parts)
+                        generation_started, first_delta_at, response_text
                     )
+                    log.info(f"[TIMING] Stage 6 - Streaming Total: {stage_6_duration:.2f}ms, Tokens: {performance_metrics.get('output_tokens', 0)}, Speed: {performance_metrics.get('tokens_per_second', 0):.1} tok/s")
+                    
+                    # STAGE 7: Persistence
+                    stage_7_start = time.perf_counter()
                     await persist()
+                    stage_7_end = time.perf_counter()
+                    stage_7_duration = (stage_7_end - stage_7_start) * 1000
+                    log.info(f"[TIMING] Stage 7 - Persistence: {stage_7_duration:.2f}ms")
+                    
                     yield _ndjson({"type": "metrics", **performance_metrics})
                 yield _ndjson(event)
             await persist(interrupted=True)
+            yield _ndjson({
+                "type": "cancelled",
+                "provider": response_provider,
+                "model": response_model,
+                "correlation_id": correlation_id,
+            })
+            return
         except asyncio.TimeoutError:
             log.warning("Conversation stream exceeded the inactivity timeout")
             await persist(interrupted=True)

@@ -132,15 +132,21 @@ Tier decision time is a negligible addition to the existing `ProviderSelector.se
   - `tests/test_filesystem.py` repeated 20 times: 20/20 passed
 - Phase 8 targeted regression:
   - `test_provider_manager_stream.py` + `test_provider_manager_performance.py` + `test_chat_pipeline.py` + `test_fallback_chaining.py` + `test_context_window.py`: **88 passed**
+  - `test_provider_manager_stream.py` + `test_provider_manager_performance.py` + `test_chat_pipeline.py` + `test_fallback_chaining.py`: **63 passed**
 
 ## Phase 8 — Connection, streaming and cancellation
 
 - Client reuse baseline:
   - `ProviderManager` now caches one `OpenAI` client per `(provider_id, api_key, base_url)`
   - Credential changes close and recreate the client
-  - `ModelRouter.close()` closes all cached provider clients
+  - `ProviderManager.close()` and `ModelRouter.close()` close all cached provider clients
   - `tests/test_provider_manager_performance.py` client lifecycle tests: **3 passed**
+- Timeout split:
+  - `call_provider` uses `httpx.Timeout(timeout=call_timeout, connect=CONNECT_TIMEOUT)`
+  - `call_provider_stream` uses `httpx.Timeout(timeout=read_timeout, connect=CONNECT_TIMEOUT)` with `timeout_budget` as the read/first-token bound
+- Cancellation:
+  - `ProviderManager.call_provider_stream` records a `cancelled` observation on `GeneratorExit`
+  - `sentinel_bridge` emits a `cancelled` terminal event on disconnect
 - Known findings:
   - `OpenAIProvider` in `sentinel/providers/openai_provider.py` is currently unused and duplicates `ProviderManager` client creation
-  - `ProviderManager` `call_provider_stream` uses a single `timeout=CONNECT_TIMEOUT` (10 s) for the streaming `create()` call; this should be split into connect/read/first-token timeouts
   - `sentinel_bridge` stream loop `next()` is executed in a thread, so cancellation cannot truly abort a blocked `read()` until that call returns

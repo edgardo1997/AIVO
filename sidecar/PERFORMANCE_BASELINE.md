@@ -128,4 +128,5 @@ Tier decision time is a negligible addition to the existing `ProviderSelector.se
   - `tests/test_provider_selector_resource.py` + `test_model_tier.py` + `test_performance_harness.py` + `test_context_budget.py`: **74 passed**
   - `tests/test_context_window.py`: **5 passed**
 - Full `pytest -q`:
-  - **3004 passed**, 14 skipped, 1 non-reproducible environment failure (`tests/test_filesystem.py::test_search_with_extension`) in 817.02 s; the failing case passes in isolation and is unrelated to Phase 6/7.
+  - **3005 passed**, 14 skipped, **0 failed** in 869.59 s
+  - `tests/test_filesystem.py` repeated 20 times: 20/20 passed

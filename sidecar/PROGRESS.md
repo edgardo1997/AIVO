@@ -208,9 +208,12 @@ Conclusion:
   - `ContextBudgetManager.DEFAULT_CONTEXT_WINDOWS["Qwen3-1.7B-Q8_0.gguf"]` corrected from 8192 to 4096 to match `get_model_window`
   - `services/ai_service.py` now passes `budget.max_input_tokens` to `ContextWindowManager`; this is the model-independent input cap and preserves the documented generation reserve
   - `tests/test_context_budget.py` `extra_overhead` adjusted to remain tight under the corrected 4096-token local window
-- Phase 6/7 full validation:
-  - `PYTHONIOENCODING=utf-8 .venv\Scripts\python.exe -m pytest -q`: **3004 passed**, 14 skipped, **1 failed** in 817.02 s
-    - The single failure is `tests/test_filesystem.py::test_search_with_extension`, which passes when run in isolation and in the full `test_filesystem.py` file.  It is classified as a non-reproducible environment/state leak unrelated to the context-budget and provider-performance changes.
+- Test baseline stabilized (pre-Phase 8):
+  - `tests/test_filesystem.py` `test_search` and `test_search_with_extension` now use `pytest` `tmp_path` with pre-created deterministic files
+  - Assertions strengthen the contract by checking `data is not None`, `results` exists, and the expected file is found
+- Phase 6/7 full validation (after fixing `test_search_with_extension`):
+  - `PYTHONIOENCODING=utf-8 .venv\Scripts\python.exe -m pytest -q`: **3005 passed**, 14 skipped, **0 failed** in 869.59 s
+  - `tests/test_filesystem.py` repeated 20 times: 20/20 passed
   - `compileall sentinel sidecar`: success
   - Import checks: `sentinel.core.*`, `sentinel.providers.*`, `sidecar.main`, `sidecar.modules`: ok
 - Optional real-provider observation validation:

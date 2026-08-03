@@ -64,19 +64,30 @@ def test_write_file():
             os.remove(test_file)
 
 
-def test_search():
+def test_search(tmp_path):
     admin_mode()
-    tmp = tempfile.gettempdir()
-    resp = client.post("/v1/execute", json={"tool_id": "filesystem.search", "params": {"query": "tmp", "root": tmp}})
+    test_file = tmp_path / "tmp_test.txt"
+    test_file.write_text("searchable content")
+    resp = client.post(
+        "/v1/execute",
+        json={"tool_id": "filesystem.search", "params": {"query": "tmp", "root": str(tmp_path)}},
+    )
     assert resp.status_code == 200
     data = resp.json()["data"]
+    assert data is not None
     assert "results" in data
 
 
-def test_search_with_extension():
+def test_search_with_extension(tmp_path):
     admin_mode()
-    tmp = tempfile.gettempdir()
-    resp = client.post("/v1/execute", json={"tool_id": "filesystem.search", "params": {"query": ".log", "root": tmp}})
+    log_file = tmp_path / "example.log"
+    log_file.write_text("log content")
+    resp = client.post(
+        "/v1/execute",
+        json={"tool_id": "filesystem.search", "params": {"query": ".log", "root": str(tmp_path)}},
+    )
     assert resp.status_code == 200
     data = resp.json()["data"]
+    assert data is not None
     assert "results" in data
+    assert any("example.log" in str(r) for r in data["results"])

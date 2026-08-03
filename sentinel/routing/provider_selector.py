@@ -11,6 +11,7 @@ from sentinel.core.model_tier import (
     ModelTierSelector,
     tier_for_provider,
 )
+from sentinel.core.provider_performance import ProviderPerformanceStore
 from sentinel.core.circuit_breaker import CircuitBreaker
 
 logger = logging.getLogger(__name__)
@@ -74,6 +75,7 @@ class ProviderSelector:
         self._ranking: Any = None
         self._resource_intelligence: Any = None
         self._tier_selector: Optional[ModelTierSelector] = None
+        self._performance_store: Optional[ProviderPerformanceStore] = None
 
     def set_tier_selector(self, selector: ModelTierSelector) -> None:
         """Wire the tier selector (dependency injection)."""
@@ -122,6 +124,10 @@ class ProviderSelector:
     def set_resource_intelligence(self, layer: Any) -> None:
         """Wire the shared ResourceIntelligenceLayer (dependency injection, no singleton)."""
         self._resource_intelligence = layer
+
+    def set_performance_store(self, store: ProviderPerformanceStore) -> None:
+        """Wire the shared provider performance store."""
+        self._performance_store = store
 
     def _provider_tier(self, provider: ProviderSpec) -> ModelTier:
         """Estimate the capability tier a provider can satisfy."""
@@ -261,7 +267,23 @@ class ProviderSelector:
             comps["privacy_fit"] = 1.0 if provider.is_local else 0.6
         else:
             comps["privacy_fit"] = 1.0
-        comps["score"] = round(sum(RESOURCE_WEIGHTS[k] * comps[k] for k in RESOURCE_WEIGHTS), 4)
+
+        # performance_fit: optional bounded, privacy-safe recent performance signal
+        if self._performance_store is not None:
+            try:
+                comps["performance_fit"] = self._performance_store.performance_score(
+                    provider.id, provider.default_model
+                )
+            except Exception:
+                logger.debug("Performance score lookup failed for %s", provider.id)
+                comps["performance_fit"] = _NEUTRAL_SCORE
+
+        base_score = round(sum(RESOURCE_WEIGHTS[k] * comps[k] for k in RESOURCE_WEIGHTS), 4)
+        # Performance is a soft, lower-precedence modifier.  It does not override
+        # any of the hard or primary soft gates above.
+        if "performance_fit" in comps:
+            base_score += 0.1 * comps["performance_fit"]
+        comps["score"] = round(base_score, 4)
         return comps
 
     def get_offline_mode(self) -> str:

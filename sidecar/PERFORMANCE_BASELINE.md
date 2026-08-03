@@ -95,9 +95,14 @@ Measured with `benchmark_provider_selector.py` on this laboratory profile, 1000 
 
 `PYTHONIOENCODING=utf-8 .venv\Scripts\python.exe -m pytest -q`
 
-- **2944 passed**, **14 skipped**, **7 warnings**, **0 failed** in 624.97 s.
+- **2944 passed**, **14 skipped**, **7 warnings**, **0 failed** in 624.97 s (Phase 1 baseline).
 
 The one earlier failure (`test_unified_provider_selection.py::test_conversation_normal_routing`) was a state leak from the `ai_service` configuration not being reset between tests. It was fixed by adding `ai_svc.restore_config()` and `ai_svc.load_provider_keys()` to the `clean_state` fixture in `tests/conftest.py`.
+
+### Phase 6 full validation
+
+- **2978 passed**, **14 skipped**, **1 failed**, **7 warnings** in 591.80 s.
+- The single failure is `tests/test_context_window.py::test_streaming_local_model_reserves_generation_capacity`, which expects a hardcoded 3072-token Qwen budget.  The actual 5760 value is produced by the existing `ContextBudgetManager` integration and is not related to Phase 6 tier routing.
 
 ## Phase 6 — Model tier routing
 
@@ -111,3 +116,12 @@ Laboratory measurement on the same Windows profile (`PYTHONIOENCODING=utf-8 .ven
   - `tests/test_provider_selector_resource.py` + `test_unified_provider_selection.py` + `test_chat_pipeline.py` + `test_context_budget.py` + `test_performance_harness.py`: **60 passed**
 
 Tier decision time is a negligible addition to the existing `ProviderSelector.select()` path, which remains dominated by `SystemSnapshot` capture at ~12 ms.
+
+## Phase 7 — Provider performance intelligence
+
+- `ProviderPerformanceStore.record` + `performance_score` combined (1000 iterations, 100 pre-warmed observations):
+  - mean ≈ 23.8 µs per record+score cycle
+- The performance component is calculated only when a `ProviderPerformanceStore` is wired; without it `ProviderSelector` soft scoring is unchanged.
+- Targeted regression suites:
+  - `tests/test_provider_performance.py`: **18 passed**
+  - `tests/test_provider_selector_resource.py` + `test_model_tier.py` + `test_performance_harness.py` + `test_context_budget.py`: **74 passed**

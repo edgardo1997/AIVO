@@ -115,6 +115,25 @@ async def list_conversations(request: Request, limit: int = Query(100, ge=1, le=
     return {"conversations": _conversation_db().list_conversations(user_id, limit)}
 
 
+@router.get("/conversations/export")
+def export_conversations(request: Request, include_messages: bool = Query(True)):
+    from modules.auth import require_level
+
+    identity = request_identity(request)
+    require_level(identity, "view")
+    return _conversation_db().export_conversations(identity.user_id, include_messages=include_messages)
+
+
+@router.delete("/conversations")
+async def delete_all_conversations(request: Request):
+    from modules.auth import require_level
+
+    identity = request_identity(request)
+    require_level(identity, "admin")
+    deleted = _conversation_db().delete_all_conversations(identity.user_id)
+    return {"deleted": deleted}
+
+
 @router.get("/conversations/{session_id}")
 async def get_conversation(session_id: str, request: Request):
     user_id = request_identity(request).user_id

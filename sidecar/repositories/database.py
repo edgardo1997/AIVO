@@ -1083,6 +1083,35 @@ class DatabaseManager:
             )
         return cursor.rowcount > 0
 
+    def delete_all_conversations(self, user_id: str) -> int:
+        with self.transaction(immediate=True) as conn:
+            cursor = conn.execute(
+                "DELETE FROM conversation_threads WHERE user_id = ?",
+                (user_id,),
+            )
+        return cursor.rowcount
+
+    def export_conversations(self, user_id: str, include_messages: bool = True) -> dict:
+        rows = self.list_conversations(user_id, limit=10000)
+        sessions = []
+        for row in rows:
+            session = {
+                "session_id": row["session_id"],
+                "title": row["title"],
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+                "version": row.get("version", 1),
+            }
+            if include_messages:
+                session["messages"] = row["messages"]
+            sessions.append(session)
+        return {
+            "schema_version": "1.0",
+            "exported_at": _utc_now(),
+            "user_id": user_id,
+            "sessions": sessions,
+        }
+
     def run_maintenance(self) -> dict:
         """Run periodic maintenance: WAL checkpoint + TTL cleanup + integrity check."""
         wal_frames = self.checkpoint_wal("PASSIVE")

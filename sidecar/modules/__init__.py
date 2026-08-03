@@ -1107,6 +1107,7 @@ def init_sentinel_orchestrator(
     except Exception as exc:
         _log.warning("Could not migrate/clear legacy ai_provider_keys: %s", exc)
     ai_svc.set_router(mr)
+    ai_svc.set_cloud_authority(cloud_authority)
     if audit_service is not None:
         ai_svc.set_audit_service(audit_service)
     ai_svc.restore_config()

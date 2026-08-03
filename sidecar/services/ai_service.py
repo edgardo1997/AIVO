@@ -124,10 +124,16 @@ class AIService:
         self._capability_registry = None
         self._vault = None
         self._audit = None
+        self._cloud_authority = None
         self._conversation = ConversationAvailabilityLayer(SentinelCoreConversation(), _RuntimeCapabilities(self))
 
     def set_router(self, router: ModelRouter) -> None:
         self._router = router
+
+    def set_cloud_authority(self, cloud_authority) -> None:
+        self._cloud_authority = cloud_authority
+        if self._router:
+            self._router.set_cloud_authority(cloud_authority)
 
     def set_audit_service(self, audit_svc) -> None:
         self._audit = audit_svc
@@ -284,6 +290,17 @@ class AIService:
         provider = cfg.get("provider")
         model = cfg.get("model")
         strategy = cfg.get("strategy", "priority")
+        if provider and self._cloud_authority:
+            spec = self._router._providers.get(provider)
+            if spec and not spec.is_local and not self._cloud_authority.is_authorized(provider, model or ""):
+                log.warning(
+                    "Stored cloud provider %s is not authorized for execution; switching to local. "
+                    "cloud_authorization_review_required=true",
+                    provider,
+                )
+                provider = "sentinel_local"
+                local_spec = self._router._providers.get(provider)
+                model = local_spec.default_model if local_spec else ""
         if provider:
             self._router.set_preferred_provider(provider)
         if strategy:

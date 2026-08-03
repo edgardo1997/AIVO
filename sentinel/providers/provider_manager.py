@@ -8,6 +8,7 @@ import httpx
 
 from sentinel.core.router_types import TaskType, ProviderSpec, RouterDecision, PROVIDER_URLS, CALL_TIMEOUT, LOCAL_CALL_TIMEOUT, CONNECT_TIMEOUT, FIRST_TOKEN_TIMEOUT_NONLOCAL, FIRST_TOKEN_TIMEOUT_LOCAL, STREAM_IDLE_TIMEOUT, classify_provider_error
 from sentinel.core.provider_performance import ProviderPerformanceObservation, ProviderPerformanceStore
+from sentinel.security.secret_redaction import redact_text
 
 logger = logging.getLogger(__name__)
 
@@ -147,10 +148,10 @@ class ProviderManager:
         except Exception as e:
             total_ms = (time.monotonic() - start) * 1000
             self._record(
-                provider.id, model, success=False, error=e,
+                provider.id, model, success=False, error=redact_text(str(e)),
                 total_provider_ms=total_ms,
             )
-            logger.error("Provider call failed for %s: %s", provider.id, str(e)[:200])
+            logger.error("Provider call failed for %s: %s", provider.id, redact_text(str(e))[:200])
             raise
 
     def call_provider_stream(self, decision: RouterDecision, provider: ProviderSpec, messages: List[Dict[str, str]], model_override: Optional[str] = None, timeout_budget: Optional[float] = None) -> Iterator[Dict[str, Any]]:
@@ -277,7 +278,7 @@ class ProviderManager:
                 provider.id, model, success=False, timeout=True, error=e,
                 total_provider_ms=(time.monotonic() - provider_request_started_at) * 1000,
             )
-            logger.error("Stream error for %s: %s", provider.id, str(e)[:200])
+            logger.error("Stream error for %s: %s", provider.id, redact_text(str(e))[:200])
             raise
         except GeneratorExit:
             self._record(
@@ -291,5 +292,5 @@ class ProviderManager:
                 provider.id, model, success=False, error=e,
                 total_provider_ms=(time.monotonic() - provider_request_started_at) * 1000,
             )
-            logger.error("Stream error for %s: %s", provider.id, str(e)[:200])
+            logger.error("Stream error for %s: %s", provider.id, redact_text(str(e))[:200])
             raise

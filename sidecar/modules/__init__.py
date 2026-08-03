@@ -1063,8 +1063,10 @@ def init_sentinel_orchestrator(
 
     from .ai_provider import _svc as ai_svc
     from .permissions import _svc as perm_svc
+    from sentinel.security.cloud_authority import CloudAuthority
 
-    mr = ModelRouter()
+    cloud_authority = CloudAuthority()
+    mr = ModelRouter(cloud_authority=cloud_authority)
     from sentinel.core.provider_health import ProviderHealthChecker
 
     health_checker = ProviderHealthChecker(

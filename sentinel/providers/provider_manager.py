@@ -9,17 +9,32 @@ import httpx
 from sentinel.core.router_types import TaskType, ProviderSpec, RouterDecision, PROVIDER_URLS, CALL_TIMEOUT, LOCAL_CALL_TIMEOUT, CONNECT_TIMEOUT, FIRST_TOKEN_TIMEOUT_NONLOCAL, FIRST_TOKEN_TIMEOUT_LOCAL, STREAM_IDLE_TIMEOUT, classify_provider_error
 from sentinel.core.provider_performance import ProviderPerformanceObservation, ProviderPerformanceStore
 from sentinel.security.secret_redaction import redact_text
+from sentinel.security.cloud_authority import CloudAuthorizationError
 
 logger = logging.getLogger(__name__)
 
 
 class ProviderManager:
-    def __init__(self):
+    def __init__(self, cloud_authority=None):
         self._providers: Dict[str, Any] = {}
         self._key_map: Dict[str, str] = {}
         self._performance_store: Optional[ProviderPerformanceStore] = None
         self._clients: Dict[str, Any] = {}
         self._client_configs: Dict[str, tuple] = {}
+        self._cloud_authority = cloud_authority
+
+    def set_cloud_authority(self, cloud_authority):
+        self._cloud_authority = cloud_authority
+
+    def _assert_cloud_authorized(self, provider: ProviderSpec, model: str) -> None:
+        if not self._cloud_authority or provider.is_local:
+            return
+        if not self._cloud_authority.is_authorized(provider.id, model):
+            reason = self._cloud_authority.require_authorization_reason(provider.id, model)
+            raise CloudAuthorizationError(
+                f"Cloud execution not authorized for {provider.id}/{model}: {reason}",
+                reason=reason or "denied",
+            )
 
     def close(self):
         for client in self._clients.values():
@@ -115,6 +130,7 @@ class ProviderManager:
     def call_provider(self, decision: RouterDecision, provider: ProviderSpec, messages: List[Dict[str, str]], model_override: Optional[str] = None, timeout: Optional[float] = None, tools: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
         model = model_override or decision.model
         timeout = timeout or (LOCAL_CALL_TIMEOUT if provider.is_local else CALL_TIMEOUT)
+        self._assert_cloud_authorized(provider, model)
         start = time.monotonic()
         try:
             client = self._resolve_llm_client(provider.id, provider)
@@ -156,6 +172,7 @@ class ProviderManager:
 
     def call_provider_stream(self, decision: RouterDecision, provider: ProviderSpec, messages: List[Dict[str, str]], model_override: Optional[str] = None, timeout_budget: Optional[float] = None) -> Iterator[Dict[str, Any]]:
         model = model_override or decision.model
+        self._assert_cloud_authorized(provider, model)
         try:
             client = self._resolve_llm_client(provider.id, provider)
             first_token_timeout = FIRST_TOKEN_TIMEOUT_LOCAL if provider.is_local else FIRST_TOKEN_TIMEOUT_NONLOCAL

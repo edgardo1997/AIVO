@@ -38,6 +38,7 @@ class ModelRouter:
         availability_checker: Optional[Callable[[ProviderSpec], ProviderAvailability]] = None,
         availability_ttl_seconds: float = 15.0,
         capability_manager: Optional[Any] = None,
+        cloud_authority: Optional[Any] = None,
     ):
         resolved = {p.id: p for p in (BUILTIN_PROVIDERS if providers is None else providers)}
         self._providers: Dict[str, ProviderSpec] = resolved
@@ -55,6 +56,7 @@ class ModelRouter:
         self._offline_mode: str = "auto"
         self._offline_reason: Optional[str] = None
         self._routing_history: List[Dict[str, Any]] = []
+        self._cloud_authority = cloud_authority
 
         from sentinel.core.hardware_intelligence import ModelCapabilityManager, get_model_capabilities
         from sentinel.core.model_registry import ModelRegistry, TASK_CAPABILITY_MAP
@@ -98,7 +100,7 @@ class ModelRouter:
             fallback_stats=self._fallback_stats,
             fallback_history=self._fallback_history,
         )
-        self._provider_manager = ProviderManager()
+        self._provider_manager = ProviderManager(cloud_authority=self._cloud_authority)
         self._tool_executor = ToolExecutor(capability_selector=self._capability_selector)
         self._conversation_handler = ConversationHandler(chat_fn=self.chat)
         self._health_checker_component = HealthChecker()
@@ -203,6 +205,10 @@ class ModelRouter:
 
     def get_offline_mode(self) -> str:
         return self._offline_mode
+
+    def set_cloud_authority(self, cloud_authority) -> None:
+        self._cloud_authority = cloud_authority
+        self._provider_manager.set_cloud_authority(cloud_authority)
 
     def set_health_checker(self, checker) -> None:
         self._health_checker = checker

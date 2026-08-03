@@ -75,9 +75,9 @@ PROVIDER_URLS: Dict[str, str] = {
 }
 
 BUILTIN_PROVIDERS = [
-    ProviderSpec(id="deepseek", name="DeepSeek v4 Flash (Free)", task_types=[TaskType.REASONING, TaskType.CODE, TaskType.QUICK, TaskType.ANALYSIS, TaskType.CREATIVE], requires_key=True, default_model="deepseek/deepseek-v4-flash:free", priority=10, config={"base_url": "https://api.deepseek.com/v1"}, fallback_chain=["nvidia", "sentinel_local"]),
+    ProviderSpec(id="deepseek", name="DeepSeek v4 Flash (Free)", task_types=[TaskType.REASONING, TaskType.CODE, TaskType.QUICK, TaskType.ANALYSIS, TaskType.CREATIVE], requires_key=True, default_model="deepseek/deepseek-v4-flash", priority=10, config={"base_url": "https://api.deepseek.com/v1"}, fallback_chain=["nvidia", "sentinel_local"]),
     ProviderSpec(id="nvidia-nemotron", name="NVIDIA Nemotron (Free)", task_types=[TaskType.REASONING, TaskType.CODE, TaskType.QUICK, TaskType.ANALYSIS], requires_key=True, default_model="nvidia/nemotron-3-super-120b-a12b", priority=20, config={"base_url": "https://integrate.api.nvidia.com/v1"}, fallback_chain=["sentinel_local"]),
-    ProviderSpec(id="openrouter", name="OpenRouter", task_types=[TaskType.REASONING, TaskType.ANALYSIS, TaskType.QUICK, TaskType.CODE, TaskType.CREATIVE], requires_key=True, default_model="deepseek/deepseek-v4-flash:free", priority=30),
+    ProviderSpec(id="openrouter", name="OpenRouter", task_types=[TaskType.REASONING, TaskType.ANALYSIS, TaskType.QUICK, TaskType.CODE, TaskType.CREATIVE], requires_key=True, default_model="deepseek/deepseek-v4-flash", priority=30),
     ProviderSpec(id="groq", name="Groq", task_types=[TaskType.QUICK, TaskType.ANALYSIS], requires_key=True, default_model="llama-3.3-70b-versatile", priority=25),
     ProviderSpec(id="gemini", name="Gemini", task_types=[TaskType.REASONING, TaskType.ANALYSIS, TaskType.CREATIVE], requires_key=True, default_model="gemini-2.5-flash", priority=18),
     ProviderSpec(id="github_models", name="GitHub Models (Free)", task_types=[TaskType.QUICK, TaskType.CODE, TaskType.REASONING, TaskType.ANALYSIS], requires_key=True, default_model="gpt-4o", priority=12, config={"base_url": "https://models.inference.ai.azure.com"}, fallback_chain=["sentinel_local"]),

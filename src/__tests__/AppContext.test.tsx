@@ -6,7 +6,7 @@ import { api } from "../api";
 vi.mock("../api", () => ({
   api: {
     permissions: { status: vi.fn().mockResolvedValue({ level: "auto", emergency_stop: false, pending_actions: 0 }) },
-    monitor: { system: vi.fn().mockResolvedValue({}) },
+    observability: { health: vi.fn().mockResolvedValue({ status: "healthy" }) },
   },
 }));
 
@@ -67,9 +67,9 @@ describe("AppContext", () => {
     expect(vi.mocked(api.permissions.status)).toHaveBeenCalled();
   });
 
-  it("llama a monitor.system al montar", async () => {
+  it("llama a observability.health al montar", async () => {
     render(<AppProvider><TestConsumer /></AppProvider>);
     await screen.findByText("auto");
-    expect(vi.mocked(api.monitor.system)).toHaveBeenCalled();
+    expect(vi.mocked(api.observability.health)).toHaveBeenCalled();
   });
 });

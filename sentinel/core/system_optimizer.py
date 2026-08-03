@@ -134,7 +134,8 @@ def _detect_context() -> SystemContext:
     try:
         import psutil
 
-        ctx.cpu_usage_pct = psutil.cpu_percent(interval=0.1)
+        # Remove blocking interval=0.1 - use interval=0 for non-blocking measurement
+        ctx.cpu_usage_pct = psutil.cpu_percent(interval=0)
         ctx.memory_usage_pct = psutil.virtual_memory().percent
     except Exception:
         log.warning("Failed to read CPU/memory usage", exc_info=True)

@@ -30,19 +30,19 @@ describe("Settings", () => {
     render(<Settings />);
     await screen.findAllByText(/DeepSeek/);
 
-    // Use Anthropic which has apiRequired:true but no pre-configured key
+    // DeepSeek uses the backend's direct OpenAI-compatible route.
     const modelButtons = screen.getAllByRole("button");
-    const anthropicBtn = modelButtons.find(b => b.textContent?.includes("Claude 3"));
-    expect(anthropicBtn).toBeTruthy();
-    if (anthropicBtn) fireEvent.click(anthropicBtn);
+    const deepseekBtn = modelButtons.find(b => b.textContent?.includes("DeepSeek Chat"));
+    expect(deepseekBtn).toBeTruthy();
+    if (deepseekBtn) fireEvent.click(deepseekBtn);
 
-    const apiInput = await screen.findByPlaceholderText("sk-ant-...");
+    const apiInput = await screen.findByPlaceholderText("sk-...");
     fireEvent.change(apiInput, { target: { value: "sk-test-key" } });
     fireEvent.click(screen.getByRole("button", { name: /^Conectar y Activar$/i }));
 
     await waitFor(() => {
       expect(vi.mocked(ai.setConfig)).toHaveBeenCalledWith(
-        expect.objectContaining({ api_key: "sk-test-key" })
+        expect.objectContaining({ api_key: "sk-test-key", provider: "deepseek", model: "deepseek-chat", strategy: "manual" })
       );
     });
   });
@@ -52,17 +52,17 @@ describe("Settings", () => {
     await screen.findAllByText(/DeepSeek/);
 
     const modelButtons = screen.getAllByRole("button");
-    const anthropicBtn = modelButtons.find(b => b.textContent?.includes("Claude 3"));
-    expect(anthropicBtn).toBeTruthy();
-    if (anthropicBtn) fireEvent.click(anthropicBtn);
+    const deepseekBtn = modelButtons.find(b => b.textContent?.includes("DeepSeek Chat"));
+    expect(deepseekBtn).toBeTruthy();
+    if (deepseekBtn) fireEvent.click(deepseekBtn);
 
-    const apiInput = await screen.findByPlaceholderText("sk-ant-...");
+    const apiInput = await screen.findByPlaceholderText("sk-...");
     fireEvent.change(apiInput, { target: { value: "sk-test-key" } });
     fireEvent.click(screen.getByRole("button", { name: /^Conectar y Activar$/i }));
 
     await waitFor(() => {
       expect(vi.mocked(ai.setConfig)).toHaveBeenCalledWith(
-        expect.objectContaining({ api_key: "sk-test-key" })
+        expect.objectContaining({ api_key: "sk-test-key", provider: "deepseek", model: "deepseek-chat", strategy: "manual" })
       );
     });
   });

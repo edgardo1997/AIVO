@@ -229,14 +229,13 @@ class TestFallbackChainingUnit:
         def stream_call(decision, _provider, _messages, _model_override=None, **kwargs):
             if decision.provider_id == "sentinel_local":
                 raise ConnectionError("primary unavailable")
-            yield {"type": "meta", "provider": "ollama", "model": "fallback"}
             yield {"type": "delta", "text": "respuesta"}
             yield {"type": "done"}
 
         mr._call_provider_stream = stream_call
         events = list(mr.chat_stream([{"role": "user", "content": "hola"}]))
-        assert [event["type"] for event in events] == ["meta", "delta", "done"]
-        assert events[1]["text"] == "respuesta"
+        assert [event["type"] for event in events] == ["meta", "meta", "delta", "done"]
+        assert events[2]["text"] == "respuesta"
         assert mr.fallback_stats()["fallback_counts"]["ollama"] == 1
 
     def test_streaming_never_mixes_providers_after_content(self):

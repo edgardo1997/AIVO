@@ -107,6 +107,14 @@ def clean_state():
         {"provider": "openrouter", "api_key": "", "model": "gpt-4o", "base_url": ""},
     )
     try:
+        from modules.ai_provider import _svc as ai_svc
+
+        if getattr(ai_svc, "_router", None) is not None:
+            ai_svc.restore_config()
+            ai_svc.load_provider_keys()
+    except Exception:
+        pass
+    try:
         from modules.sentinel_bridge import get_orchestrator
 
         orch = get_orchestrator()

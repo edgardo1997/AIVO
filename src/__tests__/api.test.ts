@@ -124,8 +124,8 @@ describe('API Layer', () => {
 
   describe('Permissions', () => {
     it('gets permission status', async () => {
-      mockFetch.mockResolvedValueOnce(mockV1Response({ level: 'confirm', emergency_stop: false, pending_actions: 0 }));
-      const data = await api.permissions.status();
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ level: 'confirm', emergency_stop: false, pending_actions: 0 }) });
+      const data = await api.permissions.status() as any;
       expect(data.level).toBe('confirm');
     });
 

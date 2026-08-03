@@ -23,6 +23,15 @@ def test_permission_status_default():
 
 
 @pytest.mark.security
+def test_permission_status_direct_endpoint_avoids_execution_pipeline():
+    resp = client.get("/api/permissions/status")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "level" in data
+    assert "emergency_stop" in data
+
+
+@pytest.mark.security
 def test_set_permission_level():
     admin_mode()
     for level in ["view", "confirm", "auto", "admin"]:

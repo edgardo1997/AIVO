@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 MODEL_PRICING: Dict[str, Dict[str, float]] = {
     "openrouter": {
-        "deepseek/deepseek-v4-flash:free": 0.0,
+        "deepseek/deepseek-v4-flash": 0.0,
         "deepseek/deepseek-v4-flash": 0.0,
         "gpt-4o": 0.0025,
         "gpt-4o-mini": 0.00015,

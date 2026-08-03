@@ -649,10 +649,14 @@ class Orchestrator:
             await self._emit(
                 event_types.CONTEXT_LOADING, component="context_engine", session_id=session_id, request_id=execution_id
             )
+            context_load_start = datetime.now(timezone.utc)
             try:
                 sys_ctx = await self._context_engine.collect(include_processes=False)
                 context["system"] = sys_ctx.to_dict()
                 context["system_summary"] = sys_ctx.summary()
+                context_load_end = datetime.now(timezone.utc)
+                context_load_ms = (context_load_end - context_load_start).total_seconds() * 1000
+                logger.info(f"[TIMING] Context Collection: {context_load_ms:.2f}ms")
                 await self._emit(
                     event_types.CONTEXT_LOADED,
                     component="context_engine",
@@ -712,6 +716,7 @@ class Orchestrator:
                 logger.warning("Profile context injection failed: %s", e)
 
         if self._memory and identity is not None:
+            memory_start = datetime.now(timezone.utc)
             try:
                 if user_id:
                     learned = self._memory.get_learned_preferences(user_id, min_confidence=0.6)
@@ -724,8 +729,12 @@ class Orchestrator:
                         }
             except Exception as e:
                 logger.warning("Learned memory injection failed: %s", e)
+            memory_end = datetime.now(timezone.utc)
+            memory_ms = (memory_end - memory_start).total_seconds() * 1000
+            logger.info(f"[TIMING] Memory Retrieval: {memory_ms:.2f}ms")
 
         if self._deep_context:
+            deep_context_start = datetime.now(timezone.utc)
             try:
                 deep_ctx = await self._deep_context.collect()
                 context["deep_context"] = deep_ctx
@@ -733,18 +742,20 @@ class Orchestrator:
                 logger.info("Deep context injected: %s", deep_ctx.get("deep_context_summary", ""))
             except Exception as e:
                 logger.warning("Deep context injection failed: %s", e)
-            else:
-                if self._environment_learning and user_id:
-                    try:
-                        self._environment_learning.observe(user_id, deep_ctx)
-                        learned_environment = self._environment_learning.recent_context(user_id)
-                        if learned_environment:
-                            # Environmental changes feed into the objective risk
-                            # assessor, which applies modifiers based on
-                            # change_type (safe enum, not app names).
-                            context["environment_changes"] = learned_environment
-                    except Exception as e:
-                        logger.warning("Environmental learning failed: %s", e)
+            deep_context_end = datetime.now(timezone.utc)
+            deep_context_ms = (deep_context_end - deep_context_start).total_seconds() * 1000
+            logger.info(f"[TIMING] Deep Context Collection: {deep_context_ms:.2f}ms")
+            if self._environment_learning and user_id:
+                try:
+                    self._environment_learning.observe(user_id, deep_ctx)
+                    learned_environment = self._environment_learning.recent_context(user_id)
+                    if learned_environment:
+                        # Environmental changes feed into the objective risk
+                        # assessor, which applies modifiers based on
+                        # change_type (safe enum, not app names).
+                        context["environment_changes"] = learned_environment
+                except Exception as e:
+                    logger.warning("Environmental learning failed: %s", e)
 
         if override_plan:
             intent = override_plan.intent
@@ -753,7 +764,11 @@ class Orchestrator:
             plan = override_plan
             logger.info("Using override plan with %d steps for %s", len(plan.steps), utterance)
         else:
+            intent_parse_start = datetime.now(timezone.utc)
             intent = self._intent_engine.parse(utterance, context)
+            intent_parse_end = datetime.now(timezone.utc)
+            intent_parse_ms = (intent_parse_end - intent_parse_start).total_seconds() * 1000
+            logger.info(f"[TIMING] Intent Parsing: {intent_parse_ms:.2f}ms")
             if self._grounding:
                 intent = self._intent_engine.attach_grounding(intent)
             logger.info(
@@ -769,11 +784,15 @@ class Orchestrator:
                 plan = cached_plan
                 logger.info("Plan cache HIT for %s/%s", intent.action, intent.target)
             else:
+                planner_start = datetime.now(timezone.utc)
                 app_profiles = None
                 deep_ctx = context.get("deep_context")
                 if deep_ctx and isinstance(deep_ctx, dict):
                     app_profiles = deep_ctx.get("installed_apps")
                 plan = self._planner.plan(intent, context, app_profiles=app_profiles)
+                planner_end = datetime.now(timezone.utc)
+                planner_ms = (planner_end - planner_start).total_seconds() * 1000
+                logger.info(f"[TIMING] Planner: {planner_ms:.2f}ms (steps={len(plan.steps)})")
                 if self._plan_cache:
                     self._plan_cache.set(intent, plan)
 
@@ -890,6 +909,7 @@ class Orchestrator:
         # Simulation
         simulation_result = None
         if self._simulation and not dry_run and not skip_simulation:
+            simulation_start = datetime.now(timezone.utc)
             try:
                 simulation_result = await self._simulation.simulate(plan, context)
                 context["simulation"] = {
@@ -899,11 +919,14 @@ class Orchestrator:
                     "impact_count": len(simulation_result.impacts),
                     "has_irreversible": any(i.irreversible for i in simulation_result.impacts),
                 }
+                simulation_end = datetime.now(timezone.utc)
+                simulation_ms = (simulation_end - simulation_start).total_seconds() * 1000
                 logger.info(
-                    "Simulation: risk=%s, confirm=%s, steps=%d",
+                    "Simulation: risk=%s, confirm=%s, steps=%d, took %.2fms",
                     simulation_result.overall_risk,
                     simulation_result.requires_confirmation,
-                    len(simulation_result.impacts),
+                    len(simulation.impacts),
+                    simulation_ms
                 )
             except Exception as e:
                 logger.warning("Simulation failed: %s", e)
@@ -933,9 +956,13 @@ class Orchestrator:
             await self._emit(
                 event_types.POLICY_VALIDATING, component="policy_engine", session_id=session_id, request_id=execution_id
             )
+            decision_start = datetime.now(timezone.utc)
             decision = await self._evaluate_decision(
                 plan, context, simulation_result=simulation_result, risk_classification=risk_classification
             )
+            decision_end = datetime.now(timezone.utc)
+            decision_ms = (decision_end - decision_start).total_seconds() * 1000
+            logger.info(f"[TIMING] Policy/Decision Evaluation: {decision_ms:.2f}ms")
             decision_value = (
                 decision.decision
                 if isinstance(decision.decision, str)
@@ -1018,7 +1045,12 @@ class Orchestrator:
                     "intent": self._intent_to_dict(intent),
                     "plan": self._plan_to_dict(plan),
                     "simulation": asdict(simulation_result) if simulation_result else None,
-                    "context": context,
+                    # Only store essential context fields to avoid bloating memory
+                    "context": {
+                        "execution_id": context.get("execution_id"),
+                        "session_id": context.get("session_id"),
+                        "user_id": context.get("identity", {}).get("user_id") if isinstance(context.get("identity"), dict) else None,
+                    },
                 },
                 reason=reason,
                 created_at=datetime.now(timezone.utc).isoformat(),
@@ -1078,12 +1110,14 @@ class Orchestrator:
         grounding_step_results: List[StepResult] = []
         grounding_tool_result: Optional[ToolResult] = None
         if grounding_step_ids and not dry_run:
+            grounding_start = datetime.now(timezone.utc)
             grounding_only = Plan(
                 steps=[s for s in plan.steps if s.tool_id in grounding_step_ids],
                 intent=intent,
                 description="Grounding pre-check",
             )
             grounding_levels = self._planner.resolve_dependencies(grounding_only)
+            grounding_exec_start = datetime.now(timezone.utc)
             for level in grounding_levels:
                 tasks = [self._execute_single_step(s, intent, context, dry_run=dry_run) for s in level]
                 results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -1094,11 +1128,18 @@ class Orchestrator:
                     else:
                         grounding_step_results.append(res)
                         grounding_tool_result = self._merge_tool_result(grounding_tool_result, res)
+            grounding_exec_end = datetime.now(timezone.utc)
+            grounding_exec_ms = (grounding_exec_end - grounding_exec_start).total_seconds() * 1000
+            logger.info(f"[TIMING] Grounding Execution: {grounding_exec_ms:.2f}ms")
             grounding_ok = all(sr.success for sr in grounding_step_results)
             if grounding_ok:
+                grounding_verify_start = datetime.now(timezone.utc)
                 grounding_results, grounding_satisfied = self._verify_grounding_results(
                     intent, grounding_step_results, dry_run=dry_run
                 )
+                grounding_verify_end = datetime.now(timezone.utc)
+                grounding_verify_ms = (grounding_verify_end - grounding_verify_start).total_seconds() * 1000
+                logger.info(f"[TIMING] Grounding Verification: {grounding_verify_ms:.2f}ms")
                 if not grounding_satisfied:
                     failed_reqs = [
                         r.category.value for r in getattr(intent, "grounding_requirements", []) if r.required
@@ -1144,6 +1185,7 @@ class Orchestrator:
             request_id=execution_id,
             details={"step_count": len(plan.steps)},
         )
+        execution_start = datetime.now(timezone.utc)
         grounding_executed_ids = {sr.step_id for sr in grounding_step_results}
         step_results: List[StepResult] = []
         step_results.extend(grounding_step_results)
@@ -1223,6 +1265,10 @@ class Orchestrator:
         if tool_result:
             tool_result.duration_ms = sum(s.duration_ms or 0 for s in step_results if s.duration_ms)
 
+        execution_end = datetime.now(timezone.utc)
+        execution_ms = (execution_end - execution_start).total_seconds() * 1000
+        logger.info(f"[TIMING] Tool Execution: {execution_ms:.2f}ms (steps={len(step_results)})")
+
         # Grounding verification (post-execution audit)
         grounding_results, grounding_satisfied = self._verify_grounding_results(intent, step_results, dry_run=dry_run)
         result = ExecutionResult(
@@ -1271,7 +1317,11 @@ class Orchestrator:
             await self._emit(
                 event_types.AUDIT_STARTED, component="audit", session_id=session_id, request_id=execution_id
             )
+            audit_start = datetime.now(timezone.utc)
             self._store_memory(execution_id, start, raw_input, intent, plan, decision, context, result)
+            audit_end = datetime.now(timezone.utc)
+            audit_ms = (audit_end - audit_start).total_seconds() * 1000
+            logger.info(f"[TIMING] Audit/Memory Storage: {audit_ms:.2f}ms")
             await self._emit(
                 event_types.AUDIT_COMPLETED,
                 component="audit",
@@ -1724,15 +1774,16 @@ class Orchestrator:
     ) -> Tuple[List[Dict[str, Any]], bool]:
         evidence: List[Dict[str, Any]] = []
         satisfied = True
+        
+        # Build lookup map for O(1) access instead of O(n) scanning per requirement
+        results_by_tool = {}
+        for result in step_results:
+            results_by_tool[result.tool_id] = result
+            if result.executed_tool_id:
+                results_by_tool[result.executed_tool_id] = result
+        
         for requirement in intent.grounding_requirements:
-            matching = next(
-                (
-                    result
-                    for result in step_results
-                    if result.tool_id == requirement.tool_id or result.executed_tool_id == requirement.tool_id
-                ),
-                None,
-            )
+            matching = results_by_tool.get(requirement.tool_id)
             grounded = bool(matching and matching.success and not dry_run)
             if requirement.required and not grounded and not dry_run:
                 satisfied = False

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../../api";
 import { Modal } from "../ui/Modal";
 import "./Settings.css";
@@ -24,26 +24,32 @@ interface Model {
 
 const MODEL_PROVIDERS: ModelProvider[] = [
   {
-    id: "deepseek",
-    name: "DeepSeek V4 Flash — Gratis",
-    description: "Modelo rápido y potente — requiere API key gratuita de OpenRouter o DeepSeek",
+    id: "openrouter",
+    name: "OpenRouter — Catálogo amplio",
+    description: "Una sola API key para modelos gratuitos y premium de muchos laboratorios",
     category: "free",
     apiRequired: true,
     popular: true,
     recommended: true,
     models: [
-      { id: "deepseek/deepseek-v4-flash:free", name: "DeepSeek V4 Flash Free", description: "Modelo principal gratuito (requiere API key)", free: true, popular: true },
+      { id: "deepseek/deepseek-r1:free", name: "DeepSeek R1 Free", description: "Razonamiento avanzado disponible en el catálogo gratuito", free: true, popular: true },
+      { id: "meta-llama/llama-3.3-70b-instruct:free", name: "Llama 3.3 70B Free", description: "Modelo generalista grande sin coste por uso", free: true },
+      { id: "google/gemma-3-27b-it:free", name: "Gemma 3 27B Free", description: "Modelo multimodal de Google en la selección gratuita", free: true },
+      { id: "deepseek/deepseek-chat-v3-0324", name: "DeepSeek V3", description: "Modelo de propósito general de DeepSeek", free: false },
+      { id: "anthropic/claude-sonnet-4", name: "Claude Sonnet 4", description: "Razonamiento y redacción de alta calidad", free: false },
+      { id: "openai/gpt-4.1", name: "GPT-4.1", description: "Modelo OpenAI para tareas complejas", free: false },
     ]
   },
   {
-    id: "nvidia-nemotron",
-    name: "NVIDIA Nemotron — Gratis",
+    id: "nvidia",
+    name: "NVIDIA NIM — Nemotron",
     description: "Modelo avanzado de NVIDIA — requiere API key gratuita de NVIDIA",
     category: "free",
     apiRequired: true,
     popular: true,
     models: [
       { id: "nvidia/nemotron-3-super-120b-a12b", name: "Nemotron 3 Super 120B", description: "Modelo de alto rendimiento gratuito (requiere API key)", free: true, popular: true },
+      { id: "nvidia/llama-3.3-nemotron-super-49b-v1", name: "Llama Nemotron Super 49B", description: "Razonamiento y asistencia para agentes", free: true },
     ]
   },
   {
@@ -57,57 +63,102 @@ const MODEL_PROVIDERS: ModelProvider[] = [
     ]
   },
   {
-    id: "openai",
-    name: "OpenAI — Pago",
-    description: "Acceso directo a GPT-4o y modelos OpenAI con tu API key",
-    category: "paid",
+    id: "groq",
+    name: "Groq — Inferencia rápida",
+    description: "Modelos abiertos con respuestas de muy baja latencia",
+    category: "free",
     apiRequired: true,
     popular: true,
     models: [
-      { id: "gpt-4o", name: "GPT-4o", description: "Modelo multimodal más potente de OpenAI", free: false, popular: true },
-      { id: "gpt-4o-mini", name: "GPT-4o Mini", description: "Económico y rápido", free: false },
-    ]
-  },
-  {
-    id: "anthropic",
-    name: "Anthropic — Pago",
-    description: "Acceso directo a modelos Claude con tu API key",
-    category: "paid",
-    apiRequired: true,
-    popular: true,
-    models: [
-      { id: "claude-sonnet-4", name: "Claude Sonnet 4", description: "Balanceado para tareas generales", free: false, popular: true },
-      { id: "claude-haiku-3", name: "Claude 3 Haiku", description: "Modelo rápido y económico", free: false },
+      { id: "llama-3.3-70b-versatile", name: "Llama 3.3 70B", description: "Modelo generalista de alta velocidad", free: true, popular: true },
+      { id: "llama-3.1-8b-instant", name: "Llama 3.1 8B Instant", description: "Respuestas rápidas para tareas cotidianas", free: true },
+      { id: "qwen/qwen3-32b", name: "Qwen 3 32B", description: "Razonamiento y código con baja latencia", free: true },
     ]
   },
   {
     id: "gemini",
-    name: "Gemini — Gratis con key",
-    description: "Modelos de Google con API gratuita (requiere API key de Google AI Studio)",
+    name: "Google Gemini",
+    description: "Modelos de Google con cuota gratuita mediante Google AI Studio",
     category: "free",
     apiRequired: true,
+    popular: true,
     models: [
-      { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash", description: "Modelo gratuito de Google, rápido y capaz", free: true, popular: true },
-    ]
-  },
-  {
-    id: "groq",
-    name: "Groq — Gratis con key",
-    description: "Inferencia ultrarrápida con Llama 3 (requiere API key gratuita de Groq)",
-    category: "free",
-    apiRequired: true,
-    models: [
-      { id: "llama-3.3-70b-versatile", name: "Llama 3.3 70B", description: "Modelo gratuito de alta velocidad en Groq", free: true, popular: true },
+      { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash", description: "Rápido y capaz para uso diario", free: true, popular: true },
+      { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro", description: "Razonamiento avanzado y contextos largos", free: false },
+      { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash", description: "Modelo rápido multimodal", free: true },
     ]
   },
   {
     id: "github_models",
-    name: "GitHub Models — Gratis con key",
-    description: "Modelos de OpenAI y Microsoft gratis con cuenta GitHub (requiere GitHub token)",
+    name: "GitHub Models",
+    description: "Modelos de GitHub con un token personal compatible",
     category: "free",
     apiRequired: true,
     models: [
-      { id: "gpt-4o", name: "GPT-4o (GitHub)", description: "GPT-4o gratuito vía GitHub Models", free: true },
+      { id: "gpt-4o", name: "GPT-4o", description: "Modelo OpenAI disponible desde GitHub Models", free: true, popular: true },
+      { id: "gpt-4o-mini", name: "GPT-4o Mini", description: "Modelo económico para tareas frecuentes", free: true },
+      { id: "DeepSeek-R1", name: "DeepSeek R1", description: "Razonamiento de código y análisis", free: true },
+      { id: "Phi-4", name: "Phi-4", description: "Modelo compacto de Microsoft", free: true },
+    ]
+  },
+  {
+    id: "cerebras",
+    name: "Cerebras — Alta velocidad",
+    description: "Inferencia rápida de modelos abiertos con una API key",
+    category: "free",
+    apiRequired: true,
+    models: [
+      { id: "llama-3.3-70b", name: "Llama 3.3 70B", description: "Modelo generalista de alto rendimiento", free: true, popular: true },
+      { id: "qwen-3-32b", name: "Qwen 3 32B", description: "Modelo para razonamiento y programación", free: true },
+    ]
+  },
+  {
+    id: "mistral",
+    name: "Mistral AI",
+    description: "Modelos de Mistral para conversación, código y análisis",
+    category: "paid",
+    apiRequired: true,
+    models: [
+      { id: "mistral-small-latest", name: "Mistral Small", description: "Modelo rápido para tareas habituales", free: false },
+      { id: "mistral-large-latest", name: "Mistral Large", description: "Modelo avanzado de Mistral", free: false },
+      { id: "codestral-latest", name: "Codestral", description: "Modelo especializado en programación", free: false },
+    ]
+  },
+  {
+    id: "openai",
+    name: "OpenAI",
+    description: "Acceso directo a modelos GPT con tu API key",
+    category: "paid",
+    apiRequired: true,
+    popular: true,
+    models: [
+      { id: "gpt-4.1", name: "GPT-4.1", description: "Modelo de capacidad general avanzada", free: false, popular: true },
+      { id: "gpt-4.1-mini", name: "GPT-4.1 Mini", description: "Rápido y económico", free: false },
+      { id: "gpt-4o", name: "GPT-4o", description: "Modelo multimodal de OpenAI", free: false },
+      { id: "o3-mini", name: "o3-mini", description: "Razonamiento eficiente", free: false },
+    ]
+  },
+  {
+    id: "deepseek",
+    name: "DeepSeek",
+    description: "Acceso directo a los modelos de DeepSeek mediante tu API key",
+    category: "paid",
+    apiRequired: true,
+    models: [
+      { id: "deepseek-chat", name: "DeepSeek Chat", description: "Modelo de conversación y programación", free: false, popular: true },
+      { id: "deepseek-reasoner", name: "DeepSeek Reasoner", description: "Modelo para tareas de razonamiento complejas", free: false },
+    ]
+  },
+  {
+    id: "ollama",
+    name: "Ollama — Local",
+    description: "Usa cualquier modelo que tengas descargado en Ollama, sin enviar datos a la nube",
+    category: "free",
+    apiRequired: false,
+    models: [
+      { id: "llama3", name: "Llama 3", description: "Modelo local predeterminado de Ollama", free: true },
+      { id: "qwen2.5", name: "Qwen 2.5", description: "Requiere que el modelo esté instalado en Ollama", free: true },
+      { id: "mistral", name: "Mistral", description: "Requiere que el modelo esté instalado en Ollama", free: true },
     ]
   },
 ];
@@ -119,8 +170,11 @@ function apiKeyUrl(providerId: string): string {
     gemini: "https://aistudio.google.com/apikey",
     groq: "https://console.groq.com/keys",
     github_models: "https://github.com/settings/tokens",
-    deepseek: "https://openrouter.ai/keys",
-    "nvidia-nemotron": "https://build.nvidia.com/settings/api-keys",
+    deepseek: "https://platform.deepseek.com/api_keys",
+    openrouter: "https://openrouter.ai/keys",
+    nvidia: "https://build.nvidia.com/settings/api-keys",
+    cerebras: "https://cloud.cerebras.ai/",
+    mistral: "https://console.mistral.ai/api-keys/",
   };
   return urls[providerId] || "https://openrouter.ai/keys";
 }
@@ -132,8 +186,11 @@ function apiKeyPlaceholder(providerId: string): string {
     gemini: "AIza...",
     groq: "gsk_...",
     github_models: "ghp_...",
-    deepseek: "sk-or-v1-...",
-    "nvidia-nemotron": "nvapi-...",
+    deepseek: "sk-...",
+    openrouter: "sk-or-v1-...",
+    nvidia: "nvapi-...",
+    cerebras: "csk-...",
+    mistral: "...",
   };
   return placeholders[providerId] || "Tu API key";
 }
@@ -149,56 +206,21 @@ export function Settings({ initialSection = "models" }: { initialSection?: Setti
   const [loading, setLoading] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [_currentConfig, setCurrentConfig] = useState<{ provider: string; model: string } | null>(null);
+  const [currentConfig, setCurrentConfig] = useState<{ provider: string; model: string } | null>(null);
 
-  // API Keys preconfiguradas para modelos gratuitos
-  const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
-
-  // Sistema de fallback: DeepSeek -> NVIDIA Nemotron -> Modelo local
-  const activateModelWithFallback = async (primaryProvider: string, primaryModel: string) => {
-    const fallbackChain: { provider: string; model: string; needsKey: boolean }[] = [
-      { provider: primaryProvider, model: primaryModel, needsKey: false },
-      { provider: "nvidia-nemotron", model: "nvidia/nemotron-3-super-120b-a12b", needsKey: false },
-      { provider: "sentinel_local", model: "Qwen3-1.7B-Q8_0.gguf", needsKey: false },
-    ];
-
-    for (const { provider, model } of fallbackChain) {
-      try {
-        const config: any = {
-          provider: provider,
-          model: model,
-          strategy: "cost",
-        };
-
-        // Si tenemos API key almacenada, enviarla
-        if (apiKeys[provider]) {
-          config.api_key = apiKeys[provider];
-        }
-
-        await api.ai.setConfig(config);
-        setCurrentConfig({ provider, model });
-        setSelectedModel(model);
-        setSaved(true);
-        setTimeout(() => setSaved(false), 2000);
-        return;
-      } catch {
-        console.log(`Failed to activate ${provider}/${model}, trying next...`);
-        continue;
-      }
-    }
-
-    setError("No se pudo activar ningún modelo. Verifica tu conexión.");
-  };
+  // This only records whether the vault or runtime environment has a key.
+  const [providerKeyStatus, setProviderKeyStatus] = useState<Record<string, boolean>>({});
 
   const handleSelectModel = (providerId: string, modelId: string, requiresApi: boolean) => {
+    setSelectedProvider(providerId);
+    setSelectedModel(modelId);
     if (requiresApi) {
-      if (apiKeys[providerId]) {
-        // Ya tenemos key guardada localmente — activar directo
-        activateModelWithKey(providerId, modelId, apiKeys[providerId]);
+      if (providerKeyStatus[providerId]) {
+        // The key is stored securely in the vault; never keep it in React state.
+        activateModelNoKey(providerId, modelId);
       } else {
         // Intentar activar sin key primero (por si hay env var en el backend)
         // El backend carga SENTINEL_API_KEY_* automáticamente
-        setSelectedProvider(providerId);
         setError(null);
         setShowApiDialog(true);
       }
@@ -208,22 +230,16 @@ export function Settings({ initialSection = "models" }: { initialSection?: Setti
     }
   };
 
-  const fallbackRef = useRef(activateModelWithFallback);
-  fallbackRef.current = activateModelWithFallback;
-
-  // Configurar modelo inicial con sistema de fallback
   useEffect(() => {
     const initializeModel = async () => {
       try {
         const res = await api.ai.config() as any;
         setCurrentConfig({ provider: res.provider, model: res.model });
         setSelectedModel(res.model);
-
-        if (!res.provider || !res.model) {
-          fallbackRef.current("deepseek", "deepseek/deepseek-v4-flash:free");
-        }
-      } catch {
-        fallbackRef.current("deepseek", "deepseek/deepseek-v4-flash:free");
+        setSelectedProvider(res.provider ?? null);
+        setProviderKeyStatus(res.provider_key_status ?? {});
+      } catch (e) {
+        setError(`No se pudo cargar la configuración de modelos: ${e instanceof Error ? e.message : String(e)}`);
       }
     };
 
@@ -237,27 +253,7 @@ export function Settings({ initialSection = "models" }: { initialSection?: Setti
       await api.ai.setConfig({
         provider: providerId,
         model: modelId,
-        strategy: "cost",
-      });
-      setCurrentConfig({ provider: providerId, model: modelId });
-      setSelectedModel(modelId);
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-    setLoading(false);
-  };
-
-  const activateModelWithKey = async (providerId: string, modelId: string, key: string) => {
-    setLoading(true);
-    setError(null);
-    try {
-      await api.ai.setConfig({
-        provider: providerId,
-        api_key: key,
-        model: modelId,
-        strategy: "cost",
+        strategy: "manual",
       });
       setCurrentConfig({ provider: providerId, model: modelId });
       setSelectedModel(modelId);
@@ -287,11 +283,10 @@ export function Settings({ initialSection = "models" }: { initialSection?: Setti
         provider: selectedProvider,
         api_key: newKey,
         model: modelId,
-        strategy: "cost",
+        strategy: "manual",
       });
 
-      // Guardar la API key para uso futuro
-      setApiKeys(prev => ({ ...prev, [selectedProvider]: newKey }));
+      setProviderKeyStatus((current) => ({ ...current, [selectedProvider]: true }));
 
       setShowApiDialog(false);
       setApiKey("");
@@ -332,8 +327,8 @@ export function Settings({ initialSection = "models" }: { initialSection?: Setti
                 <h1>Seleccionar Modelo</h1>
                 <p>Elige el modelo de IA que mejor se adapte a tus necesidades</p>
                 <div className="fallback-info">
-                  <span className="fallback-icon">🔄</span>
-                  <span>Sistema de fallback: DeepSeek → NVIDIA Nemotron → Modelo Local</span>
+                  <span className="fallback-icon">●</span>
+                  <span>El modelo que elijas se usará de forma manual en cada conversación</span>
                 </div>
               </div>
               {saved && <div className="success-badge">✓ Configuración guardada</div>}
@@ -348,7 +343,7 @@ export function Settings({ initialSection = "models" }: { initialSection?: Setti
                     <div className="provider-info">
                       <h3>{provider.name}</h3>
                       <p>{provider.description}</p>
-                      {apiKeys[provider.id] && (
+                      {providerKeyStatus[provider.id] && (
                         <div className="api-key-status">
                           <span className="status-dot configured"></span>
                           <span>API Key configurada</span>
@@ -368,7 +363,7 @@ export function Settings({ initialSection = "models" }: { initialSection?: Setti
                     {provider.models.map((model) => (
                       <button
                         key={model.id}
-                        className={`model-card ${selectedModel === model.id ? "selected" : ""} ${model.popular ? "popular" : ""}`}
+                        className={`model-card ${currentConfig?.provider === provider.id && currentConfig.model === model.id ? "selected" : ""} ${model.popular ? "popular" : ""}`}
                         onClick={() => handleSelectModel(provider.id, model.id, provider.apiRequired)}
                         disabled={loading}
                       >
@@ -382,8 +377,10 @@ export function Settings({ initialSection = "models" }: { initialSection?: Setti
                         </div>
                         <div className="model-description">{model.description}</div>
                         <div className="model-cta">
-                          {provider.apiRequired ? (
-                            apiKeys[provider.id] ? (
+                          {currentConfig?.provider === provider.id && currentConfig.model === model.id ? (
+                            <span className="cta-free">Modelo activo</span>
+                          ) : provider.apiRequired ? (
+                            providerKeyStatus[provider.id] ? (
                               <><span>Activar</span><span>→</span></>
                             ) : (
                               <><span>{provider.category === "free" ? "Obtener API Key" : "Conectar API"}</span><span>→</span></>

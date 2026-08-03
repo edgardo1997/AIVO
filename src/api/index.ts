@@ -11,7 +11,7 @@ import type {
   PermissionRule, MemorySession, MemoryRecord, ConversationThread, ConversationMessage, ReportPreview, UserProfile,
   Trigger, TriggerHistory, SentinelResponse, ProfileHistoryEntry, ProfilePreset, ProfileSearchResult,
   MarketplacePlugin, FleetDevice, SyncLogEntry, HelpTopic, HelpCategory, OnboardingStep,
-  RecoveryStatus, HealthCheckResult, ProactiveStatus, ProactiveTrend,
+  RecoveryStatus, HealthCheckResult, ProactiveStatus, ProactiveTrend, PermissionStatus,
 } from "../types";
 
 let _invoke: ((cmd: string, args?: Record<string, unknown>) => Promise<unknown>) | undefined =
@@ -214,7 +214,7 @@ export const api = {
   },
 
   permissions: {
-    status: () => v1("permissions.status"),
+    status: () => fetchJSON<PermissionStatus>(`${BASE}/api/permissions/status`),
     setLevel: (level: string) => v1("permissions.set_level", { level }),
     emergency: (action: string) => v1("permissions.emergency", { action }),
     rules: () => fetchJSON<{ rules: PermissionRule[] }>(`${BASE}/api/sentinel/permissions/rules`),

@@ -4,9 +4,9 @@ import { useWorkbench, permissionChoices, functionGroups } from "./WorkbenchCont
 
 export function WorkbenchDialogs() {
   const {
-    providerSettingsOpen, setProviderSettingsOpen, settingsSection,
+    providerSettingsOpen, setProviderSettingsOpen, settingsSection, modelStatusError,
     functionCenterOpen, setFunctionCenterOpen, runtimeCapabilities, busy,
-    permission, permissionBusy, permissionCenterOpen, setPermissionCenterOpen,
+    permission, permissionBusy, permissionError, permissionCenterOpen, setPermissionCenterOpen,
     changePermission, adminWarningOpen, setAdminWarningOpen, enableFullAccess,
     runFunction,
   } = useWorkbench();
@@ -15,6 +15,7 @@ export function WorkbenchDialogs() {
     <Modal open={providerSettingsOpen} onClose={() => setProviderSettingsOpen(false)} ariaLabel="Conectar inteligencia">
       <section className="wb-provider-dialog" role="dialog" aria-modal="true" aria-label="Conectar inteligencia">
         <header><div><b>Conectar inteligencia</b><span>Las claves se guardan cifradas en este equipo.</span></div><button type="button" aria-label="Cerrar configuración" onClick={() => setProviderSettingsOpen(false)}>×</button></header>
+        {modelStatusError && <p role="alert" style={{ color: "var(--ch-warn)", margin: "12px 0 0" }}>{modelStatusError}</p>}
         <div className="wb-provider-content"><Settings initialSection={settingsSection as any} /></div>
       </section>
     </Modal>
@@ -33,12 +34,13 @@ export function WorkbenchDialogs() {
             <span className="wb-permission-icon">{choice.icon}</span><div><b>{choice.title}</b><p>{choice.description}</p>{choice.id === "admin" && <em>Riesgo alto</em>}</div><span className="wb-radio">{permission?.level === choice.id ? "●" : "○"}</span>
           </button>)}
         </div>
+        {permissionError && <p role="alert" style={{ color: "var(--ch-warn)", margin: "12px 0 0" }}>{permissionError}</p>}
         <footer><span>Las políticas, el registro de auditoría y el botón de emergencia siempre permanecen activos.</span></footer>
       </section>
     </Modal>
     <Modal open={adminWarningOpen} onClose={() => setAdminWarningOpen(false)} ariaLabelledby="admin-warning-title">
       <section className="wb-admin-warning" role="alertdialog" aria-modal="true" aria-labelledby="admin-warning-title">
-        <div className="wb-warning-mark">!</div><h2 id="admin-warning-title">Activar acceso completo</h2><p>Sentinel podrá abrir aplicaciones, usar internet y modificar archivos accesibles por tu usuario sin pedir confirmación en cada ocasión.</p><ul><li>Las acciones seguirán registrándose.</li><li>El botón de emergencia seguirá disponible.</li><li>El daño crítico e irreversible continuará bloqueado.</li></ul><div><button onClick={() => setAdminWarningOpen(false)}>Cancelar</button><button className="danger" disabled={permissionBusy} onClick={() => void enableFullAccess()}>Entiendo, activar</button></div>
+        <div className="wb-warning-mark">!</div><h2 id="admin-warning-title">Activar acceso completo</h2><p>Sentinel podrá abrir aplicaciones, usar internet y modificar archivos accesibles por tu usuario sin pedir confirmación en cada ocasión.</p><ul><li>Las acciones seguirán registrándose.</li><li>El botón de emergencia seguirá disponible.</li><li>El daño crítico e irreversible continuará bloqueado.</li></ul>{permissionError && <p role="alert" style={{ color: "var(--ch-warn)" }}>{permissionError}</p>}<div><button onClick={() => setAdminWarningOpen(false)}>Cancelar</button><button className="danger" disabled={permissionBusy} onClick={() => void enableFullAccess()}>Entiendo, activar</button></div>
       </section>
     </Modal>
   </>;

@@ -7,11 +7,11 @@ logger = logging.getLogger(__name__)
 
 TOOL_CALLING_MODELS: Dict[str, List[str]] = {
     "openai": ["gpt-4", "gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo"],
-    "openrouter": ["gpt-4o", "claude-3.5-sonnet", "deepseek/deepseek-v4-flash:free"],
+    "openrouter": ["gpt-4o", "claude-3.5-sonnet", "deepseek/deepseek-v4-flash"],
     "groq": ["llama-3.3-70b-versatile", "mixtral-8x7b"],
     "gemini": ["gemini-2.5-flash"],
     "github_models": ["gpt-4o", "gpt-4o-mini"],
-    "deepseek": ["deepseek/deepseek-v4-flash:free"],
+    "deepseek": ["deepseek/deepseek-v4-flash"],
     "nvidia-nemotron": ["nvidia/nemotron-3-super-120b-a12b"],
     "anthropic": ["claude-3.5-sonnet"],
 }

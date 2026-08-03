@@ -148,7 +148,9 @@ class ContextEngine:
         return self._get_processes()
 
     def _collect_cpu(self) -> Dict[str, Any]:
-        per_core = psutil.cpu_percent(interval=0.1, percpu=True)
+        # Remove blocking interval=0.1 call - use interval=0 for non-blocking measurement
+        # This eliminates 100ms delay per context collection
+        per_core = psutil.cpu_percent(interval=0, percpu=True)
         freq = psutil.cpu_freq()
         data: Dict[str, Any] = {
             "percent": psutil.cpu_percent(interval=0),

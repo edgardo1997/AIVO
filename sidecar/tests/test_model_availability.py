@@ -95,6 +95,7 @@ def test_provider_key_is_kept_out_of_plaintext_configuration(tmp_path):
     assert vault.values["ai-provider-nvidia"] == "nvapi-test-secret"
     assert service.get_config()["api_key"] == ""
     assert service.get_config()["api_key_configured"] is True
+    assert service.get_config()["provider_key_status"]["nvidia"] is True
 
     service.set_config(
         {

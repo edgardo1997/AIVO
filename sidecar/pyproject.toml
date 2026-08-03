@@ -11,6 +11,7 @@ ignore = ["E402", "E501", "F401"]
 
 [tool.pytest.ini_options]
 asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
 markers = [
     "unit: Tests that validate a single function or class in isolation",
     "integration: Tests that verify interactions between multiple components",

@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from repositories.database import DatabaseManager
+from repositories.database import DatabaseManager, LATEST_SCHEMA_VERSION
 from repositories.execution_grant_repository import ExecutionGrantRepository
 from repositories.audit_repository import AuditRepository
 from services.audit_service import AuditService
@@ -118,9 +118,9 @@ def test_v7_to_v8_migration_is_idempotent_and_preserves_legacy(tmp_path):
 
 
 @pytest.mark.unit
-def test_fresh_database_reaches_v8(tmp_path):
+def test_fresh_database_reaches_latest_schema(tmp_path):
     db = _isolated_database(tmp_path / "fresh.db")
-    assert db.schema_version == 8
+    assert db.schema_version == LATEST_SCHEMA_VERSION
     assert db.fetchone("SELECT name FROM sqlite_master WHERE type='table' AND name='plan_approval_grants'")
     db.close()
 

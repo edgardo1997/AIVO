@@ -261,6 +261,7 @@ from modules.help import router as help_router
 from modules.error_recovery import router as recovery_router
 from modules.proactive import router as proactive_router
 from modules.ai_provider import router as ai_provider_router
+from modules.permissions import router as permissions_router
 from routers.events import router as events_router
 from routers.system_live import router as system_live_router
 from routers.consent import router as consent_router
@@ -279,6 +280,7 @@ def _register_routes(application: FastAPI) -> None:
         (recovery_router, "", ["recovery"]),
         (proactive_router, "", ["proactive"]),
         (ai_provider_router, "/ai", ["ai"]),
+        (permissions_router, "/api/permissions", ["permissions"]),
         (sentinel_router, "/api/sentinel", ["sentinel"]),
         (v1_execute_router, "/v1", ["v1"]),
         (v1_policies_router, "/v1", ["v1"]),

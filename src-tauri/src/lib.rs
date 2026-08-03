@@ -389,6 +389,9 @@ fn start_sidecar(app: &tauri::AppHandle, session_token: &str) {
         .app_data_dir()
         .unwrap_or_else(|_| std::env::temp_dir().join("Sentinel"))
         .join("sentinel.db");
+    // Keep asynchronous intelligence persistence off the transactional
+    // audit/config database so concurrent model metrics cannot block tools.
+    let storage_database_path = database_path.with_file_name("sentinel-intelligence.db");
     let (sidecar_exe, sidecar_dir) = if let Some(exe) = find_bundled_sidecar(app) {
         eprintln!("[Sentinel] Found bundled sidecar.exe");
         (exe.clone(), exe.parent().unwrap().to_path_buf())
@@ -420,6 +423,7 @@ fn start_sidecar(app: &tauri::AppHandle, session_token: &str) {
                 .arg("warning")
                 .env("SENTINEL_SESSION_TOKEN", session_token)
                 .env("SENTINEL_DB_PATH", &database_path)
+                .env("SENTINEL_STORAGE_DB_PATH", &storage_database_path)
                 .env("PYTHONPATH", dir.parent().unwrap_or(&dir))
                 .current_dir(&dir)
                 // Python already writes rotating diagnostics to Sentinel's log directory.
@@ -432,10 +436,10 @@ fn start_sidecar(app: &tauri::AppHandle, session_token: &str) {
                     let state = app.state::<SidecarProcess>();
                     *state.0.lock().unwrap() = Some(child);
                     eprintln!("[Sentinel] Sidecar process started, waiting for it to be ready...");
-                    if wait_for_sidecar(15, session_token) {
+                    if wait_for_sidecar(60, session_token) {
                         eprintln!("[Sentinel] Sidecar ready on port 8765");
                     } else {
-                        eprintln!("[Sentinel] Sidecar did not become ready within 15s");
+                        eprintln!("[Sentinel] Sidecar did not become ready within 60s");
                     }
                 }
                 Err(e) => eprintln!("[Sentinel] Failed to start sidecar: {}", e),
@@ -455,6 +459,7 @@ fn start_sidecar(app: &tauri::AppHandle, session_token: &str) {
     match Command::new(&sidecar_exe)
         .env("SENTINEL_SESSION_TOKEN", session_token)
         .env("SENTINEL_DB_PATH", &database_path)
+        .env("SENTINEL_STORAGE_DB_PATH", &storage_database_path)
         .current_dir(&sidecar_dir)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -464,10 +469,10 @@ fn start_sidecar(app: &tauri::AppHandle, session_token: &str) {
             let state = app.state::<SidecarProcess>();
             *state.0.lock().unwrap() = Some(child);
             eprintln!("[Sentinel] sidecar.exe started, waiting for it to be ready...");
-            if wait_for_sidecar(15, session_token) {
+            if wait_for_sidecar(60, session_token) {
                 eprintln!("[Sentinel] sidecar.exe ready on port 8765");
             } else {
-                eprintln!("[Sentinel] sidecar.exe did not become ready within 15s");
+                eprintln!("[Sentinel] sidecar.exe did not become ready within 60s");
             }
         }
         Err(e) => {

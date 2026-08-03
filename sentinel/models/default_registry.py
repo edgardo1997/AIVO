@@ -7,7 +7,7 @@ def build_default_registry() -> ModelRegistry:
 
     registry.register_many([
         ModelMetadata(
-            id="deepseek/deepseek-v4-flash:free",
+            id="deepseek/deepseek-v4-flash",
             provider="deepseek",
             context_window=128000,
             supports_tool_calling=False,

@@ -109,7 +109,8 @@ class ResourceIntelligenceLayer:
         try:
             import psutil
             ram = psutil.virtual_memory()
-            cpu = psutil.cpu_percent(interval=0.1)
+            # Remove blocking interval=0.1 - use interval=0 for non-blocking measurement
+            cpu = psutil.cpu_percent(interval=0)
             ram_avail = ram.available / (1024 ** 3)
             ram_total = ram.total / (1024 ** 3)
         except Exception:

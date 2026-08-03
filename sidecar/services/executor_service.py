@@ -509,6 +509,8 @@ class ExecutorService(Tool):
             "word": "winword",
             "excel": "excel",
             "powerpoint": "powerpnt",
+            "virtualbox": "virtualbox",
+            "oracle virtualbox": "virtualbox",
         }
         executable = aliases.get(app_name.lower(), app_name)
         if not executable.lower().endswith(".exe"):
@@ -517,6 +519,15 @@ class ExecutorService(Tool):
         if direct:
             return direct
         if os.name == "nt":
+            # VirtualBox is commonly installed here but does not consistently
+            # register itself in PATH or App Paths.
+            if executable.casefold() == "virtualbox.exe":
+                for program_files in (os.environ.get("ProgramFiles"), os.environ.get("ProgramFiles(x86)")):
+                    if not program_files:
+                        continue
+                    candidate = os.path.join(program_files, "Oracle", "VirtualBox", "VirtualBox.exe")
+                    if os.path.isfile(candidate):
+                        return candidate
             try:
                 import winreg
 
@@ -560,6 +571,24 @@ class ExecutorService(Tool):
                             continue
                 if matches:
                     return min(matches, key=lambda match: match[0])[1]
+
+                # Microsoft Store applications such as WhatsApp do not expose
+                # a launchable .exe or an App Paths registry value. Resolve the
+                # AppUserModelID that explorer.exe accepts through AppsFolder.
+                try:
+                    from sentinel.core.application_knowledge import _windows_store_apps
+
+                    store_matches = []
+                    for entry in _windows_store_apps():
+                        name = str(entry.get("name") or "").casefold()
+                        app_id = str(entry.get("path") or "")
+                        if app_id and "!" in app_id and (query in name or name in query):
+                            score = 0 if name == query else len(name)
+                            store_matches.append((score, app_id))
+                    if store_matches:
+                        return min(store_matches, key=lambda match: match[0])[1]
+                except Exception:
+                    pass
             except ImportError:
                 pass
         return None

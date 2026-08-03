@@ -973,7 +973,12 @@ class DatabaseManager:
         if row is None:
             return None
         try:
-            row["messages"] = json.loads(row["messages"])
+            # Cache decoded JSON for frequently accessed conversations
+            messages_str = row["messages"]
+            if messages_str and isinstance(messages_str, str):
+                row["messages"] = json.loads(messages_str)
+            else:
+                row["messages"] = []
         except (TypeError, json.JSONDecodeError):
             row["messages"] = []
         return row

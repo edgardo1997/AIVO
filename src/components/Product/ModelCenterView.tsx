@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { api } from "../../api";
 import { product, type ModelCard, type ModelCenterState } from "../../api/product";
 import { Badge, Button, Card, Dot, Section, type Severity } from "../../design";
 import "./product.css";
@@ -20,11 +21,16 @@ function statusTone(status: string): Severity {
 
 export function ModelCenterView() {
   const [state, setState] = useState<ModelCenterState | null>(null);
+  const [activeModel, setActiveModel] = useState<{ provider: string; model: string; strategy: string; free_providers: Record<string, { base_url: string; api_key_required: boolean }>; provider_key_status?: Record<string, boolean> } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [selectingId, setSelectingId] = useState<string | null>(null);
 
   const load = async () => {
     try {
-      setState(await product.modelCenter());
+      const [modelsResult, configResult] = await Promise.allSettled([product.modelCenter(), api.ai.config()]);
+      if (modelsResult.status !== "fulfilled") throw modelsResult.reason;
+      setState(modelsResult.value);
+      if (configResult.status === "fulfilled") setActiveModel(configResult.value as typeof activeModel);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -50,6 +56,32 @@ export function ModelCenterView() {
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const selectModel = async (model: ModelCard) => {
+    const provider = activeModel?.free_providers?.[model.provider];
+    if (!provider) {
+      setError(`Sentinel no tiene configuración para ${model.display_name}.`);
+      return;
+    }
+    if (provider.api_key_required && !activeModel?.provider_key_status?.[model.provider]) {
+      setError(`${model.display_name} requiere una API key configurada antes de poder usarse.`);
+      return;
+    }
+    setSelectingId(model.id);
+    try {
+      await api.ai.setConfig({
+        provider: model.provider,
+        base_url: provider.base_url,
+        model: model.id,
+        strategy: "manual",
+      });
+      await load();
+    } catch (e) {
+      setError(`No se pudo activar el modelo: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setSelectingId(null);
     }
   };
 
@@ -97,20 +129,20 @@ export function ModelCenterView() {
         {favorites.length > 0 && (
           <Section title="Favoritos">
             <div className="sntl-grid">
-              {favorites.map((m) => <ModelCardRow key={m.id} model={m} onToggle={() => toggleFavorite(m)} />)}
+              {favorites.map((m) => <ModelCardRow key={m.id} model={m} onToggle={() => toggleFavorite(m)} onSelect={() => selectModel(m)} selecting={selectingId === m.id} active={activeModel?.strategy === "manual" && activeModel.provider === m.provider && activeModel.model === m.id} />)}
             </div>
           </Section>
         )}
 
         <Section title="Modelos locales" actions={<span className="sntl-chip">{locals.length}</span>}>
           <div className="sntl-grid">
-            {locals.filter((m) => !m.favorite).map((m) => <ModelCardRow key={m.id} model={m} onToggle={() => toggleFavorite(m)} />)}
+            {locals.filter((m) => !m.favorite).map((m) => <ModelCardRow key={m.id} model={m} onToggle={() => toggleFavorite(m)} onSelect={() => selectModel(m)} selecting={selectingId === m.id} active={activeModel?.strategy === "manual" && activeModel.provider === m.provider && activeModel.model === m.id} />)}
           </div>
         </Section>
 
         <Section title="Modelos en la nube" actions={<span className="sntl-chip">{state ? state.count - locals.length : 0}</span>}>
           <div className="sntl-grid">
-            {state?.models.filter((m) => !m.local && !m.favorite).map((m) => <ModelCardRow key={m.id} model={m} onToggle={() => toggleFavorite(m)} />)}
+            {state?.models.filter((m) => !m.local && !m.favorite).map((m) => <ModelCardRow key={m.id} model={m} onToggle={() => toggleFavorite(m)} onSelect={() => selectModel(m)} selecting={selectingId === m.id} active={activeModel?.strategy === "manual" && activeModel.provider === m.provider && activeModel.model === m.id} />)}
           </div>
         </Section>
       </div>
@@ -118,7 +150,7 @@ export function ModelCenterView() {
   );
 }
 
-function ModelCardRow({ model, onToggle }: { model: ModelCard; onToggle: () => void }) {
+function ModelCardRow({ model, onToggle, onSelect, selecting, active }: { model: ModelCard; onToggle: () => void; onSelect: () => void; selecting: boolean; active: boolean }) {
   return (
     <Card
       title={model.display_name}
@@ -155,6 +187,11 @@ function ModelCardRow({ model, onToggle }: { model: ModelCard; onToggle: () => v
       </div>
       <div className="sntl-chips">
         {model.capability_labels.map((cap) => <span className="sntl-chip" key={cap}>{cap}</span>)}
+      </div>
+      <div style={{ marginTop: 14 }}>
+        <Button variant={active ? "default" : "primary"} size="sm" disabled={active || selecting} onClick={onSelect}>
+          {active ? "Modelo activo" : selecting ? "Activando..." : "Usar este modelo"}
+        </Button>
       </div>
     </Card>
   );

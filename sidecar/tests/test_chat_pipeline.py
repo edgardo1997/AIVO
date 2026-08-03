@@ -176,6 +176,26 @@ class TestChatPipeline:
         assert stored.json()["messages"][-1]["performance"]["output_tokens"] > 0
         client.delete("/api/sentinel/conversations/stream-test")
 
+    def test_streaming_chat_normalizes_provider_content_deltas(self, monkeypatch):
+        from modules.ai_provider import _svc as ai_service
+
+        def provider_style_stream(**_kwargs):
+            yield {"type": "delta", "content": "Respuesta "}
+            yield {"type": "delta", "content": "visible"}
+            yield {"type": "done"}
+
+        monkeypatch.setattr(ai_service, "stream_chat", provider_style_stream)
+        response = client.post(
+            "/api/sentinel/chat/stream",
+            json={"message": "Explícame una variable", "session_id": "content-delta-test"},
+        )
+        events = [json.loads(line) for line in response.text.splitlines() if line]
+
+        assert "".join(event["text"] for event in events if event["type"] == "delta") == "Respuesta visible"
+        stored = client.get("/api/sentinel/conversations/content-delta-test").json()
+        assert stored["messages"][-1]["response"] == "Respuesta visible"
+        client.delete("/api/sentinel/conversations/content-delta-test")
+
     def test_stream_inactivity_returns_clear_error(self, monkeypatch):
         from modules.ai_provider import _svc as ai_service
         import modules.sentinel_bridge as bridge
@@ -374,3 +394,30 @@ class TestChatPipeline:
             data = resp.json()
             assert "response" in data
             assert len(data["response"]) > 0, f"Empty response for: {msg}"
+
+    def test_fast_conversation_path_is_quick_and_conversation_only(self, monkeypatch):
+        """Ordinary conversation must resolve quickly and remain conversation-routed."""
+        from modules.ai_provider import _svc as ai_service
+
+        def fast_stream(*args, **kwargs):
+            cid = kwargs.get("correlation_id", "test-corr")
+            yield {"type": "meta", "provider": "openrouter", "model": "test", "correlation_id": cid}
+            yield {"type": "delta", "content": "Hola, usuario"}
+            yield {"type": "done", "content": "Hola, usuario"}
+
+        monkeypatch.setattr(ai_service, "stream_chat", fast_stream)
+        response = client.post(
+            "/api/sentinel/chat/stream",
+            json={"message": "Hola", "session_id": "fast-conv-1"},
+        )
+
+        assert response.status_code == 200
+        events = [json.loads(line) for line in response.text.splitlines() if line]
+        assert any(e.get("type") == "delta" for e in events)
+
+        pipeline_events = [e for e in events if e.get("type") == "pipeline"]
+        if pipeline_events:
+            assert pipeline_events[-1].get("route") == "conversation"
+
+        # No governed action should occur for a plain greeting
+        assert all(e.get("type") != "error" for e in events)

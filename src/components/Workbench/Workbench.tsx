@@ -38,6 +38,7 @@ export function Workbench({ onLogout }: WorkbenchProps) {
   const [permission, setPermission] = useState<any>(null);
   const [audit, setAudit] = useState<any[]>([]);
   const [permissionBusy, setPermissionBusy] = useState(false);
+  const [permissionError, setPermissionError] = useState("");
   const [conversationStoreReady, setConversationStoreReady] = useState(false);
   const [conversationStoreError, setConversationStoreError] = useState("");
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -415,17 +416,27 @@ export function Workbench({ onLogout }: WorkbenchProps) {
     if (!modelConfig || modelSwitchBusy || busy) return;
     setModelSwitchBusy(true);
     setModelDropdownOpen(false);
-    if (choice === "automatic") {
-      setModelConfig((current) => current ? { ...current, strategy: "smart", preferred_provider: null } : current);
-      await api.ai.setConfig({ strategy: "smart" }).catch(() => {});
-    } else {
-      const provider = modelConfig.free_providers[choice];
-      if (!provider) { setModelSwitchBusy(false); return; }
-      setModelConfig((current) => current ? { ...current, provider: choice, model: provider.default_model, strategy: "manual", preferred_provider: choice } : current);
-      await api.ai.setConfig({ provider: choice, base_url: provider.base_url, model: provider.default_model, strategy: "manual" }).catch(() => {});
+    setModelStatusError("");
+    try {
+      if (choice === "automatic") {
+        await api.ai.setConfig({ strategy: "smart" });
+      } else {
+        const provider = modelConfig.free_providers[choice];
+        if (!provider) throw new Error("El proveedor seleccionado no está disponible.");
+        if (provider.api_key_required && !modelConfig.provider_key_status?.[choice]) {
+          setSettingsSection("models");
+          setProviderSettingsOpen(true);
+          setModelStatusError(`${provider.label} requiere una API key antes de poder usarse.`);
+          return;
+        }
+        await api.ai.setConfig({ provider: choice, base_url: provider.base_url, model: provider.default_model, strategy: "manual" });
+      }
+      await refreshIntelligence();
+    } catch (error) {
+      setModelStatusError(`No se pudo cambiar el modelo: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setModelSwitchBusy(false);
     }
-    setModelSwitchBusy(false);
-    await refreshIntelligence();
   };
 
   // ── Decide (approve/reject) ──
@@ -497,15 +508,19 @@ export function Workbench({ onLogout }: WorkbenchProps) {
 
   // ── Permission helpers ──
   const changePermission = async (level: string) => {
-    if (level === "admin") { setAdminWarningOpen(true); return; }
+    if (level === "admin") { setPermissionError(""); setAdminWarningOpen(true); return; }
     setPermissionBusy(true);
+    setPermissionError("");
     try { await api.permissions.setLevel(level); await refreshSecurity(); setPermissionCenterOpen(false); }
+    catch (error) { setPermissionError(`No se pudo cambiar el nivel: ${error instanceof Error ? error.message : String(error)}`); }
     finally { setPermissionBusy(false); }
   };
 
   const enableFullAccess = async () => {
     setPermissionBusy(true);
+    setPermissionError("");
     try { await api.permissions.setLevel("admin"); await refreshSecurity(); setAdminWarningOpen(false); setPermissionCenterOpen(false); }
+    catch (error) { setPermissionError(`No se pudo activar el acceso completo: ${error instanceof Error ? error.message : String(error)}`); }
     finally { setPermissionBusy(false); }
   };
 
@@ -537,7 +552,7 @@ export function Workbench({ onLogout }: WorkbenchProps) {
   // ── Context value ──
   const contextValue = {
     conversations, activeId, setActiveId, busy, prompt, setPrompt, messages,
-    permission, audit, permissionBusy, conversationStoreError, modelConfig,
+    permission, audit, permissionBusy, permissionError, conversationStoreError, modelConfig,
     runtimeCapabilities, modelStatusError, view, setView, collapsedGroups, setCollapsedGroups,
     accountOpen, setAccountOpen, micStatus, theme, setTheme, themeOpen, setThemeOpen,
     functionCenterOpen, setFunctionCenterOpen, providerSettingsOpen, setProviderSettingsOpen,

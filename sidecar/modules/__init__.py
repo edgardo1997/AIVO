@@ -1073,6 +1073,13 @@ def init_sentinel_orchestrator(
         probe_timeout=5.0,
     )
     mr.set_health_checker(health_checker)
+    from sentinel.core.resource_intelligence import ResourceIntelligenceLayer
+    resource_layer = ResourceIntelligenceLayer(
+        network_monitor=network_monitor,
+        cost_tracker=cost_tracker,
+        performance_tracker=None,
+    )
+    mr.set_resource_intelligence(resource_layer)
     registry = get_model_registry()
     mr.set_model_registry(registry)
     _log.info("ModelRegistry wired into ModelRouter (%d models)", registry.count())

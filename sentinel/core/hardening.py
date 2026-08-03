@@ -164,7 +164,8 @@ class HealthChecker:
         import psutil
 
         return {
-            "cpu_percent": psutil.cpu_percent(interval=0.1),
+            # Remove blocking interval=0.1 - use interval=0 for non-blocking measurement
+            "cpu_percent": psutil.cpu_percent(interval=0),
             "memory_percent": psutil.virtual_memory().percent,
             "disk_percent": psutil.disk_usage(os.path.abspath(".")).percent,
         }

@@ -99,7 +99,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const checkHealth = useCallback(async () => {
     try {
-      await api.monitor.system();
+      await api.observability.health();
       setSidecarStatus("connected");
     } catch {
       setSidecarStatus((prev) => (prev === "connected" ? "error" : "disconnected"));

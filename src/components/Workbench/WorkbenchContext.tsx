@@ -108,6 +108,7 @@ interface WorkbenchContextValue {
   permission: any;
   audit: any[];
   permissionBusy: boolean;
+  permissionError: string;
   conversationStoreError: string;
   modelConfig: ModelConfig | null;
   runtimeCapabilities: RuntimeCapabilities | null;

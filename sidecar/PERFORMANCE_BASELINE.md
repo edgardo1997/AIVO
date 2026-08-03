@@ -130,9 +130,10 @@ Tier decision time is a negligible addition to the existing `ProviderSelector.se
 - Full `pytest -q`:
   - **3005 passed**, 14 skipped, **0 failed** in 869.59 s
   - `tests/test_filesystem.py` repeated 20 times: 20/20 passed
+- Full `pytest -q`:
+  - **3021 passed**, 14 skipped, **0 failed** in 775.16 s
 - Phase 8 targeted regression:
-  - `test_provider_manager_stream.py` + `test_provider_manager_performance.py` + `test_chat_pipeline.py` + `test_fallback_chaining.py` + `test_context_window.py`: **88 passed**
-  - `test_provider_manager_stream.py` + `test_provider_manager_performance.py` + `test_chat_pipeline.py` + `test_fallback_chaining.py`: **63 passed**
+  - `test_provider_manager_stream.py` + `test_provider_manager_performance.py` + `test_chat_pipeline.py` + `test_fallback_chaining.py` + `test_context_window.py` + `test_phase8_remaining.py` + `test_phase8_benchmarks.py`: **75 passed**
 
 ## Phase 8 — Connection, streaming and cancellation
 
@@ -147,6 +148,11 @@ Tier decision time is a negligible addition to the existing `ProviderSelector.se
 - Cancellation:
   - `ProviderManager.call_provider_stream` records a `cancelled` observation on `GeneratorExit`
   - `sentinel_bridge` emits a `cancelled` terminal event on disconnect
+- Benchmarks (deterministic simulation, `pytest-benchmark`):
+  - First client acquisition: median ~344 ms (cold construction)
+  - Reused client acquisition: median ~1.4 µs
+  - Client close: median ~200 ns
+  - Stream forwarding overhead for 20 chunks: median ~680 µs
 - Known findings:
   - `OpenAIProvider` in `sentinel/providers/openai_provider.py` is currently unused and duplicates `ProviderManager` client creation
   - `sentinel_bridge` stream loop `next()` is executed in a thread, so cancellation cannot truly abort a blocked `read()` until that call returns

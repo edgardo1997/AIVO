@@ -233,17 +233,26 @@ Conclusion:
 - 8E Cancellation propagation:
   - `ProviderManager.call_provider_stream` records a `cancelled=True` performance observation on `GeneratorExit` and re-raises
   - `sentinel_bridge` emits a `cancelled` terminal event when the request disconnects before `done`
+- 8F Persistence and TTFT:
+  - Audited `_persist_conversation_turn` in `sentinel_bridge_helpers.py`: one assistant turn appended after stream completion; no writes block first token; `asyncio.to_thread` keeps SQLite off the event loop
+  - Session/identity validation occurs before provider dispatch; response chunks are joined once; duplicate `persist()` calls are short-circuited
+- 8G Remaining test matrix:
+  - `sidecar/tests/test_phase8_remaining.py`: base-URL invalidation, `ModelRouter.close`, credential isolation, Unicode preservation, no duplicate deltas, prompt/response/interrupted persistence, failure propagation
+- 8H Benchmark suite:
+  - `sidecar/tests/test_phase8_benchmarks.py`: `pytest-benchmark` for first client acquisition, reused client acquisition, client close, and stream forwarding overhead
 - Validation:
-  - Targeted: `test_provider_manager_stream.py` + `test_provider_manager_performance.py` + `test_chat_pipeline.py` + `test_fallback_chaining.py`: **63 passed**
-  - `compileall` for `sentinel/providers/provider_manager.py`, `sidecar/modules/sentinel_bridge.py`: success
+  - Targeted: `test_provider_manager_stream.py` + `test_provider_manager_performance.py` + `test_chat_pipeline.py` + `test_fallback_chaining.py` + `test_phase8_remaining.py` + `test_phase8_benchmarks.py`: **75 passed**
+  - Full `pytest -q`: **3021 passed**, 14 skipped, **0 failed** in 775.16 s
+  - `compileall sentinel sidecar`: success
+  - Import/startup checks: success
 
 ## Status
 
 - Phase 5: **COMPLETE** — residual context-window invariant resolved.
 - Phase 6: **COMPLETE** — full-suite validated.
 - Phase 7: **COMPLETE (with real-provider validation deferred)** — deterministic/full-suite validated.
-- Phase 8A–E: **IN PROGRESS** — audit, persistent clients, split timeout and cancellation event complete.
+- Phase 8: **COMPLETE** — final full-suite: **3021 passed**, 14 skipped, **0 failed** in 775.16 s; compileall and import checks passed.
 
 ## Next step
 
-Phase 8 — Connection, streaming and cancellation (8A/B complete).  Audit the streaming path, client lifecycle, retry/fallback, cancellation propagation and persistence timing.  Do not begin production changes until the audit and a clear baseline are established.
+Phase 9 — next product phase.  Phase 8 is fully validated; create the logical checkpoint commit.  Audit the streaming path, client lifecycle, retry/fallback, cancellation propagation and persistence timing.  Do not begin production changes until the audit and a clear baseline are established.

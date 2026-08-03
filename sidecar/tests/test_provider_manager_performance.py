@@ -178,6 +178,21 @@ class TestProviderManagerPerformanceRecording:
         obs = list(store._observations[("test_provider", "test-model")])[0]
         assert obs.cancelled is True
 
+    def test_stream_cancellation_records_observation(self, provider, decision):
+        store = ProviderPerformanceStore()
+        pm = ProviderManager()
+        pm.set_performance_store(store)
+        pm._resolve_llm_client = lambda *_a, **_k: FakeClient(stream=FakeStream(["Hel", "lo"]))
+        iterator = pm.call_provider_stream(decision, provider, [{"role": "user", "content": "hi"}])
+        next(iterator)
+        iterator.close()
+        agg = store.get_aggregate("test_provider", "test-model")
+        assert agg.sample_count == 1
+        assert agg.failure_rate == 0.0
+        assert agg.timeout_rate == 0.0
+        obs = list(store._observations[("test_provider", "test-model")])[0]
+        assert obs.cancelled is True
+
     def test_no_observation_for_selected_but_uncalled_provider(self, provider, decision):
         store = ProviderPerformanceStore()
         pm = ProviderManager()

@@ -14,6 +14,7 @@ Flujo interno obligatorio:
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import json
 import hmac
@@ -109,6 +110,21 @@ class ToolExecutionGuard:
             "ToolExecutionGuard: %s from %s (user=%s, session=%s)",
             request.tool_name, request.source, request.user_id, request.session_id,
         )
+
+        # Ambiguity check: no tool may execute with unresolved material ambiguity.
+        ambiguity_denial = self._check_ambiguity(request)
+        if ambiguity_denial is not None:
+            await self._log_audit({
+                "event": "tool_execution_ambiguity_denied",
+                "tool": request.tool_name,
+                "source": request.source,
+                "user_id": request.user_id,
+                "session_id": request.session_id,
+                "execution_id": request.execution_id,
+                "error": ambiguity_denial.error,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            })
+            return ambiguity_denial
 
         # 1. Validate request format
         validation = self._validator.validate(request.tool_name, request.arguments)
@@ -343,6 +359,138 @@ class ToolExecutionGuard:
             grant["identity_hash"], expected_identity_hash
         )
 
+    def _check_ambiguity(self, request: ToolRequest) -> Optional[ExecutionResult]:
+        """Deny execution when material ambiguity remains unresolved."""
+        ctx = request.user_context or {}
+        ambiguity = ctx.get("ambiguity_decision")
+        understanding = ctx.get("input_understanding")
+
+        def _extract(field: str, default=None):
+            if isinstance(ambiguity, dict):
+                return ambiguity.get(field, default)
+            if dataclasses.is_dataclass(ambiguity):
+                return getattr(ambiguity, field, default)
+            return default
+
+        if ambiguity is not None:
+            if _extract("requires_clarification") is True:
+                return ExecutionResult(
+                    success=False,
+                    error="AMBIGUITY_UNRESOLVED: clarification required",
+                    risk_level=RiskLevel.MEDIUM,
+                    decision=SecurityDecision.DENIED,
+                    tool_name=request.tool_name,
+                )
+
+            ask_clarification = _extract("ask_clarification")
+            if ask_clarification is True:
+                return ExecutionResult(
+                    success=False,
+                    error="AMBIGUITY_UNRESOLVED: ask_clarification set",
+                    risk_level=RiskLevel.MEDIUM,
+                    decision=SecurityDecision.DENIED,
+                    tool_name=request.tool_name,
+                )
+
+            level = _extract("ambiguity_level") or ""
+            if isinstance(level, str) and level.lower() in ("material", "high"):
+                return ExecutionResult(
+                    success=False,
+                    error="AMBIGUITY_UNRESOLVED: material ambiguity",
+                    risk_level=RiskLevel.HIGH,
+                    decision=SecurityDecision.DENIED,
+                    tool_name=request.tool_name,
+                )
+
+            action = _extract("action")
+            if action == "reject":
+                return ExecutionResult(
+                    success=False,
+                    error="AMBIGUITY_UNRESOLVED: rejected by ambiguity engine",
+                    risk_level=RiskLevel.HIGH,
+                    decision=SecurityDecision.DENIED,
+                    tool_name=request.tool_name,
+                )
+
+            decision_id = _extract("decision_id") or _extract("id")
+            grant_obj = ctx.get("execution_grant")
+            grant_id = None
+            if dataclasses.is_dataclass(grant_obj):
+                grant_id = getattr(grant_obj, "ambiguity_decision_id", None)
+            elif isinstance(grant_obj, dict):
+                grant_id = grant_obj.get("ambiguity_decision_id")
+            if decision_id is not None and grant_id is not None and decision_id != grant_id:
+                return ExecutionResult(
+                    success=False,
+                    error="AMBIGUITY_UNRESOLVED: ambiguity decision mismatch",
+                    risk_level=RiskLevel.HIGH,
+                    decision=SecurityDecision.DENIED,
+                    tool_name=request.tool_name,
+                )
+
+        if understanding is not None:
+            def _u(field: str, default=None):
+                if isinstance(understanding, dict):
+                    return understanding.get(field, default)
+                if dataclasses.is_dataclass(understanding):
+                    return getattr(understanding, field, default)
+                return default
+
+            selected_intent = _u("selected_intent")
+            if selected_intent == "informational":
+                return ExecutionResult(
+                    success=False,
+                    error="AMBIGUITY_UNRESOLVED: informational intent cannot execute",
+                    risk_level=RiskLevel.LOW,
+                    decision=SecurityDecision.DENIED,
+                    tool_name=request.tool_name,
+                )
+
+            if _u("requires_clarification") is True or _u("ambiguity_level") in ("material", "high"):
+                return ExecutionResult(
+                    success=False,
+                    error="AMBIGUITY_UNRESOLVED: input requires clarification",
+                    risk_level=RiskLevel.MEDIUM,
+                    decision=SecurityDecision.DENIED,
+                    tool_name=request.tool_name,
+                )
+
+            # Target-dependent tools require an exact selected target, either
+            # from entity resolution or from the tool arguments themselves.
+            target = _u("selected_target")
+            args = request.arguments or {}
+            explicit_target = (
+                args.get("path") or args.get("target") or args.get("file")
+                or args.get("app") or args.get("contact")
+            )
+            target_required = any(k in args for k in ("path", "target", "file", "app", "contact"))
+            if target_required and not (target or explicit_target):
+                return ExecutionResult(
+                    success=False,
+                    error="AMBIGUITY_UNRESOLVED: exact target missing",
+                    risk_level=RiskLevel.MEDIUM,
+                    decision=SecurityDecision.DENIED,
+                    tool_name=request.tool_name,
+                )
+
+            decision_id = _u("decision_id") or _u("id")
+            grant_obj = ctx.get("execution_grant")
+            grant_id = None
+            if dataclasses.is_dataclass(grant_obj):
+                grant_id = getattr(grant_obj, "input_understanding_id", None)
+            elif isinstance(grant_obj, dict):
+                grant_id = grant_obj.get("input_understanding_id")
+            if decision_id is not None and grant_id is not None and decision_id != grant_id:
+                return ExecutionResult(
+                    success=False,
+                    error="AMBIGUITY_UNRESOLVED: input understanding mismatch",
+                    risk_level=RiskLevel.HIGH,
+                    decision=SecurityDecision.DENIED,
+                    tool_name=request.tool_name,
+                )
+
+        return None
+
     def _consume_execution_grant(self, request: ToolRequest) -> Optional[ExecutionResult]:
         raw_grant = (request.user_context or {}).get("execution_grant")
         if raw_grant is None and request.source != "approved_plan":
@@ -463,9 +611,9 @@ class ToolExecutionGuard:
             return
         try:
             self._audit.log_action(
-                "tool_execution",
+                entry.get("event", "tool_execution"),
                 entry,
-                entry["decision"],
+                entry.get("decision", ""),
                 entry.get("user_id", "system"),
             )
         except Exception as e:

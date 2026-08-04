@@ -39,6 +39,8 @@ class ExecutionGrantContext:
     params_hash: str
     approved_at: str
     expires_at: str
+    ambiguity_decision_id: str = ""
+    input_understanding_id: str = ""
 
     def __post_init__(self) -> None:
         required = (self.grant_id, self.plan_grant_id, self.step_grant_id, self.user_id,

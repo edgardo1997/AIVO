@@ -7,12 +7,14 @@ when a material ambiguity exists.
 
 import re
 import unicodedata
+import uuid
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 
 @dataclass
 class InputUnderstandingResult:
+    decision_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     original_text: str = ""
     normalized_text: str = ""
     detected_languages: List[str] = field(default_factory=list)
@@ -35,6 +37,7 @@ class InputUnderstandingResult:
 
 @dataclass
 class AmbiguityDecision:
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
     action: str = "proceed"  # auto_correct, infer, present_assumption, ask_clarification, reject
     auto_correct: bool = False
     infer: bool = False

@@ -262,6 +262,7 @@ Conclusion:
 - Workstream D8: **COMPLETE** — Alpha validation prep documents created (feedback/bug templates, demo checklist, rollback, privacy disclosure).
 - Multilingual response contract: **COMPLETE** — centralized `LanguageResolver` in `services/language_service.py`, prompt-instruction injection in `AIService.chat`, one bounded correction attempt, localized user-facing errors, response-language validation, language selector in onboarding, 20 `alpha_constitutional_gate` tests pass.
 - Ambiguity and input-understanding contract: **COMPLETE** — centralized `InputUnderstandingResolver` in `services/input_understanding_service.py`, normalized noisy input, typographical/keyboard/lexical/entity/reference/scope/multilingual/intent/negation ambiguity classes, `AmbiguityDecision` with `auto_correct`/`infer`/`ask_clarification`/`reject`, integration into `AIService.chat` capabilities, 19 `alpha_constitutional_gate` tests pass.
+- Ambiguity enforcement and clarification UI: **COMPLETE** — `ToolExecutionGuard` now denies execution with `AMBIGUITY_UNRESOLVED` for material ambiguity, missing target, informational intent, mismatched evidence and stale grants; `ExecutionGrantContext` extended with `ambiguity_decision_id` and `input_understanding_id`; React `Clarification` component renders localized questions with stable option IDs, free-text, cancel and "None of these"; 23 `alpha_constitutional_gate` backend tests and 5 frontend tests pass.
 
 ## Workstream D next step
 

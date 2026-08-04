@@ -24,6 +24,7 @@ node_modules/
 src-tauri/target/
 src-tauri/.cargo/
 src-tauri/updater.key
+.tauri/
 **/updater.key
 **/updater.key.pub
 *.pfx

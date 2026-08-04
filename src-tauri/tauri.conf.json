@@ -28,7 +28,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEEwMjhDQThBNkFBNDg4QjQKUldTMGlLUnFpc29vb0FzT0QvSzBheXpBbGFjMjlNWGhUK0VseVZTeDNDSXB2a0JRNm04UnEwMi8K",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI3RUEyQUE3MTQ3QTFGOUEKUldTYUgzb1VweXJxSjN1cVZoNEREdmpaN056c2VqUEg1QXFaczd0WGM0YktVZVhoTUVRc21xWXQK",
       "endpoints": [
         "https://github.com/edgardo1997/AIVO/releases/latest/download/update.json"
       ],
@@ -39,7 +39,7 @@
   },
   "bundle": {
     "active": true,
-    "createUpdaterArtifacts": false,
+    "createUpdaterArtifacts": true,
     "targets": "all",
     "resources": {
       "../sidecar/dist/sidecar.exe": "sidecar/sidecar.exe"

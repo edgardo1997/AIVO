@@ -28,7 +28,7 @@ SENTINEL_DATA_DIR = os.path.abspath(os.path.expanduser("~/.sentinel"))
 SENTINEL_PRODUCTION_DB_PATH = os.path.join(SENTINEL_DATA_DIR, "sentinel.db")
 LEGACY_PRODUCTION_DB_PATH = os.path.abspath(os.path.expanduser("~/.aivo.db"))
 PRODUCTION_DB_PATH = SENTINEL_PRODUCTION_DB_PATH
-LATEST_SCHEMA_VERSION = 12
+LATEST_SCHEMA_VERSION = 13
 
 
 def _schema_version(conn: sqlite3.Connection) -> int:
@@ -623,6 +623,7 @@ class DatabaseManager:
         10: "Bind automation rules and workflows to owning session/identity for post-restart revalidation",
         11: "Conversation schema v2: durable thread/message lifecycle with completion states",
         12: "CloudAuthority durable state, standing policies, and one-time authorization ledger",
+        13: "User preferences and active execution state durable store",
     }
 
     def _run_migrations(self) -> None:
@@ -813,6 +814,35 @@ class DatabaseManager:
                             CREATE UNIQUE INDEX IF NOT EXISTS idx_cloud_onetime_unconsumed
                                 ON cloud_one_time_authorizations(user_id, authorization_id)
                                 WHERE consumed_at IS NULL;
+                        """
+                        )
+                    if version == 13:
+                        conn.executescript(
+                            """
+                            CREATE TABLE IF NOT EXISTS user_preferences_state (
+                                user_id                             TEXT PRIMARY KEY,
+                                schema_version                      INTEGER NOT NULL DEFAULT 1,
+                                onboarding_version                  TEXT NOT NULL DEFAULT '',
+                                onboarding_completed                INTEGER NOT NULL DEFAULT 0,
+                                configured_provider                 TEXT NOT NULL DEFAULT '',
+                                configured_model                    TEXT NOT NULL DEFAULT '',
+                                preferred_model_tier                TEXT NOT NULL DEFAULT '',
+                                local_only                          INTEGER NOT NULL DEFAULT 0,
+                                offline_preference                  INTEGER NOT NULL DEFAULT 0,
+                                automatic_cloud_fallback_preference INTEGER NOT NULL DEFAULT 0,
+                                language                            TEXT NOT NULL DEFAULT 'en',
+                                permission_defaults                 TEXT NOT NULL DEFAULT 'confirm',
+                                cost_currency                       TEXT NOT NULL DEFAULT 'USD',
+                                maximum_cost_per_request            REAL NOT NULL DEFAULT 0.0,
+                                maximum_cost_per_period             REAL NOT NULL DEFAULT 0.0,
+                                active_execution_state              TEXT NOT NULL DEFAULT 'setup_required',
+                                active_execution_reason             TEXT NOT NULL DEFAULT '',
+                                active_execution_at                 TEXT NOT NULL DEFAULT '',
+                                updated_at                          TEXT NOT NULL
+                            );
+
+                            CREATE INDEX IF NOT EXISTS idx_user_preferences_state_updated
+                                ON user_preferences_state(user_id, updated_at DESC);
                         """
                         )
                     conn.execute(

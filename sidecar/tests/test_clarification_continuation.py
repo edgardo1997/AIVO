@@ -134,3 +134,44 @@ def test_cancellation_creates_no_continuation(tmp_path):
     assert cancelled is not None
     assert cancelled.state == "cancelled"
     assert not continuation_store.get_pending(rec.session_id, rec.user_id)
+
+
+@pytest.mark.alpha_constitutional_gate
+def test_cancel_is_idempotent(tmp_path):
+    store = ClarificationStore(path=tmp_path / "c.json")
+    cont_path = tmp_path / "continuations.json"
+    continuation_store = __import__("repositories.continuation_store", fromlist=["ContinuationStore"]).ContinuationStore(path=cont_path)
+    svc = ClarificationService(store=store, continuation_service=ContinuationService(store=continuation_store))
+    rec = _record()
+    store.put(rec)
+    first = svc.cancel(rec.clarification_id, rec.session_id, rec.user_id, rec.correlation_id, 1)
+    second = svc.cancel(rec.clarification_id, rec.session_id, rec.user_id, rec.correlation_id, 1)
+    assert first is not None and first.state == "cancelled"
+    assert second is None
+
+
+@pytest.mark.alpha_constitutional_gate
+def test_cross_user_session_resolution_denied(tmp_path):
+    store = ClarificationStore(path=tmp_path / "c.json")
+    cont_path = tmp_path / "continuations.json"
+    continuation_store = __import__("repositories.continuation_store", fromlist=["ContinuationStore"]).ContinuationStore(path=cont_path)
+    svc = ClarificationService(store=store, continuation_service=ContinuationService(store=continuation_store))
+    rec = _record()
+    store.put(rec)
+    assert svc.resolve(rec.clarification_id, "wrong-session", rec.user_id, rec.correlation_id, 1, free_text_response="x") is None
+    assert svc.resolve(rec.clarification_id, rec.session_id, "wrong-user", rec.correlation_id, 1, free_text_response="x") is None
+    assert svc.resolve(rec.clarification_id, rec.session_id, rec.user_id, "wrong-correlation", 1, free_text_response="x") is None
+
+
+@pytest.mark.alpha_constitutional_gate
+def test_none_of_these_cancels_not_executes(tmp_path):
+    store = ClarificationStore(path=tmp_path / "c.json")
+    cont_path = tmp_path / "continuations.json"
+    continuation_store = __import__("repositories.continuation_store", fromlist=["ContinuationStore"]).ContinuationStore(path=cont_path)
+    svc = ClarificationService(store=store, continuation_service=ContinuationService(store=continuation_store))
+    rec = _record()
+    store.put(rec)
+    result = svc.resolve(rec.clarification_id, rec.session_id, rec.user_id, rec.correlation_id, 1, selected_candidate_id="none")
+    assert result is not None
+    assert result.state == "cancelled"
+    assert not continuation_store.get_pending(rec.session_id, rec.user_id)

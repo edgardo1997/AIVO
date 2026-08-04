@@ -53,6 +53,7 @@ a = Analysis(
         'PIL.Image',
         'fitz',
         'reportlab',
+        'psutil',
         'docx',
         'git',
         'sqlalchemy',
@@ -64,6 +65,7 @@ a = Analysis(
         'websockets',
         # App modules
         'sidecar.modules',
+        'sidecar.modules.sidecar_supervision',
         'sidecar.modules.monitor',
         'sidecar.modules.executor',
         'sidecar.modules.ai_provider',

@@ -29,6 +29,7 @@ SENTINEL_PRODUCTION_DB_PATH = os.path.join(SENTINEL_DATA_DIR, "sentinel.db")
 LEGACY_PRODUCTION_DB_PATH = os.path.abspath(os.path.expanduser("~/.aivo.db"))
 PRODUCTION_DB_PATH = SENTINEL_PRODUCTION_DB_PATH
 LATEST_SCHEMA_VERSION = 13
+BASELINE_SCHEMA_VERSION = 10
 
 
 def _schema_version(conn: sqlite3.Connection) -> int:
@@ -608,7 +609,7 @@ class DatabaseManager:
         """)
         conn.execute(
             "INSERT OR IGNORE INTO schema_migrations (version, description) VALUES (?, ?)",
-            (LATEST_SCHEMA_VERSION - 1, "Baseline schema"),
+            (BASELINE_SCHEMA_VERSION, "Baseline schema"),
         )
         conn.execute(f"PRAGMA user_version = {LATEST_SCHEMA_VERSION}")
         conn.commit()

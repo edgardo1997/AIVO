@@ -1506,6 +1506,40 @@ async def clear_rate_limiter(request: Request):
     return result.data
 
 
+# ── Data inspect / export / reset ─────────────────────────────────────────────
+@router.get("/data/inventory")
+def get_data_inventory(request: Request):
+    from modules.auth import request_identity, require_level
+    from repositories.data_control_store import DataControlStore
+
+    identity = request_identity(request)
+    require_level(identity, "view")
+    store = DataControlStore()
+    return store.inventory(identity.user_id)
+
+
+@router.get("/data/export")
+def get_data_export(request: Request, include_messages: bool = Query(True)):
+    from modules.auth import request_identity, require_level
+    from repositories.data_control_store import DataControlStore
+
+    identity = request_identity(request)
+    require_level(identity, "view")
+    store = DataControlStore()
+    return store.export(identity.user_id, include_messages=include_messages)
+
+
+@router.post("/data/reset")
+async def post_data_reset(body: dict, request: Request):
+    from modules.auth import request_identity, require_level
+    from repositories.data_control_store import DataControlStore
+
+    identity = request_identity(request)
+    require_level(identity, "admin")
+    store = DataControlStore()
+    return store.reset(identity.user_id, body.get("scopes", []))
+
+
 @router.post("/process/offline")
 async def process_offline(body: dict, request: Request):
 

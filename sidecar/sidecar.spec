@@ -121,6 +121,10 @@ a = Analysis(
         'sidecar.repositories.permissions_repository',
         'sidecar.repositories.agent_repository',
         'sidecar.repositories.async_engine',
+        'sidecar.repositories.cloud_authority_store',
+        'sidecar.repositories.user_preferences_store',
+        'sidecar.repositories.data_control_store',
+        'sidecar.modules.sentinel_lifecycle',
         # Sentinel
         'sentinel',
         'sentinel.core',

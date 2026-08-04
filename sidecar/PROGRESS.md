@@ -256,7 +256,8 @@ Conclusion:
 - Workstream C9: **COMPLETE** — durable path performance benchmark added, all measured means below 1 s on warm local SQLite.
 - Workstream C10: **COMPLETE** — completion report written, compileall and import checks pass, targeted suites green; full product suite still has 23 pre-existing failures outside Workstream C.
 - Workstream D1: **COMPLETE** — explicit `SentinelLifecycle.shutdown()` path added; 7/7 shutdown lifecycle tests pass.
+- Workstream D2: **AUDIT COMPLETE** — installer/packaging states audited, PyInstaller spec updated with new Workstream C modules, blockers documented (no Windows VM, no signing cert, no compiled Tauri runtime).
 
 ## Workstream D next step
 
-D2 — Windows installation and uninstall audit; D3 — minimal onboarding; D4 — minimal Alpha UI; D5 — real cancel path; D6 — Alpha demo; D7 — complete Alpha constitutional gate; D8 — user validation preparation.
+D3 — minimal onboarding; D4 — minimal Alpha UI; D5 — real cancel path; D6 — Alpha demo; D7 — complete Alpha constitutional gate; D8 — user validation preparation.

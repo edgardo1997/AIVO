@@ -257,7 +257,10 @@ Conclusion:
 - Workstream C10: **COMPLETE** — completion report written, compileall and import checks pass, targeted suites green; full product suite still has 23 pre-existing failures outside Workstream C.
 - Workstream D1: **COMPLETE** — explicit `SentinelLifecycle.shutdown()` path added; 7/7 shutdown lifecycle tests pass.
 - Workstream D2: **AUDIT COMPLETE** — installer/packaging states audited, PyInstaller spec updated with new Workstream C modules, blockers documented (no Windows VM, no signing cert, no compiled Tauri runtime).
+- Workstream D3–D6: **BLOCKED** — require compiled Tauri/WebView runtime, authenticated UI and a clean Windows VM for the no-local-model, cloud and demo paths.
+- Workstream D7: **PARTIAL** — shutdown lifecycle tests added to `alpha_constitutional_gate` marker.
+- Workstream D8: **COMPLETE** — Alpha validation prep documents created (feedback/bug templates, demo checklist, rollback, privacy disclosure).
 
 ## Workstream D next step
 
-D3 — minimal onboarding; D4 — minimal Alpha UI; D5 — real cancel path; D6 — Alpha demo; D7 — complete Alpha constitutional gate; D8 — user validation preparation.
+Resolve the three external blockers and complete the manual gates (clean VM install, no-local-model path, cloud setup path, governed PDF demo, cancel, restart, export/delete, shutdown, uninstall, secret inspection).

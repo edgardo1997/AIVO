@@ -7,6 +7,9 @@ from modules.sentinel_lifecycle import SentinelLifecycle
 from repositories.database import DatabaseManager
 
 
+@pytest.mark.alpha_constitutional_gate
+
+
 @pytest.fixture(autouse=True)
 def _reset_lifecycle():
     SentinelLifecycle.reset()

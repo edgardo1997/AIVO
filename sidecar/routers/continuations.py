@@ -1,4 +1,4 @@
-"""Continuation consumption and status endpoints."""
+"""Continuation consumption, confirmation and status endpoints."""
 
 from __future__ import annotations
 
@@ -51,6 +51,47 @@ async def start_continuation(
         user_id=user_id,
         session_id=session_id,
         identity=body.get("identity") or {},
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="Continuation not found or access denied")
+    return result
+
+
+@router.post("/{continuation_id}/confirm")
+async def confirm_continuation(
+    continuation_id: str,
+    body: Dict[str, Any],
+    request: Request,
+):
+    identity = request_identity(request)
+    user_id = identity.user_id
+    session_id = identity.metadata.get("session_id", "")
+    approved = bool(body.get("approved"))
+    result = await get_continuation_executor().confirm(
+        continuation_id,
+        user_id=user_id,
+        session_id=session_id,
+        approved=approved,
+        identity=body.get("identity") or {},
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="Continuation not found or access denied")
+    return result
+
+
+@router.post("/{continuation_id}/cancel")
+async def cancel_continuation(
+    continuation_id: str,
+    body: Dict[str, Any],
+    request: Request,
+):
+    identity = request_identity(request)
+    user_id = identity.user_id
+    session_id = identity.metadata.get("session_id", "")
+    result = await get_continuation_executor().cancel(
+        continuation_id,
+        user_id=user_id,
+        session_id=session_id,
     )
     if result is None:
         raise HTTPException(status_code=404, detail="Continuation not found or access denied")

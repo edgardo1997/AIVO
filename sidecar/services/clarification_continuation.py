@@ -53,7 +53,11 @@ class ClarifiedRequestContext:
     prior_plan_digest: str = ""
     prior_action_digest: str = ""
     prior_argument_digest: str = ""
+    plan_digest: str = ""
+    action_digest: str = ""
+    argument_digest: str = ""
     continuation_id: str = ""
+    confirmation_id: str = ""
     new_correlation_id: str = ""
     parent_request_id: str = ""
     state: str = "created"  # see ContinuationState enum below
@@ -95,7 +99,11 @@ class ClarifiedRequestContext:
             prior_plan_digest=data.get("prior_plan_digest", ""),
             prior_action_digest=data.get("prior_action_digest", ""),
             prior_argument_digest=data.get("prior_argument_digest", ""),
+            plan_digest=data.get("plan_digest", ""),
+            action_digest=data.get("action_digest", ""),
+            argument_digest=data.get("argument_digest", ""),
             continuation_id=data.get("continuation_id", ""),
+            confirmation_id=data.get("confirmation_id", ""),
             new_correlation_id=data.get("new_correlation_id", ""),
             parent_request_id=data.get("parent_request_id", ""),
             state=data.get("state", "created"),
@@ -116,7 +124,7 @@ class ClarifiedRequestContext:
             "created": {"replanning", "cancelled", "expired"},
             "replanning": {"awaiting_confirmation", "clarification_required_again", "denied", "failed", "cancelled"},
             "clarification_required_again": {"replanning", "cancelled", "expired"},
-            "awaiting_confirmation": {"authorized", "denied", "cancelled", "expired"},
+            "awaiting_confirmation": {"replanning", "authorized", "denied", "cancelled", "expired"},
             "authorized": {"executing", "cancelled"},
             "executing": {"verified_completed", "failed", "interrupted", "cancelled"},
             "verified_completed": set(),

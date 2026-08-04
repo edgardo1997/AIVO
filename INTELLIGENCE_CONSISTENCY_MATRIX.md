@@ -42,7 +42,28 @@ This matrix maps every constitutional guarantee to the engines, files and tests 
 | Explanation | any artifact | explanation | Secrets | State |
 | Learning | verified outcomes | updates | Unverified outcomes | Authority |
 
-## 4. Consistency Checks
+## 4. Existing Owner Map (Phase II)
+
+| Constitutional Stage | Existing Owner | Active Runtime Path | Input | Output | Persistence | Test Coverage | Missing Contract | Duplication Risk | Path(s) |
+|---|---|---|---|---|---|---|---|---|---|
+| Identity | `sidecar/main.py` request context | `ToolRequest.user_context` | device, session, user | identity dict | `UserPreferencesStore`, `Vault` | `test_tool_execution_guard.py` | `IdentityResult` | Low: identity is implicit | both |
+| Language | `sidecar/services/language_service.py` | `AIService.chat` | message, preference, explicit | `LanguageDecision` | `UserPreferencesStore` | `test_multilingual_contract.py` | none | Low | both |
+| Input Understanding | `sidecar/services/input_understanding_service.py` | `AIService.chat` | raw message, context | `InputUnderstandingResult` | `ConversationResponse` capabilities | `test_input_understanding.py` | none | Low | both |
+| Intent | `sidecar/services/input_understanding_service.py` (selected_intent) + `sentinel/core/intent.py` | `ToolExecutionGuard._classify_risk` | normalized text | `Intent` / `selected_intent` | `ToolRequest.user_context` | `test_input_understanding.py`, `test_ambiguity_enforcement.py` | `IntentResult` | Medium: intent scattered | both |
+| Ambiguity | `sidecar/services/input_understanding_service.py` | `AIService.chat` + `ToolExecutionGuard` | `InputUnderstandingResult` | `AmbiguityDecision` | `ConversationResponse` capabilities, `ToolRequest.user_context` | `test_ambiguity_enforcement.py` | none | Low | both |
+| Context | `sentinel/core/context_window.py` | `AIService.chat` | messages, model | `ContextWindow` / managed messages | none (per-request) | `test_context_window.py` | `ContextSelection` | Low | both |
+| Memory | `repositories/*_store.py` | `repositories/conversation_repository.py` | user id, domain | durable state | SQLite | `test_conversation_*`, `test_multilingual_contract.py` | `MemorySelection` | Low | governed, post-exec |
+| World Model | none yet | none yet | OS/filesystem | structured facts | none yet | none | `WorldModelEvidence` | Low (no owner yet) | governed, background |
+| Planning | `sentinel/core/execution_pipeline.py` + `sentinel/core/planner.py` | `ExecutionPipeline.execute` | intent, tool args | `ExecutionPlan` / `ToolRequest` | `ExecutionGrantContext` | `test_execution_pipeline.py` | `PlanResult` | Low | governed |
+| Confidence | none centralized | none | per-stage scores | none | none | none | `ConfidenceSummary` | High if duplicated | all |
+| Risk | `sentinel/security/tool_guard.py` `_classify_risk` | `ToolExecutionGuard.execute` | tool, plan, context | `RiskLevel` | `ExecutionResult` | `test_tool_execution_guard.py` | `RiskDecision` | Medium | governed |
+| Governance | `sentinel/security/tool_guard.py` + `sentinel/core/policy_engine.py` | `ToolExecutionGuard.execute` | plan, risk, authority | `SecurityDecision` | `ExecutionResult.audit_entry` | `test_tool_execution_guard.py`, `test_ambiguity_enforcement.py` | `GovernanceDecisionReference` | Low | governed |
+| Execution | `sentinel/core/execution_pipeline.py` | `ExecutionPipeline.execute` | `GovernanceDecision` | `ToolResult` | audit | `test_execution_pipeline.py` | `VerificationResult` | Low | governed |
+| Verification | `sentinel/core/execution_pipeline.py` | `ExecutionPipeline._execute_via_guard` + result | expected, actual | `success` flag | `ToolResult` | `test_execution_pipeline.py` | `VerificationResult` | Low | governed |
+| Explanation | `sidecar/services/explanation_service.py` (new) | `explain()` | `reason_code`, `facts` | `ExplanationResult` | none | `test_intelligence_phase2.py` | none | Low | governed, post-exec |
+| Learning | `sentinel/core/intelligence/feedback.py` (conceptual) | background | verified outcomes | updates | durable | none | `LearningObservation` | Low | post-exec, background |
+
+## 5. Consistency Checks
 
 Before merging any feature, verify:
 

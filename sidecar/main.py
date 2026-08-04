@@ -710,7 +710,51 @@ def _check_port(host: str, port: int) -> dict:
         return {"free": True}
 
 
+def _cleanup_orphaned_sidecars():
+    """On startup, terminate any other sidecar.exe processes that may have
+    survived an abnormal parent exit (forced Tauri termination, PyInstaller
+    bootloader orphan, etc.).  This is a bounded, best-effort safety net.
+    """
+    import csv
+    import io
+    import subprocess
+
+    current_pid = os.getpid()
+    current_ppid = os.getppid()
+    try:
+        output = subprocess.check_output(
+            ["tasklist", "/FI", "IMAGENAME eq sidecar.exe", "/FO", "CSV", "/NH"],
+            shell=False,
+            text=True,
+            errors="ignore",
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        return
+    for row in csv.reader(io.StringIO(output)):
+        if not row or len(row) < 2:
+            continue
+        try:
+            name = row[0].strip('" ')
+            pid = int(row[1].strip('" '))
+        except (ValueError, IndexError):
+            continue
+        if name.lower() != "sidecar.exe":
+            continue
+        if pid == current_pid or pid == current_ppid or pid in (0, 1):
+            continue
+        try:
+            subprocess.run(
+                ["taskkill", "/PID", str(pid), "/F"],
+                shell=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception:
+            pass
+
+
 if __name__ == "__main__":
+    _cleanup_orphaned_sidecars()
     host = os.environ.get("SENTINEL_HOST", "127.0.0.1")
     port = int(os.environ.get("SENTINEL_PORT", "8765"))
     port_check = _check_port(host, port)

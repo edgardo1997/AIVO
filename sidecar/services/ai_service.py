@@ -6,7 +6,7 @@ from sentinel.core.model_router import ModelRouter, TaskType, classify_provider_
 from sentinel.core.context_window import ContextWindowManager, count_messages_tokens
 from sentinel.core.context_budget import ContextBudgetManager, RequestPurpose
 from sentinel.conversation import ConversationAvailabilityLayer, ConversationRequest, SentinelCoreConversation
-from services import language_service
+from services import language_service, input_understanding_service
 
 log = logging.getLogger("sentinel.ai_service")
 
@@ -442,6 +442,8 @@ class AIService:
             )
 
         decision = language_service.resolve_language(message)
+        understanding = input_understanding_service.resolve_input(message, context or [])
+        ambiguity = input_understanding_service.make_decision(understanding)
         language_instruction = language_service.build_language_instruction(decision)
         managed_messages[0]["content"] = (managed_messages[0]["content"] or "") + "\n\n" + language_instruction
 
@@ -525,7 +527,7 @@ class AIService:
             first = _run_chat(managed_messages)
             validation = language_service.validate_response_language(first["response"], decision)
             if validation.valid or not decision.translation_fallback_enabled:
-                return {**first, "language_decision": decision, "language_validation": validation}
+                return {**first, "language_decision": decision, "language_validation": validation, "input_understanding": understanding, "ambiguity_decision": ambiguity}
 
             # One bounded correction attempt; never repeat tool calls or actions.
             corrected = managed_messages.copy()
@@ -538,6 +540,8 @@ class AIService:
                 **second,
                 "language_decision": decision,
                 "language_validation": validation,
+                "input_understanding": understanding,
+                "ambiguity_decision": ambiguity,
                 "response_language_corrected": True,
             }
 

@@ -261,6 +261,7 @@ Conclusion:
 - Workstream D7: **PARTIAL** — shutdown lifecycle tests added to `alpha_constitutional_gate` marker.
 - Workstream D8: **COMPLETE** — Alpha validation prep documents created (feedback/bug templates, demo checklist, rollback, privacy disclosure).
 - Multilingual response contract: **COMPLETE** — centralized `LanguageResolver` in `services/language_service.py`, prompt-instruction injection in `AIService.chat`, one bounded correction attempt, localized user-facing errors, response-language validation, language selector in onboarding, 20 `alpha_constitutional_gate` tests pass.
+- Ambiguity and input-understanding contract: **COMPLETE** — centralized `InputUnderstandingResolver` in `services/input_understanding_service.py`, normalized noisy input, typographical/keyboard/lexical/entity/reference/scope/multilingual/intent/negation ambiguity classes, `AmbiguityDecision` with `auto_correct`/`infer`/`ask_clarification`/`reject`, integration into `AIService.chat` capabilities, 19 `alpha_constitutional_gate` tests pass.
 
 ## Workstream D next step
 

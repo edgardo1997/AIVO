@@ -1,3 +1,4 @@
+import dataclasses
 import logging
 from typing import Any, Callable, Dict, Optional
 
@@ -46,9 +47,17 @@ class ConversationAvailabilityLayer:
                 if text:
                     capabilities["conversation"]["mode"] = "advanced"
                     if "language_decision" in result:
-                        capabilities["language_decision"] = result["language_decision"]
+                        val = result["language_decision"]
+                        capabilities["language_decision"] = dataclasses.asdict(val) if dataclasses.is_dataclass(val) else val
                     if "language_validation" in result:
-                        capabilities["language_validation"] = result["language_validation"]
+                        val = result["language_validation"]
+                        capabilities["language_validation"] = dataclasses.asdict(val) if dataclasses.is_dataclass(val) else val
+                    if "input_understanding" in result:
+                        val = result["input_understanding"]
+                        capabilities["input_understanding"] = dataclasses.asdict(val) if dataclasses.is_dataclass(val) else val
+                    if "ambiguity_decision" in result:
+                        val = result["ambiguity_decision"]
+                        capabilities["ambiguity_decision"] = dataclasses.asdict(val) if dataclasses.is_dataclass(val) else val
                     return ConversationResponse(
                         text=text,
                         mode=ConversationMode.ADVANCED,

@@ -526,7 +526,40 @@ async def sentinel_chat_stream(body: dict, request: Request):
         stage_2_end = time.perf_counter()
         stage_2_duration = (stage_2_end - stage_2_start) * 1000
         log.info(f"[TIMING] Stage 2 - Intent Detection: {stage_2_duration:.2f}ms (confidence={preflight_intent.confidence:.2f})")
-        
+
+        # STAGE 2.5: Input Understanding and Ambiguity
+        stage_25_start = time.perf_counter()
+        from services.language_service import resolve_language
+        from services.input_understanding_service import resolve_input, make_decision
+        from services.clarification_service import ClarificationService
+
+        lang_decision = resolve_language(message)
+        understanding = resolve_input(message)
+        ambiguity = make_decision(understanding)
+        if ambiguity.ask_clarification or understanding.requires_clarification:
+            log.info("[CLARIFICATION] Material ambiguity; pausing pipeline")
+            clarification_svc = ClarificationService()
+            clarification = clarification_svc.create(
+                understanding=understanding,
+                decision=ambiguity,
+                session_id=session_id or "",
+                user_id=identity.get("user_id", ""),
+                original_request_id=correlation_id,
+                response_language=lang_decision.response_language,
+                correlation_id=correlation_id,
+            )
+            yield _ndjson(
+                {
+                    "type": "clarification",
+                    **clarification_svc.to_stream_event(clarification),
+                }
+            )
+            yield _ndjson({"type": "done"})
+            return
+        stage_25_end = time.perf_counter()
+        stage_25_duration = (stage_25_end - stage_25_start) * 1000
+        log.info(f"[TIMING] Stage 2.5 - Input Understanding: {stage_25_duration:.2f}ms")
+
         # STAGE 3: Pipeline Execution (if required)
         stage_3_start = time.perf_counter()
         if requires_pipeline:

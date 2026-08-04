@@ -28,7 +28,7 @@ SENTINEL_DATA_DIR = os.path.abspath(os.path.expanduser("~/.sentinel"))
 SENTINEL_PRODUCTION_DB_PATH = os.path.join(SENTINEL_DATA_DIR, "sentinel.db")
 LEGACY_PRODUCTION_DB_PATH = os.path.abspath(os.path.expanduser("~/.aivo.db"))
 PRODUCTION_DB_PATH = SENTINEL_PRODUCTION_DB_PATH
-LATEST_SCHEMA_VERSION = 10
+LATEST_SCHEMA_VERSION = 11
 
 
 def _schema_version(conn: sqlite3.Connection) -> int:
@@ -620,6 +620,7 @@ class DatabaseManager:
         8: "Add durable plan and step execution grants with immutable grant audit",
         9: "Add JWT revocation store for access/refresh token rotation",
         10: "Bind automation rules and workflows to owning session/identity for post-restart revalidation",
+        11: "Conversation schema v2: durable thread/message lifecycle with completion states",
     }
 
     def _run_migrations(self) -> None:
@@ -744,6 +745,8 @@ class DatabaseManager:
                         ):
                             self._ensure_column("automation_rules", col, decl)
                             self._ensure_column("ai_workflows", col, decl)
+                    if version == 11:
+                        self._migrate_conversations_v1_to_v2(conn)
                     conn.execute(
                         "INSERT INTO schema_migrations (version, description) VALUES (?, ?)",
                         (version, desc),
@@ -762,6 +765,197 @@ class DatabaseManager:
         columns = {row["name"] for row in self._get_conn().execute(f"PRAGMA table_info({table})").fetchall()}
         if column not in columns:
             self._get_conn().execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
+
+    def _migrate_conversations_v1_to_v2(self, conn: sqlite3.Connection) -> None:
+        """Forward-migrate v1 JSON conversations to the v2 normalized store.
+
+        The migration is idempotent: existing v2 rows for a given thread and
+        message are ignored on re-run. Corrupt v1 records are skipped and logged
+        without aborting the whole migration. No metadata is invented; unknown
+        or missing fields are left NULL or marked 'unknown'.
+        """
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS conversation_threads_v2 (
+                user_id         TEXT NOT NULL,
+                session_id      TEXT NOT NULL,
+                schema_version  INTEGER NOT NULL DEFAULT 2,
+                created_at      TEXT NOT NULL,
+                updated_at      TEXT NOT NULL,
+                title           TEXT NOT NULL DEFAULT 'Nueva operación',
+                status          TEXT NOT NULL DEFAULT 'active'
+                    CHECK(status IN ('active','archived','deleted')),
+                identity        TEXT NOT NULL DEFAULT '{}',
+                PRIMARY KEY (user_id, session_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_conversation_threads_v2_user_updated
+                ON conversation_threads_v2(user_id, updated_at DESC);
+
+            CREATE TABLE IF NOT EXISTS conversation_messages_v2 (
+                message_id          TEXT NOT NULL,
+                user_id             TEXT NOT NULL,
+                session_id          TEXT NOT NULL,
+                sequence            INTEGER NOT NULL,
+                role                TEXT NOT NULL,
+                content             TEXT NOT NULL DEFAULT '',
+                created_at          TEXT NOT NULL,
+                updated_at          TEXT NOT NULL,
+                correlation_id      TEXT,
+                requested_provider  TEXT,
+                requested_model     TEXT,
+                actual_provider     TEXT,
+                actual_model        TEXT,
+                route               TEXT,
+                fallback_required   INTEGER DEFAULT 0,
+                fallback_reason     TEXT,
+                completion_state    TEXT NOT NULL DEFAULT 'unknown'
+                    CHECK(completion_state IN (
+                        'pending','streaming','completed','cancelled','failed',
+                        'interrupted','persistence_failed','unknown'
+                    )),
+                error_category      TEXT,
+                interrupted_reason  TEXT,
+                audit_refs          TEXT NOT NULL DEFAULT '[]',
+                PRIMARY KEY (message_id, session_id, user_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_conversation_messages_v2_session
+                ON conversation_messages_v2(user_id, session_id, sequence);
+            CREATE INDEX IF NOT EXISTS idx_conversation_messages_v2_correlation
+                ON conversation_messages_v2(correlation_id);
+        """
+        )
+
+        rows = conn.execute(
+            "SELECT user_id, session_id, title, messages, created_at, updated_at, version FROM conversation_threads"
+        ).fetchall()
+
+        migrated_threads = 0
+        migrated_messages = 0
+        skipped = 0
+
+        for row in rows:
+            user_id = row["user_id"]
+            session_id = row["session_id"]
+            try:
+                conn.execute(
+                    """INSERT OR IGNORE INTO conversation_threads_v2
+                        (user_id, session_id, schema_version, created_at, updated_at, title, status, identity)
+                       VALUES (?, ?, 2, ?, ?, ?, 'active', '{}')""",
+                    (user_id, session_id, row["created_at"], row["updated_at"], row["title"]),
+                )
+                migrated_threads += conn.execute(
+                    "SELECT changes()"
+                ).fetchone()[0]
+            except Exception:
+                logger.exception("Failed to migrate v1 thread %s/%s", user_id, session_id)
+                skipped += 1
+                continue
+
+            messages_raw = row["messages"]
+            try:
+                if isinstance(messages_raw, str):
+                    messages = json.loads(messages_raw) if messages_raw else []
+                else:
+                    messages = messages_raw or []
+            except json.JSONDecodeError:
+                logger.warning("Corrupt messages JSON for thread %s/%s", user_id, session_id)
+                skipped += 1
+                continue
+
+            if not isinstance(messages, list):
+                logger.warning("Non-list messages for thread %s/%s", user_id, session_id)
+                skipped += 1
+                continue
+
+            for seq, msg in enumerate(messages):
+                if not isinstance(msg, dict):
+                    continue
+                message_id = msg.get("id") or msg.get("message_id") or f"msg_{session_id}_{seq}_{int(time.time()*1000)}"
+                if not message_id:
+                    message_id = f"msg_{session_id}_{seq}"
+
+                # v1 turns are keyed by prompt (user) or response (assistant).
+                has_prompt = "prompt" in msg and msg["prompt"] is not None
+                has_response = "response" in msg and msg["response"] is not None
+                if has_prompt and not has_response:
+                    role = "user"
+                elif has_response:
+                    role = "assistant"
+                else:
+                    role = str(msg.get("role", msg.get("type", "unknown"))).lower()
+
+                content = ""
+                raw_content = msg.get("content", msg.get("text", msg.get("response") if has_response else msg.get("prompt")))
+                if isinstance(raw_content, str):
+                    content = raw_content
+                elif isinstance(raw_content, (list, dict)):
+                    try:
+                        content = json.dumps(raw_content, ensure_ascii=False)
+                    except TypeError:
+                        content = str(raw_content)
+
+                created_at = msg.get("created_at") or msg.get("timestamp") or row["updated_at"]
+                updated_at = msg.get("updated_at") or created_at
+                correlation_id = msg.get("correlation_id") or msg.get("request_id") or msg.get("id")
+
+                v1_provider = msg.get("provider") or None
+                v1_model = msg.get("model") or None
+                requested_provider = msg.get("requested_provider") or (v1_provider if role == "user" and not has_response else None)
+                requested_model = msg.get("requested_model") or (v1_model if role == "user" and not has_response else None)
+                actual_provider = msg.get("actual_provider") or (v1_provider if has_response else None)
+                actual_model = msg.get("actual_model") or (v1_model if has_response else None)
+                route = msg.get("route") or None
+                fallback_required = 1 if msg.get("fallback_required") or msg.get("fallback") else 0
+                fallback_reason = msg.get("fallback_reason") or msg.get("fallback") or None
+
+                completion = msg.get("completion_state") or "unknown"
+                if not isinstance(completion, str):
+                    completion = str(completion)
+                completion = completion.lower()
+                if completion not in {
+                    "pending", "streaming", "completed", "cancelled",
+                    "failed", "interrupted", "persistence_failed", "unknown",
+                }:
+                    completion = "unknown"
+
+                error_category = msg.get("error_category") or None
+                interrupted_reason = msg.get("interrupted_reason") or None
+                audit_refs_raw = msg.get("audit_refs") or msg.get("audit") or []
+                if not isinstance(audit_refs_raw, list):
+                    audit_refs_raw = []
+                try:
+                    audit_refs = json.dumps(audit_refs_raw, ensure_ascii=False)
+                except TypeError:
+                    audit_refs = "[]"
+
+                try:
+                    conn.execute(
+                        """INSERT OR IGNORE INTO conversation_messages_v2
+                            (message_id, user_id, session_id, sequence, role, content,
+                             created_at, updated_at, correlation_id, requested_provider,
+                             requested_model, actual_provider, actual_model, route,
+                             fallback_required, fallback_reason, completion_state,
+                             error_category, interrupted_reason, audit_refs)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            message_id, user_id, session_id, seq, role, content,
+                            created_at, updated_at, correlation_id,
+                            requested_provider, requested_model, actual_provider, actual_model,
+                            route, fallback_required, fallback_reason, completion,
+                            error_category, interrupted_reason, audit_refs,
+                        ),
+                    )
+                    if conn.execute("SELECT changes()").fetchone()[0]:
+                        migrated_messages += 1
+                except Exception:
+                    logger.exception("Failed to migrate v1 message %s in thread %s/%s", message_id, user_id, session_id)
+
+        logger.info(
+            "Conversation v1→v2 migration complete: %d threads, %d messages, %d skipped/corrupt",
+            migrated_threads,
+            migrated_messages,
+            skipped,
+        )
 
     def close_connections(self) -> None:
         with self._connections_lock:

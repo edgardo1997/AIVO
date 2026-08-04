@@ -252,8 +252,13 @@ class ProviderManager:
             ttft_ms = (first_token_received_at - provider_request_started_at) * 1000 if first_token_received_at else total_provider_duration_ms
             post_first_token_generation_ms = (final_token_received_at - first_token_received_at) * 1000 if first_token_received_at else 0
             
-            # Calculate generation speed correctly (tokens / post-first-token time)
-            generation_tokens_per_second = (token_count / post_first_token_generation_ms * 1000) if post_first_token_generation_ms > 0 else 0
+            # Calculate generation speed correctly (tokens / post-first-token time).
+            # Speed is only meaningful with at least two post-first tokens; otherwise report 0.
+            generation_tokens_per_second = (
+                (token_count / post_first_token_generation_ms * 1000)
+                if post_first_token_generation_ms > 0 and token_count >= 2
+                else 0
+            )
             
             logger.info(
                 f"[TIMING] Provider Request Complete: {total_provider_duration_ms:.2f}ms, "

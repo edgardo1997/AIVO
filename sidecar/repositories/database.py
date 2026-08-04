@@ -801,6 +801,7 @@ class DatabaseManager:
                 created_at          TEXT NOT NULL,
                 updated_at          TEXT NOT NULL,
                 correlation_id      TEXT,
+                client_request_id   TEXT,
                 requested_provider  TEXT,
                 requested_model     TEXT,
                 actual_provider     TEXT,
@@ -822,6 +823,12 @@ class DatabaseManager:
                 ON conversation_messages_v2(user_id, session_id, sequence);
             CREATE INDEX IF NOT EXISTS idx_conversation_messages_v2_correlation
                 ON conversation_messages_v2(correlation_id);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_conversation_messages_v2_client_request
+                ON conversation_messages_v2(user_id, session_id, client_request_id)
+                WHERE client_request_id IS NOT NULL;
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_conversation_messages_v2_correlation_unique
+                ON conversation_messages_v2(user_id, session_id, correlation_id)
+                WHERE correlation_id IS NOT NULL;
         """
         )
 
@@ -955,6 +962,229 @@ class DatabaseManager:
             migrated_threads,
             migrated_messages,
             skipped,
+        )
+
+    def get_conversation_thread_v2(
+        self, user_id: str, session_id: str
+    ) -> dict | None:
+        row = self.fetchone(
+            "SELECT * FROM conversation_threads_v2 WHERE user_id = ? AND session_id = ?",
+            (user_id, session_id),
+        )
+        if row is None:
+            return None
+        try:
+            row["identity"] = json.loads(row["identity"]) if row["identity"] else {}
+        except (TypeError, json.JSONDecodeError):
+            row["identity"] = {}
+        return row
+
+    def resolve_or_create_thread_v2(
+        self,
+        user_id: str,
+        session_id: str,
+        title: str,
+        identity: dict | None = None,
+        updated_at: str | None = None,
+    ) -> dict:
+        """Resolve an existing v2 thread or create it in one atomic step."""
+        updated_at = updated_at or _utc_now()
+        identity_json = json.dumps(identity or {}, ensure_ascii=False)
+        with self.transaction(immediate=True) as conn:
+            existing = conn.execute(
+                "SELECT created_at FROM conversation_threads_v2 WHERE user_id = ? AND session_id = ?",
+                (user_id, session_id),
+            ).fetchone()
+            created_at = existing["created_at"] if existing else updated_at
+            conn.execute(
+                """INSERT INTO conversation_threads_v2
+                    (user_id, session_id, schema_version, created_at, updated_at, title, status, identity)
+                   VALUES (?, ?, 2, ?, ?, ?, 'active', ?)
+                   ON CONFLICT(user_id, session_id) DO UPDATE SET
+                       title = excluded.title,
+                       updated_at = excluded.updated_at,
+                       schema_version = excluded.schema_version""",
+                (user_id, session_id, created_at, updated_at, title, identity_json),
+            )
+        return self.get_conversation_thread_v2(user_id, session_id) or {}
+
+    def _next_message_sequence_v2(self, conn: sqlite3.Connection, user_id: str, session_id: str) -> int:
+        row = conn.execute(
+            """SELECT COALESCE(MAX(sequence), -1) + 1 AS next_seq
+               FROM conversation_messages_v2
+               WHERE user_id = ? AND session_id = ?""",
+            (user_id, session_id),
+        ).fetchone()
+        return row["next_seq"] if row else 0
+
+    def _find_existing_message_v2(
+        self, conn: sqlite3.Connection, user_id: str, session_id: str, client_request_id: str | None, correlation_id: str | None
+    ) -> dict | None:
+        if client_request_id:
+            row = conn.execute(
+                """SELECT message_id, completion_state FROM conversation_messages_v2
+                   WHERE user_id = ? AND session_id = ? AND client_request_id = ?""",
+                (user_id, session_id, client_request_id),
+            ).fetchone()
+            if row:
+                return dict(row)
+        if correlation_id:
+            row = conn.execute(
+                """SELECT message_id, completion_state FROM conversation_messages_v2
+                   WHERE user_id = ? AND session_id = ? AND correlation_id = ?""",
+                (user_id, session_id, correlation_id),
+            ).fetchone()
+            if row:
+                return dict(row)
+        return None
+
+    def insert_conversation_message_v2(self, message: dict) -> dict:
+        """Insert a v2 message exactly once.
+
+        Uses client_request_id and correlation_id as idempotency keys.
+        Returns the durable message record. Existing records are returned
+        without duplicate inserts.
+        """
+        user_id = message["user_id"]
+        session_id = message["session_id"]
+        message_id = message["message_id"]
+        role = message["role"]
+        content = message.get("content", "")
+        created_at = message.get("created_at") or _utc_now()
+        updated_at = message.get("updated_at") or created_at
+        client_request_id = message.get("client_request_id")
+        correlation_id = message.get("correlation_id") or client_request_id
+        requested_provider = message.get("requested_provider")
+        requested_model = message.get("requested_model")
+        actual_provider = message.get("actual_provider")
+        actual_model = message.get("actual_model")
+        route = message.get("route")
+        fallback_required = 1 if message.get("fallback_required") else 0
+        fallback_reason = message.get("fallback_reason")
+        completion_state = message.get("completion_state", "unknown")
+        if completion_state not in {
+            "pending", "streaming", "completed", "cancelled", "failed",
+            "interrupted", "persistence_failed", "unknown",
+        }:
+            completion_state = "unknown"
+        error_category = message.get("error_category")
+        interrupted_reason = message.get("interrupted_reason")
+        audit_refs = json.dumps(message.get("audit_refs") or [], ensure_ascii=False)
+
+        with self.transaction(immediate=True) as conn:
+            existing = self._find_existing_message_v2(
+                conn, user_id, session_id, client_request_id, correlation_id
+            )
+            if existing:
+                return existing
+
+            sequence = self._next_message_sequence_v2(conn, user_id, session_id)
+            conn.execute(
+                """INSERT OR IGNORE INTO conversation_messages_v2
+                    (message_id, user_id, session_id, sequence, role, content,
+                     created_at, updated_at, correlation_id, client_request_id,
+                     requested_provider, requested_model, actual_provider, actual_model,
+                     route, fallback_required, fallback_reason, completion_state,
+                     error_category, interrupted_reason, audit_refs)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    message_id, user_id, session_id, sequence, role, content,
+                    created_at, updated_at, correlation_id, client_request_id,
+                    requested_provider, requested_model, actual_provider, actual_model,
+                    route, fallback_required, fallback_reason, completion_state,
+                    error_category, interrupted_reason, audit_refs,
+                ),
+            )
+            row = conn.execute(
+                "SELECT message_id, completion_state FROM conversation_messages_v2 WHERE message_id = ? AND user_id = ? AND session_id = ?",
+                (message_id, user_id, session_id),
+            ).fetchone()
+            if row is None:
+                # Race or duplicate under a different idempotency key; recover.
+                return self._find_existing_message_v2(
+                    conn, user_id, session_id, client_request_id, correlation_id
+                ) or {}
+            return dict(row)
+
+    def finalize_conversation_message_v2(
+        self,
+        user_id: str,
+        session_id: str,
+        message_id: str,
+        content: str | None = None,
+        *,
+        actual_provider: str | None = None,
+        actual_model: str | None = None,
+        completion_state: str = "completed",
+        fallback_required: int = 0,
+        fallback_reason: str | None = None,
+        error_category: str | None = None,
+        interrupted_reason: str | None = None,
+        audit_refs: list | None = None,
+    ) -> bool:
+        """Finalize an existing assistant message exactly once."""
+        if completion_state not in {
+            "pending", "streaming", "completed", "cancelled", "failed",
+            "interrupted", "persistence_failed", "unknown",
+        }:
+            completion_state = "unknown"
+        updated_at = _utc_now()
+        encoded_audit = json.dumps(audit_refs or [], ensure_ascii=False)
+        with self.transaction(immediate=True) as conn:
+            row = conn.execute(
+                "SELECT completion_state FROM conversation_messages_v2 WHERE message_id = ? AND user_id = ? AND session_id = ?",
+                (message_id, user_id, session_id),
+            ).fetchone()
+            if row is None:
+                return False
+            if row["completion_state"] in ("completed", "cancelled"):
+                # Terminal states are immutable.
+                return False
+
+            fields = ["updated_at = ?"]
+            values = [updated_at]
+            if content is not None:
+                fields.append("content = ?")
+                values.append(content)
+            if actual_provider is not None:
+                fields.append("actual_provider = ?")
+                values.append(actual_provider)
+            if actual_model is not None:
+                fields.append("actual_model = ?")
+                values.append(actual_model)
+            fields.append("completion_state = ?")
+            values.append(completion_state)
+            if fallback_required is not None:
+                fields.append("fallback_required = ?")
+                values.append(fallback_required)
+            if fallback_reason is not None:
+                fields.append("fallback_reason = ?")
+                values.append(fallback_reason)
+            if error_category is not None:
+                fields.append("error_category = ?")
+                values.append(error_category)
+            if interrupted_reason is not None:
+                fields.append("interrupted_reason = ?")
+                values.append(interrupted_reason)
+            if audit_refs is not None:
+                fields.append("audit_refs = ?")
+                values.append(encoded_audit)
+
+            values.extend([message_id, user_id, session_id])
+            sql = f"""UPDATE conversation_messages_v2
+                       SET {', '.join(fields)}
+                       WHERE message_id = ? AND user_id = ? AND session_id = ?"""
+            cursor = conn.execute(sql, values)
+            return cursor.rowcount > 0
+
+    def list_conversation_messages_v2(
+        self, user_id: str, session_id: str, limit: int = 200
+    ) -> list[dict]:
+        return self.fetchall(
+            """SELECT * FROM conversation_messages_v2
+               WHERE user_id = ? AND session_id = ?
+               ORDER BY sequence LIMIT ?""",
+            (user_id, session_id, max(1, min(limit, 500))),
         )
 
     def close_connections(self) -> None:

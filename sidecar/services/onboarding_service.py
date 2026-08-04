@@ -135,6 +135,7 @@ def complete_onboarding(user_id: str, choices: Dict[str, Any]) -> Dict[str, Any]
     preferences["maximum_cost_per_period"] = float(choices.get("maximum_cost_per_period", 0.0))
     preferences["configured_provider"] = choices.get("configured_provider", "")
     preferences["configured_model"] = choices.get("configured_model", "")
+    preferences["language"] = choices.get("language", preferences.get("language", "en"))
     preferences["updated_at"] = _default_preferences(user_id).get("updated_at", "")
 
     UserPreferencesStore().save(user_id, preferences)

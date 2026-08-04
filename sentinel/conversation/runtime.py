@@ -45,6 +45,10 @@ class ConversationAvailabilityLayer:
                 text = str(result.get("response") or "").strip()
                 if text:
                     capabilities["conversation"]["mode"] = "advanced"
+                    if "language_decision" in result:
+                        capabilities["language_decision"] = result["language_decision"]
+                    if "language_validation" in result:
+                        capabilities["language_validation"] = result["language_validation"]
                     return ConversationResponse(
                         text=text,
                         mode=ConversationMode.ADVANCED,

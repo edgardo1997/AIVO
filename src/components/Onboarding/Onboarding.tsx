@@ -38,6 +38,7 @@ interface OnboardingState {
     maximum_cost_per_period: number;
     configured_provider: string;
     configured_model: string;
+    language: string;
   };
 }
 
@@ -54,6 +55,7 @@ export function Onboarding({ onComplete, onSkip }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [localOnly, setLocalOnly] = useState(true);
   const [permission, setPermission] = useState("confirm");
+  const [language, setLanguage] = useState("en");
   const dialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -62,6 +64,7 @@ export function Onboarding({ onComplete, onSkip }: Props) {
       setState(s);
       setLocalOnly(!s.cloud.cloud_authorization_review_required || s.preferences.local_only || true);
       setPermission(s.preferences.permission_defaults || "confirm");
+      setLanguage((s.preferences.language as string) || "en");
     }).catch(() => { });
   }, []);
 
@@ -80,6 +83,7 @@ export function Onboarding({ onComplete, onSkip }: Props) {
       const body = {
         local_only: localOnly,
         permission_defaults: permission,
+        language,
         maximum_cost_per_request: state.preferences.maximum_cost_per_request || 0,
         maximum_cost_per_period: state.preferences.maximum_cost_per_period || 0,
       };
@@ -139,6 +143,27 @@ export function Onboarding({ onComplete, onSkip }: Props) {
               <option value="confirm">Confirm — ask before executing</option>
               <option value="auto">Auto — execute low-risk actions</option>
               <option value="admin">Admin — I accept full responsibility</option>
+            </select>
+          </label>
+
+          <label style={{ display: "block", fontSize: 14, marginBottom: 8 }}>
+            Response language
+            <select
+              value={language}
+              onChange={(e) => setLanguage(e.target.value)}
+              style={{ display: "block", width: "100%", marginTop: 4, padding: 8 }}
+              aria-label="Response language"
+            >
+              <option value="en">English</option>
+              <option value="es">Español</option>
+              <option value="pt">Português</option>
+              <option value="fr">Français</option>
+              <option value="de">Deutsch</option>
+              <option value="it">Italiano</option>
+              <option value="ja">日本語</option>
+              <option value="zh">中文</option>
+              <option value="ar">العربية</option>
+              <option value="ru">Русский</option>
             </select>
           </label>
         </div>

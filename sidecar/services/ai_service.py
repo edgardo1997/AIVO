@@ -6,6 +6,7 @@ from sentinel.core.model_router import ModelRouter, TaskType, classify_provider_
 from sentinel.core.context_window import ContextWindowManager, count_messages_tokens
 from sentinel.core.context_budget import ContextBudgetManager, RequestPurpose
 from sentinel.conversation import ConversationAvailabilityLayer, ConversationRequest, SentinelCoreConversation
+from services import language_service
 
 log = logging.getLogger("sentinel.ai_service")
 
@@ -440,6 +441,10 @@ class AIService:
                 managed["summarized"],
             )
 
+        decision = language_service.resolve_language(message)
+        language_instruction = language_service.build_language_instruction(decision)
+        managed_messages[0]["content"] = (managed_messages[0]["content"] or "") + "\n\n" + language_instruction
+
         request = ConversationRequest(
             message=message,
             context=context or [],
@@ -447,7 +452,7 @@ class AIService:
             tool_result=tool_result,
         )
 
-        def advanced_chat():
+        def _run_chat(msgs):
             if not self._router:
                 chat_cfg = dict(cfg)
                 chat_provider = provider or chat_cfg.get("provider", "sentinel_local")
@@ -456,7 +461,7 @@ class AIService:
                     if stored:
                         chat_cfg["api_key"] = stored
                 client = self._make_client(chat_cfg)
-                resp = client.chat.completions.create(model=model, messages=managed_messages)
+                resp = client.chat.completions.create(model=model, messages=msgs)
                 return {
                     "response": resp.choices[0].message.content,
                     "provider": chat_provider,
@@ -467,7 +472,7 @@ class AIService:
                 old_preferred = getattr(self._router, "_preferred_provider", None)
                 self._router.set_preferred_provider(provider)
             try:
-                result = self._router.chat(managed_messages, task_type=task_type)
+                result = self._router.chat(msgs, task_type=task_type)
                 return {
                     "response": result["response"],
                     "provider": result.get("provider"),
@@ -487,7 +492,7 @@ class AIService:
                         local_model_runtime.start_if_installed()
                         local = self._router.provider_availability("sentinel_local", refresh=True)
                         if local.available:
-                            result = self._router.chat(managed_messages, task_type=task_type)
+                            result = self._router.chat(msgs, task_type=task_type)
                             return {
                                 "response": result["response"],
                                 "provider": result.get("provider"),
@@ -503,7 +508,7 @@ class AIService:
                         if ollama_avail.get("available"):
                             log.info("Ollama detectado como fallback temporal")
                             self._router.set_api_key("ollama", "ollama")
-                            result = self._router.chat(managed_messages, task_type=task_type)
+                            result = self._router.chat(msgs, task_type=task_type)
                             return {
                                 "response": result["response"],
                                 "provider": result.get("provider"),
@@ -515,6 +520,26 @@ class AIService:
             finally:
                 if old_preferred is not None and self._router:
                     self._router.set_preferred_provider(old_preferred)
+
+        def advanced_chat():
+            first = _run_chat(managed_messages)
+            validation = language_service.validate_response_language(first["response"], decision)
+            if validation.valid or not decision.translation_fallback_enabled:
+                return {**first, "language_decision": decision, "language_validation": validation}
+
+            # One bounded correction attempt; never repeat tool calls or actions.
+            corrected = managed_messages.copy()
+            corrected.append({
+                "role": "system",
+                "content": language_service.build_correction_prompt(decision, validation),
+            })
+            second = _run_chat(corrected)
+            return {
+                **second,
+                "language_decision": decision,
+                "language_validation": validation,
+                "response_language_corrected": True,
+            }
 
         return self._conversation.respond(request, advanced=advanced_chat).to_dict()
 

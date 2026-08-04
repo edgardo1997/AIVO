@@ -260,6 +260,7 @@ Conclusion:
 - Workstream D3–D6: **BLOCKED** — require compiled Tauri/WebView runtime, authenticated UI and a clean Windows VM for the no-local-model, cloud and demo paths.
 - Workstream D7: **PARTIAL** — shutdown lifecycle tests added to `alpha_constitutional_gate` marker.
 - Workstream D8: **COMPLETE** — Alpha validation prep documents created (feedback/bug templates, demo checklist, rollback, privacy disclosure).
+- Multilingual response contract: **COMPLETE** — centralized `LanguageResolver` in `services/language_service.py`, prompt-instruction injection in `AIService.chat`, one bounded correction attempt, localized user-facing errors, response-language validation, language selector in onboarding, 20 `alpha_constitutional_gate` tests pass.
 
 ## Workstream D next step
 

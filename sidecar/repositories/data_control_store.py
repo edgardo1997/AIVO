@@ -115,7 +115,10 @@ class DataControlStore:
         onetime_count = self._count(
             "SELECT COUNT(*) FROM cloud_one_time_authorizations WHERE user_id = ?", (user_id,)
         )
-        audit_count = self._count("SELECT COUNT(*) FROM audit_log")
+        try:
+            audit_count = self._count("SELECT COUNT(*) FROM audit_log")
+        except Exception:
+            audit_count = None
 
         has_preferences = self._database.fetchone(
             "SELECT 1 FROM user_preferences_state WHERE user_id = ?", (user_id,)

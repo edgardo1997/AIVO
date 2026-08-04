@@ -21,4 +21,5 @@ markers = [
     "e2e_real: End-to-end tests against the compiled sidecar.exe binary",
     "performance: Benchmarks that intentionally repeat comparatively expensive operations",
     "stability: Tests that validate resilience against crashes, corruption, and network failures",
+    "alpha_constitutional_gate: Tests that validate Alpha constitutional guarantees",
 ]

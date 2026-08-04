@@ -28,7 +28,7 @@ SENTINEL_DATA_DIR = os.path.abspath(os.path.expanduser("~/.sentinel"))
 SENTINEL_PRODUCTION_DB_PATH = os.path.join(SENTINEL_DATA_DIR, "sentinel.db")
 LEGACY_PRODUCTION_DB_PATH = os.path.abspath(os.path.expanduser("~/.aivo.db"))
 PRODUCTION_DB_PATH = SENTINEL_PRODUCTION_DB_PATH
-LATEST_SCHEMA_VERSION = 11
+LATEST_SCHEMA_VERSION = 12
 
 
 def _schema_version(conn: sqlite3.Connection) -> int:
@@ -622,6 +622,7 @@ class DatabaseManager:
         9: "Add JWT revocation store for access/refresh token rotation",
         10: "Bind automation rules and workflows to owning session/identity for post-restart revalidation",
         11: "Conversation schema v2: durable thread/message lifecycle with completion states",
+        12: "CloudAuthority durable state, standing policies, and one-time authorization ledger",
     }
 
     def _run_migrations(self) -> None:
@@ -748,6 +749,72 @@ class DatabaseManager:
                             self._ensure_column("ai_workflows", col, decl)
                     if version == 11:
                         self._migrate_conversations_v1_to_v2(conn)
+                    if version == 12:
+                        conn.executescript(
+                            """
+                            CREATE TABLE IF NOT EXISTS cloud_authority_state (
+                                user_id                             TEXT PRIMARY KEY,
+                                schema_version                      INTEGER NOT NULL DEFAULT 1,
+                                onboarding_version                  TEXT NOT NULL DEFAULT '',
+                                local_only                          INTEGER NOT NULL DEFAULT 0,
+                                offline                             INTEGER NOT NULL DEFAULT 0,
+                                cloud_authorization_review_required INTEGER NOT NULL DEFAULT 1,
+                                configured_provider                 TEXT NOT NULL DEFAULT '',
+                                configured_model                    TEXT NOT NULL DEFAULT '',
+                                active_execution_state              TEXT NOT NULL DEFAULT 'local_setup_required',
+                                updated_at                          TEXT NOT NULL
+                            );
+
+                            CREATE TABLE IF NOT EXISTS cloud_standing_policies (
+                                policy_id                  TEXT PRIMARY KEY,
+                                user_id                    TEXT NOT NULL,
+                                provider_scope             TEXT NOT NULL DEFAULT '',
+                                model_scope                TEXT NOT NULL DEFAULT '',
+                                purpose_scope              TEXT NOT NULL DEFAULT '',
+                                data_classification_scope  TEXT NOT NULL DEFAULT '',
+                                paid_use_allowed           INTEGER NOT NULL DEFAULT 0,
+                                automatic_fallback_allowed INTEGER NOT NULL DEFAULT 0,
+                                max_cost_per_request       REAL NOT NULL DEFAULT 0.0,
+                                max_cost_per_period        REAL NOT NULL DEFAULT 0.0,
+                                currency                   TEXT NOT NULL DEFAULT 'USD',
+                                issued_by                  TEXT NOT NULL DEFAULT '',
+                                issued_at                  TEXT NOT NULL,
+                                expires_at                 TEXT,
+                                revoked_at                 TEXT,
+                                policy_version             INTEGER NOT NULL DEFAULT 1,
+                                updated_at                 TEXT NOT NULL
+                            );
+                            CREATE INDEX IF NOT EXISTS idx_cloud_policies_user
+                                ON cloud_standing_policies(user_id, updated_at DESC);
+                            CREATE INDEX IF NOT EXISTS idx_cloud_policies_expires
+                                ON cloud_standing_policies(expires_at) WHERE expires_at IS NOT NULL;
+
+                            CREATE TABLE IF NOT EXISTS cloud_one_time_authorizations (
+                                authorization_id          TEXT PRIMARY KEY,
+                                user_id                   TEXT NOT NULL,
+                                correlation_id            TEXT,
+                                provider_scope            TEXT NOT NULL DEFAULT '',
+                                model_scope               TEXT NOT NULL DEFAULT '',
+                                purpose_scope             TEXT NOT NULL DEFAULT '',
+                                data_classification_scope TEXT NOT NULL DEFAULT '',
+                                paid_use_allowed          INTEGER NOT NULL DEFAULT 0,
+                                max_cost                  REAL NOT NULL DEFAULT 0.0,
+                                issued_at                 TEXT NOT NULL,
+                                expires_at                TEXT NOT NULL,
+                                consumed_at               TEXT,
+                                revoked_at                TEXT,
+                                updated_at                TEXT NOT NULL
+                            );
+                            CREATE INDEX IF NOT EXISTS idx_cloud_onetime_user
+                                ON cloud_one_time_authorizations(user_id, updated_at DESC);
+                            CREATE INDEX IF NOT EXISTS idx_cloud_onetime_correlation
+                                ON cloud_one_time_authorizations(user_id, correlation_id)
+                                WHERE correlation_id IS NOT NULL;
+                            CREATE UNIQUE INDEX IF NOT EXISTS idx_cloud_onetime_unconsumed
+                                ON cloud_one_time_authorizations(user_id, authorization_id)
+                                WHERE consumed_at IS NULL;
+                        """
+                        )
                     conn.execute(
                         "INSERT INTO schema_migrations (version, description) VALUES (?, ?)",
                         (version, desc),

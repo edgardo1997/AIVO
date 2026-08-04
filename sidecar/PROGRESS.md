@@ -254,7 +254,7 @@ Conclusion:
 - Phase 8: **COMPLETE** — final full-suite: **3021 passed**, 14 skipped, **0 failed** in 775.16 s; compileall and import checks passed.
 - Workstream C1–C8: **COMPLETE** — alpha constitutional gate registered, 38/38 passed.
 - Workstream C9: **COMPLETE** — durable path performance benchmark added, all measured means below 1 s on warm local SQLite.
-- Workstream C10: **COMPLETE** — completion report written, compileall and import checks pass, targeted suites green; full product suite still has 23 pre-existing failures outside Workstream C.
+- Workstream C10: **COMPLETE** — full `pytest -q` is now **3070 passed**, 14 skipped, **0 failed**. The 23 previously failing tests were resolved during Alpha convergence (schema baseline, tool-execution guard contract, provider-fallback truth, policy-result propagation).
 - Workstream D1: **COMPLETE** — explicit `SentinelLifecycle.shutdown()` path added; 7/7 shutdown lifecycle tests pass.
 - Workstream D2: **AUDIT COMPLETE** — installer/packaging states audited, PyInstaller spec updated with new Workstream C modules, blockers documented (no Windows VM, no signing cert, no compiled Tauri runtime).
 - Workstream D3–D6: **BLOCKED** — require compiled Tauri/WebView runtime, authenticated UI and a clean Windows VM for the no-local-model, cloud and demo paths.

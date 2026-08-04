@@ -364,26 +364,32 @@ class DatabaseManager:
             CREATE INDEX IF NOT EXISTS idx_trigger_history_ts ON trigger_history(timestamp);
 
             CREATE TABLE IF NOT EXISTS automation_rules (
-                rule_id       TEXT PRIMARY KEY,
-                condition     TEXT NOT NULL DEFAULT '',
-                action        TEXT NOT NULL DEFAULT '',
-                enabled       INTEGER NOT NULL DEFAULT 1,
-                trigger_count INTEGER NOT NULL DEFAULT 0,
-                created_at    TEXT DEFAULT (datetime('now')),
-                updated_at    TEXT DEFAULT (datetime('now'))
+                rule_id               TEXT PRIMARY KEY,
+                condition             TEXT NOT NULL DEFAULT '',
+                action                TEXT NOT NULL DEFAULT '',
+                enabled               INTEGER NOT NULL DEFAULT 1,
+                trigger_count         INTEGER NOT NULL DEFAULT 0,
+                owner_session_id      TEXT NOT NULL DEFAULT '',
+                owner_identity_hash   TEXT NOT NULL DEFAULT '',
+                consent_bound         INTEGER NOT NULL DEFAULT 0,
+                created_at            TEXT DEFAULT (datetime('now')),
+                updated_at            TEXT DEFAULT (datetime('now'))
             );
 
             CREATE TABLE IF NOT EXISTS ai_workflows (
-                workflow_id   TEXT PRIMARY KEY,
-                name          TEXT NOT NULL,
-                steps         TEXT NOT NULL DEFAULT '[]',
-                status        TEXT NOT NULL DEFAULT 'created',
-                current_step  INTEGER NOT NULL DEFAULT 0,
-                result_data   TEXT NOT NULL DEFAULT '[]',
-                error         TEXT NOT NULL DEFAULT '',
-                resume_data   TEXT NOT NULL DEFAULT '{}',
-                created_at    TEXT DEFAULT (datetime('now')),
-                updated_at    TEXT DEFAULT (datetime('now'))
+                workflow_id           TEXT PRIMARY KEY,
+                name                  TEXT NOT NULL,
+                steps                 TEXT NOT NULL DEFAULT '[]',
+                status                TEXT NOT NULL DEFAULT 'created',
+                current_step          INTEGER NOT NULL DEFAULT 0,
+                result_data           TEXT NOT NULL DEFAULT '[]',
+                error                 TEXT NOT NULL DEFAULT '',
+                resume_data           TEXT NOT NULL DEFAULT '{}',
+                owner_session_id      TEXT NOT NULL DEFAULT '',
+                owner_identity_hash   TEXT NOT NULL DEFAULT '',
+                consent_bound         INTEGER NOT NULL DEFAULT 0,
+                created_at            TEXT DEFAULT (datetime('now')),
+                updated_at            TEXT DEFAULT (datetime('now'))
             );
 
             CREATE TABLE IF NOT EXISTS user_preferences (

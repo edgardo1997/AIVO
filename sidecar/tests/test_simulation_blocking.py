@@ -191,6 +191,7 @@ class TestSimulationBlocking:
         guard = ToolExecutionGuard(tool_gateway=gateway, policy_engine=engine, audit_service=audit)
         pipeline = ExecutionPipeline(tool_gateway=gateway, tool_execution_guard=guard, audit_service=audit)
         pipeline.set_confirmation_broker(gateway._confirmation_broker)
+        gateway.set_execution_guard(guard)
 
         async def _confirmed(tool_id, params, context):
             return await pipeline.execute(tool_id, params, context, source="confirmation")
@@ -204,7 +205,7 @@ class TestSimulationBlocking:
             "permissions": ["executor.command"],
         }
 
-        pending = asyncio.run(gateway.execute(
+        pending = asyncio.run(pipeline.execute(
             "executor.command", {"command": "echo durable_ok"}, {"identity": identity}
         ))
         assert pending.requires_confirmation is True

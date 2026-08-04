@@ -194,13 +194,27 @@ class ExecutionPipeline:
         try:
             guard_result = await self._guard.execute(request)
             policy_decision = guard_result.decision.value if hasattr(guard_result, "decision") else None
+
+            def _policy_result():
+                result = getattr(guard_result, "policy_result", None)
+                if result is not None:
+                    return result
+                policy_id = getattr(guard_result, "policy_id", None)
+                if policy_id is None:
+                    return None
+                return {
+                    "effect": policy_decision or "deny",
+                    "policy_id": policy_id,
+                    "reason": getattr(guard_result, "policy_reason", None),
+                }
+
             if guard_result.success:
                 return ToolResult(
                     success=True,
                     data=guard_result.data,
                     tool_id=tool_id,
                     policy_decision=policy_decision,
-                    policy_result=getattr(guard_result, "policy_result", None),
+                    policy_result=_policy_result(),
                     quality_result=getattr(guard_result, "quality_result", None),
                     requires_confirmation=getattr(guard_result, "requires_confirmation", False),
                 )
@@ -210,7 +224,7 @@ class ExecutionPipeline:
                 error=guard_result.error or "Blocked by ToolExecutionGuard",
                 tool_id=tool_id,
                 policy_decision=policy_decision,
-                policy_result=getattr(guard_result, "policy_result", None),
+                policy_result=_policy_result(),
                 quality_result=getattr(guard_result, "quality_result", None),
                 requires_confirmation=getattr(guard_result, "requires_confirmation", False),
             )

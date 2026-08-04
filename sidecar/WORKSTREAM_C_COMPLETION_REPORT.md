@@ -72,9 +72,12 @@ Targeted Workstream C suites (all pass):
 
 Full `pytest -q` result:
 
-- 3040 passed, 14 skipped, **23 failed**, 225 warnings
-- Failures are outside Workstream C: `test_automations_persistence.py`, `test_fase11_closure.py`, `test_simulation_blocking.py`, `test_trust_pipeline_invariants.py`, `test_unified_confirmation.py`, `test_unified_provider_selection.py`
-- Workstream C paths are green; product-wide full-suite green remains blocked by these unrelated pre-existing failures.
+- **3070 passed**, 14 skipped, **0 failed**, 225 warnings
+- The 23 previously failing tests were resolved during convergence:
+  - Automation and workflow schema: added `owner_session_id`, `owner_identity_hash` and `consent_bound` to the baseline `automation_rules` and `ai_workflows` tables (migration 10 was skipped for new databases because the baseline claimed version 10 without the columns).
+  - Tool execution governance: tests that called `ToolGateway.execute` directly were updated to call through `ExecutionPipeline`/`ToolExecutionGuard` so the `issuing_guard` contract is honored.
+  - Provider selection: stale assertions that expected cloud `openrouter` without a standing policy were corrected to assert the safe `sentinel_core` fallback with `fallback_required: True`.
+  - Policy result propagation: `ExecutionPipeline` now builds a `policy_result` dict from `ToolExecutionGuard`'s `policy_id` and `policy_reason` when the guard does not provide a full result object.
 
 ## 11. Performance results
 

@@ -56,6 +56,7 @@ def gateway_with_confirmation():
     async def execute_confirmed(tool_id, params, context):
         return await pipeline.execute(tool_id, params, context, source="confirmation")
 
+    gateway.set_execution_guard(guard)
     gateway.set_confirmation_executor(execute_confirmed)
     tool = DangerousTool()
     gateway.register(tool)
@@ -64,8 +65,8 @@ def gateway_with_confirmation():
 
 @pytest.mark.asyncio
 async def test_confirmation_is_identity_bound_and_single_use():
-    gateway, tool, _ = gateway_with_confirmation()
-    pending = await gateway.execute("executor.command", {"command": "safe-test"}, {"identity": IDENTITY})
+    gateway, tool, pipeline = gateway_with_confirmation()
+    pending = await pipeline.execute("executor.command", {"command": "safe-test"}, {"identity": IDENTITY})
     action_id = pending.data["action_id"]
     assert pending.requires_confirmation and tool.calls == 0
 
@@ -79,8 +80,8 @@ async def test_confirmation_is_identity_bound_and_single_use():
 
 @pytest.mark.asyncio
 async def test_rejection_consumes_confirmation_without_execution():
-    gateway, tool, _ = gateway_with_confirmation()
-    pending = await gateway.execute("executor.command", {"command": "safe-test"}, {"identity": IDENTITY})
+    gateway, tool, pipeline = gateway_with_confirmation()
+    pending = await pipeline.execute("executor.command", {"command": "safe-test"}, {"identity": IDENTITY})
     rejected = await gateway.confirm(pending.data["action_id"], False, IDENTITY)
     assert rejected.success is False and tool.calls == 0
 

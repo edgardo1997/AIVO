@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 from conftest import TEST_IDENTITY
 from main import app
-from modules import get_gateway, init_sentinel_orchestrator
+from modules import get_execution_pipeline, get_gateway, init_sentinel_orchestrator
 from modules.permissions import _svc as permissions_service
 from modules.auth import IdentityContext
 from sentinel.core.decision_engine import Decision, DecisionResult
@@ -44,15 +44,16 @@ def test_v1_rejects_client_supplied_identity():
 def test_identity_permissions_restrict_remote_capabilities():
     permissions_service.set_level("admin")
     remote = IdentityContext.remote_identity("actor-1", "session-1").to_dict()
+    pipeline = get_execution_pipeline()
     allowed = asyncio.run(
-        get_gateway().execute(
+        pipeline.execute(
             "system.info",
             {},
             {"identity": remote},
         )
     )
     denied = asyncio.run(
-        get_gateway().execute(
+        pipeline.execute(
             "executor.command",
             {"command": "echo forbidden"},
             {"identity": remote},

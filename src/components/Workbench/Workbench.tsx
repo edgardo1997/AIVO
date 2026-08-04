@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, v1Api } from "../../api";
 import { consentApi, type PendingConsentInfo } from "../../api/consent";
+import { Clarification, type ClarificationEvent } from "../Clarification/Clarification";
 import { ConsentDialog } from "../ConsentDialog/ConsentDialog";
 import { TrustFlow } from "../TrustFlow/TrustFlow";
 import { ViewRouter, viewMeta } from "../Views/ViewRouter";
@@ -49,6 +50,8 @@ export function Workbench({ onLogout }: WorkbenchProps) {
   const [view, setView] = useState<ViewKey | "">("");
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [pendingConsent, setPendingConsent] = useState<PendingConsentInfo | null>(null);
+  const [clarification, setClarification] = useState<ClarificationEvent | null>(null);
+  const [clarificationBusy, setClarificationBusy] = useState(false);
   const [permissionCenterOpen, setPermissionCenterOpen] = useState(false);
   const [adminWarningOpen, setAdminWarningOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
@@ -314,6 +317,48 @@ export function Workbench({ onLogout }: WorkbenchProps) {
     });
   }, [busy, conversationStoreReady, conversations]);
 
+  // ── Clarification handlers ──
+  const handleClarificationResolve = async (clarification_id: string, choice?: string, text?: string) => {
+    if (!clarification || clarificationBusy) return;
+    setClarificationBusy(true);
+    try {
+      const result = await api.sentinel.resolveClarification(clarification_id, {
+        correlation_id: clarification.correlation_id,
+        version: clarification.version,
+        selected_candidate_id: choice,
+        free_text_response: text,
+      });
+      setClarification(null);
+      if (result.resolved_utterance) {
+        setPrompt(result.resolved_utterance);
+        await send(result.resolved_utterance);
+      } else if (result.state === "cancelled") {
+        setMessages((current) => [...current, { id: crypto.randomUUID(), prompt: "", response: "Clarificación cancelada." }]);
+      }
+    } catch (e: any) {
+      setMessages((current) => [...current, { id: crypto.randomUUID(), prompt: "", response: e?.message || "No se pudo resolver la aclaración." }]);
+    } finally {
+      setClarificationBusy(false);
+    }
+  };
+
+  const handleClarificationCancel = async () => {
+    if (!clarification || clarificationBusy) return;
+    setClarificationBusy(true);
+    try {
+      await api.sentinel.cancelClarification(clarification.clarification_id, {
+        correlation_id: clarification.correlation_id,
+        version: clarification.version,
+      });
+      setMessages((current) => [...current, { id: crypto.randomUUID(), prompt: "", response: "Clarificación cancelada." }]);
+    } catch (e: any) {
+      setMessages((current) => [...current, { id: crypto.randomUUID(), prompt: "", response: e?.message || "No se pudo cancelar la aclaración." }]);
+    } finally {
+      setClarificationBusy(false);
+      setClarification(null);
+    }
+  };
+
   // ── Send message ──
   const context = useMemo(() => messages.filter((m) => !m.error).flatMap((m) => [
     { role: "user", content: m.prompt },
@@ -370,9 +415,17 @@ export function Workbench({ onLogout }: WorkbenchProps) {
             ? { ...m, elapsed: performance.now() - started }
             : m));
         }
+        if (event.type === "clarification") {
+          flushStreamDeltas();
+          setBusy(false);
+          setStreamStage("clarification");
+          setClarification(event);
+          setMessages((current) => current.map((m) => m.id === id ? { ...m, elapsed: performance.now() - started, response: event.question } : m));
+        }
         if (event.type === "error") {
           flushStreamDeltas();
           setStreamStage("");
+          setClarification(null);
           setMessages((current) => current.map((m) => m.id === id ? {
             ...m, elapsed: performance.now() - started,
             provider: event.provider ?? m.provider,
@@ -557,13 +610,13 @@ export function Workbench({ onLogout }: WorkbenchProps) {
     accountOpen, setAccountOpen, micStatus, theme, setTheme, themeOpen, setThemeOpen,
     functionCenterOpen, setFunctionCenterOpen, providerSettingsOpen, setProviderSettingsOpen,
     settingsSection, setSettingsSection, permissionCenterOpen, setPermissionCenterOpen,
-    adminWarningOpen, setAdminWarningOpen, rightOpen: true, setRightOpen: () => {},
+    adminWarningOpen, setAdminWarningOpen, rightOpen: true, setRightOpen: () => { },
     modelSwitchBusy, streamStage, stageElapsed, planningElapsed, expanded,
     feedRef, composerRef, followLatestRef,
     createConversation, deleteConversation, send, cancelGeneration, decide,
-    changePermission, enableFullAccess, validateMicrophone: async () => {},
-    inviteFriend: async () => {}, toggleEmergency: async () => {},
-    switchModel, runFunction, resize: () => {}, resizeWithKeyboard: () => {},
+    changePermission, enableFullAccess, validateMicrophone: async () => { },
+    inviteFriend: async () => { }, toggleEmergency: async () => { },
+    switchModel, runFunction, resize: () => { }, resizeWithKeyboard: () => { },
     leftWidth: 280, rightWidth: 0, onLogout, sentinelThemes,
   };
 
@@ -678,27 +731,27 @@ export function Workbench({ onLogout }: WorkbenchProps) {
                               onManagePermissions={() => setPermissionCenterOpen(true)}
                               disabled={busy}
                               onReviewConsent={blocked ? () => {
-                                  const riskScore = pipeline.decision?.final_risk_score ?? 0.5;
-                                  const riskLevel = riskScore > 0.8 ? "high" : riskScore > 0.4 ? "medium" : "low";
-                                  const isCritical = pipeline.decision?.risk_extra === "critical_irreversible";
-                                  setPendingConsent({
-                                    id: pipeline.action_id || message.id,
-                                    tool_id: pipeline.intent?.target || "desconocido",
-                                    risk_level: isCritical ? "critical" : riskLevel,
-                                    risk_label: isCritical ? "Crítico" : riskScore > 0.8 ? "Alto" : riskScore > 0.4 ? "Medio" : "Bajo",
-                                    risk_description: isCritical
-                                      ? "Operación irreversible. Puede causar pérdida de datos o daño al sistema."
-                                      : "Requiere tu autorización para continuar.",
-                                    is_read_only: pipeline.intent?.action === "query" || pipeline.intent?.action === "analyze",
-                                    is_reversible: !isCritical,
-                                    affected_resources: pipeline.intent?.target ? [pipeline.intent.target] : [],
-                                    estimated_impact: pipeline.simulation_summary || pipeline.decision_reason || "",
-                                    simulation_summary: pipeline.simulation_summary || "",
-                                    created_at: Date.now(),
-                                    expires_at: Date.now() + 600000,
-                                    can_grant_permanent: !isCritical,
-                                  });
-                                } : undefined}
+                                const riskScore = pipeline.decision?.final_risk_score ?? 0.5;
+                                const riskLevel = riskScore > 0.8 ? "high" : riskScore > 0.4 ? "medium" : "low";
+                                const isCritical = pipeline.decision?.risk_extra === "critical_irreversible";
+                                setPendingConsent({
+                                  id: pipeline.action_id || message.id,
+                                  tool_id: pipeline.intent?.target || "desconocido",
+                                  risk_level: isCritical ? "critical" : riskLevel,
+                                  risk_label: isCritical ? "Crítico" : riskScore > 0.8 ? "Alto" : riskScore > 0.4 ? "Medio" : "Bajo",
+                                  risk_description: isCritical
+                                    ? "Operación irreversible. Puede causar pérdida de datos o daño al sistema."
+                                    : "Requiere tu autorización para continuar.",
+                                  is_read_only: pipeline.intent?.action === "query" || pipeline.intent?.action === "analyze",
+                                  is_reversible: !isCritical,
+                                  affected_resources: pipeline.intent?.target ? [pipeline.intent.target] : [],
+                                  estimated_impact: pipeline.simulation_summary || pipeline.decision_reason || "",
+                                  simulation_summary: pipeline.simulation_summary || "",
+                                  created_at: Date.now(),
+                                  expires_at: Date.now() + 600000,
+                                  can_grant_permanent: !isCritical,
+                                });
+                              } : undefined}
                             />
                           )}
 
@@ -733,6 +786,17 @@ export function Workbench({ onLogout }: WorkbenchProps) {
                     </div>
                   );
                 })}
+
+                {/* Live clarification */}
+                {clarification && !busy && (
+                  <div className="wb-clarification" style={{ padding: 16 }}>
+                    <Clarification
+                      event={clarification}
+                      onResolve={handleClarificationResolve}
+                      onCancel={handleClarificationCancel}
+                    />
+                  </div>
+                )}
 
                 {/* Working indicator */}
                 {busy && (
@@ -842,65 +906,65 @@ export function Workbench({ onLogout }: WorkbenchProps) {
           )}
         </div>
 
-          {/* Right Status Panel */}
-          <div className={`wb-new-right-panel${rightPanelOpen ? "" : " hidden"}`}>
-            <div className="wb-new-rp-header">
-              <span>◆ Monitor</span>
-              <button className="wb-new-hamburger" onClick={() => setRightPanelOpen((v) => !v)} style={{ fontSize: 11, padding: "1px 4px" }} title="Cerrar panel">✕</button>
+        {/* Right Status Panel */}
+        <div className={`wb-new-right-panel${rightPanelOpen ? "" : " hidden"}`}>
+          <div className="wb-new-rp-header">
+            <span>◆ Monitor</span>
+            <button className="wb-new-hamburger" onClick={() => setRightPanelOpen((v) => !v)} style={{ fontSize: 11, padding: "1px 4px" }} title="Cerrar panel">✕</button>
+          </div>
+          <div className="wb-new-rp-body">
+            <div className="wb-new-stat-card">
+              <div className="s-label">MODELO</div>
+              <div className="s-value" style={{ fontSize: 13 }}>
+                {modelConfig?.strategy === "smart"
+                  ? "Automático"
+                  : modelConfig?.free_providers[modelConfig?.provider]?.label?.split("(")[0]?.trim() ?? "—"}
+              </div>
             </div>
-            <div className="wb-new-rp-body">
-              <div className="wb-new-stat-card">
-                <div className="s-label">MODELO</div>
-                <div className="s-value" style={{ fontSize: 13 }}>
-                  {modelConfig?.strategy === "smart"
-                    ? "Automático"
-                    : modelConfig?.free_providers[modelConfig?.provider]?.label?.split("(")[0]?.trim() ?? "—"}
-                </div>
+            <div className="wb-new-stat-card">
+              <div className="s-label">POLÍTICAS</div>
+              <div className="s-value" style={{ fontSize: 13 }}>
+                {permission?.emergency_stop
+                  ? "◆ Detenidas"
+                  : permissionChoices.find((p) => p.id === permission?.level)?.title ?? "—"}
               </div>
-              <div className="wb-new-stat-card">
-                <div className="s-label">POLÍTICAS</div>
-                <div className="s-value" style={{ fontSize: 13 }}>
-                  {permission?.emergency_stop
-                    ? "◆ Detenidas"
-                    : permissionChoices.find((p) => p.id === permission?.level)?.title ?? "—"}
-                </div>
+            </div>
+            <div className="wb-new-stat-card">
+              <div className="s-label">HERRAMIENTAS</div>
+              <div className="s-value" style={{ fontSize: 13 }}>
+                {runtimeCapabilities?.system.registered_count != null
+                  ? `${runtimeCapabilities.system.registered_count} registradas`
+                  : modelStatusError ? "No disponible" : "Cargando..."}
               </div>
-              <div className="wb-new-stat-card">
-                <div className="s-label">HERRAMIENTAS</div>
-                <div className="s-value" style={{ fontSize: 13 }}>
-                  {runtimeCapabilities?.system.registered_count != null
-                    ? `${runtimeCapabilities.system.registered_count} registradas`
-                    : modelStatusError ? "No disponible" : "Cargando..."}
-                </div>
+            </div>
+            <div className="wb-new-stat-card">
+              <div className="s-label">IA DISPONIBLE</div>
+              <div className="s-value" style={{ fontSize: 13 }}>
+                {runtimeCapabilities?.models.available
+                  ? `✓ ${runtimeCapabilities.models.available_count} modelo(s)`
+                  : modelStatusError ? "No disponible" : "Cargando..."}
               </div>
-              <div className="wb-new-stat-card">
-                <div className="s-label">IA DISPONIBLE</div>
-                <div className="s-value" style={{ fontSize: 13 }}>
-                  {runtimeCapabilities?.models.available
-                    ? `✓ ${runtimeCapabilities.models.available_count} modelo(s)`
-                    : modelStatusError ? "No disponible" : "Cargando..."}
-                </div>
-              </div>
-              <div style={{ height: 1, background: "var(--tm-border)", margin: "4px 0" }} />
-              <div className="s-label" style={{ fontSize: 8, textTransform: "uppercase", letterSpacing: ".08em", color: "var(--tm-dim)", marginBottom: 4, fontFamily: "var(--tm-ui-font)" }}>Acciones rápidas</div>
-              <div className="wb-new-rp-actions">
-                <button className="wb-new-rp-action" onClick={() => { const q = quickActions[0]; if (q.prompt) void send(q.prompt); }}>
-                  <span>▣</span>Diagnóstico completo <span className="kbd">Ctrl+D</span>
-                </button>
-                <button className="wb-new-rp-action" onClick={() => { setView("audit"); }}>
-                  <span>△</span>Auditar seguridad <span className="kbd">Ctrl+A</span>
-                </button>
-                <button className="wb-new-rp-action" onClick={() => void send("Analiza las conexiones de red activas")}>
-                  <span>◇</span>Escanea la red <span className="kbd">Ctrl+N</span>
-                </button>
-                <button className="wb-new-rp-action" onClick={() => void send("Lista los eventos recientes del sistema")}>
-                  <span>☰</span>Últimos eventos <span className="kbd">Ctrl+E</span>
-                </button>
-              </div>
+            </div>
+            <div style={{ height: 1, background: "var(--tm-border)", margin: "4px 0" }} />
+            <div className="s-label" style={{ fontSize: 8, textTransform: "uppercase", letterSpacing: ".08em", color: "var(--tm-dim)", marginBottom: 4, fontFamily: "var(--tm-ui-font)" }}>Acciones rápidas</div>
+            <div className="wb-new-rp-actions">
+              <button className="wb-new-rp-action" onClick={() => { const q = quickActions[0]; if (q.prompt) void send(q.prompt); }}>
+                <span>▣</span>Diagnóstico completo <span className="kbd">Ctrl+D</span>
+              </button>
+              <button className="wb-new-rp-action" onClick={() => { setView("audit"); }}>
+                <span>△</span>Auditar seguridad <span className="kbd">Ctrl+A</span>
+              </button>
+              <button className="wb-new-rp-action" onClick={() => void send("Analiza las conexiones de red activas")}>
+                <span>◇</span>Escanea la red <span className="kbd">Ctrl+N</span>
+              </button>
+              <button className="wb-new-rp-action" onClick={() => void send("Lista los eventos recientes del sistema")}>
+                <span>☰</span>Últimos eventos <span className="kbd">Ctrl+E</span>
+              </button>
             </div>
           </div>
+        </div>
 
-          {/* Dialogs */}
+        {/* Dialogs */}
         {/* Settings dialog */}
         {providerSettingsOpen && (
           <div className="wb-new-overlay" onClick={() => setProviderSettingsOpen(false)}>
@@ -990,13 +1054,13 @@ export function Workbench({ onLogout }: WorkbenchProps) {
             </div>
           </div>
         )}
-      {/* Consent Dialog */}
-      {pendingConsent && (
-        <ConsentDialog
-          pending={pendingConsent}
-          onRespond={handleConsentResponse}
-        />
-      )}
+        {/* Consent Dialog */}
+        {pendingConsent && (
+          <ConsentDialog
+            pending={pendingConsent}
+            onRespond={handleConsentResponse}
+          />
+        )}
       </div>
     </WorkbenchProvider>
   );

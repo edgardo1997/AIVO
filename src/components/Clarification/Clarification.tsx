@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 interface ClarificationOption {
   id: string;
   label: string;
-  meta?: string;
+  description?: string;
 }
 
 export interface ClarificationEvent {
@@ -12,11 +12,12 @@ export interface ClarificationEvent {
   question: string;
   response_language: string;
   ambiguity_type: string;
-  candidate_options: ClarificationOption[];
+  options: ClarificationOption[];
   allow_free_text: boolean;
+  allow_none: boolean;
   risk_if_wrong?: string;
-  assumptions?: string[];
   expires_at?: string;
+  version: number;
 }
 
 interface Props {
@@ -73,7 +74,7 @@ export function Clarification({ event, onResolve, onCancel }: Props) {
         </p>
       )}
       <div role="radiogroup" aria-label="Clarification options">
-        {event.candidate_options.map((opt) => (
+        {event.options.map((opt) => (
           <label
             key={opt.id}
             style={{ display: "block", marginBottom: 8, cursor: stale ? "not-allowed" : "pointer" }}
@@ -85,10 +86,10 @@ export function Clarification({ event, onResolve, onCancel }: Props) {
               checked={selected === opt.id}
               disabled={stale}
               onChange={() => setSelected(opt.id)}
-              aria-label={`${opt.label} ${opt.meta || ""}`.trim()}
+              aria-label={`${opt.label} ${opt.description || ""}`.trim()}
             />
             <span style={{ marginLeft: 8 }}>{opt.label}</span>
-            {opt.meta && <span style={{ color: "var(--text-muted)", fontSize: 12, marginLeft: 8 }}>{opt.meta}</span>}
+            {opt.description && <span style={{ color: "var(--text-muted)", fontSize: 12, marginLeft: 8 }}>{opt.description}</span>}
           </label>
         ))}
       </div>
@@ -114,7 +115,7 @@ export function Clarification({ event, onResolve, onCancel }: Props) {
         <button className="btn btn-ghost" onClick={() => onCancel(event.clarification_id)} disabled={stale}>
           Cancel
         </button>
-        {event.candidate_options.length > 0 && (
+        {event.options.length > 0 && (
           <button className="btn btn-ghost" onClick={() => onResolve(event.clarification_id, "none", undefined)} disabled={stale}>
             None of these
           </button>

@@ -8,12 +8,14 @@ const sampleEvent = {
   question: "Which report do you mean?",
   response_language: "en",
   ambiguity_type: "entity",
-  candidate_options: [
-    { id: "a", label: "Downloads/report.pdf", meta: "modified today" },
-    { id: "b", label: "Desktop/report.pdf", meta: "modified July 30" },
-    { id: "c", label: "Documents/report.pdf", meta: "modified July 22" },
+  options: [
+    { id: "a", label: "Downloads/report.pdf", description: "modified today" },
+    { id: "b", label: "Desktop/report.pdf", description: "modified July 30" },
+    { id: "c", label: "Documents/report.pdf", description: "modified July 22" },
   ],
   allow_free_text: false,
+  allow_none: true,
+  version: 1,
   risk_if_wrong: "Wrong file could be deleted",
 };
 

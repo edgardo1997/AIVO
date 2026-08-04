@@ -149,12 +149,29 @@ export const v1Api = {
   verifyAuditIntegrity: () => fetchJSON<{ valid: boolean; entries: number; head: string }>(`${BASE}/v1/audit/integrity`),
 };
 
+export type ClarificationOption = { id: string; label: string; description?: string };
+export type ClarificationStreamEvent = {
+  type: "clarification";
+  clarification_id: string;
+  correlation_id: string;
+  question: string;
+  response_language: string;
+  ambiguity_type: string;
+  options: ClarificationOption[];
+  allow_free_text: boolean;
+  allow_none: boolean;
+  risk_if_wrong?: string;
+  expires_at: string;
+  version: number;
+};
+
 export type SentinelStreamEvent =
   | { type: "status"; stage: string }
   | { type: "pipeline"; pipeline: SentinelResponse | null; stage: string; planning_ms?: number; route?: "governed" | "conversation" }
   | { type: "meta"; provider?: string | null; model?: string | null }
   | { type: "delta"; text: string }
   | { type: "metrics"; time_to_first_token_ms: number; generation_ms: number; output_tokens: number; tokens_per_second: number }
+  | ClarificationStreamEvent
   | { type: "done" }
   | { type: "error"; message: string; detail?: string; retryable?: boolean; provider?: string | null };
 
@@ -324,6 +341,12 @@ export const api = {
     advisoryFeedback: (helpful: boolean, insightKind?: string, executionId?: string) =>
       postJSON<{ status: string; stats?: { total: number; helpful_pct: number; total_helpful: number; total_unhelpful: number } }>(
         `${BASE}/api/sentinel/advisory/feedback`, { helpful, insight_kind: insightKind, execution_id: executionId }),
+    resolveClarification: (clarification_id: string, body: { correlation_id: string; version: number; selected_candidate_id?: string; free_text_response?: string }) =>
+      postJSON<{ clarification_id: string; state: string; resolved_utterance: string; resolved_target: string; resolved_action: string; correlation_id: string; version: number }>(
+        `${BASE}/api/sentinel/clarifications/${encodeURIComponent(clarification_id)}/resolve`, body),
+    cancelClarification: (clarification_id: string, body: { correlation_id: string; version: number }) =>
+      postJSON<{ clarification_id: string; state: string }>(
+        `${BASE}/api/sentinel/clarifications/${encodeURIComponent(clarification_id)}/cancel`, body),
   },
 
   profile: {

@@ -145,6 +145,7 @@ class DatabaseManager:
         self._protect_database_files()
         self._verify_integrity()
         self._checkpoint_wal()
+        self._recover_interrupted_conversation_messages()
 
     def _verify_integrity(self) -> None:
         """Verify database integrity on startup (lightweight check)."""
@@ -1186,6 +1187,27 @@ class DatabaseManager:
                ORDER BY sequence LIMIT ?""",
             (user_id, session_id, max(1, min(limit, 500))),
         )
+
+    def _recover_interrupted_conversation_messages(self) -> None:
+        """On startup, mark in-flight assistant messages as interrupted."""
+        try:
+            with self.transaction(immediate=True) as conn:
+                updated_at = _utc_now()
+                cursor = conn.execute(
+                    """UPDATE conversation_messages_v2
+                       SET completion_state = 'interrupted',
+                           interrupted_reason = 'Sentinel closed before this response completed.',
+                           updated_at = ?
+                       WHERE completion_state IN ('pending', 'streaming')""",
+                    (updated_at,),
+                )
+                if cursor.rowcount:
+                    logger.info(
+                        "Startup recovery: %d in-flight conversation message(s) marked interrupted",
+                        cursor.rowcount,
+                    )
+        except Exception:
+            logger.exception("Conversation interruption recovery failed on startup")
 
     def close_connections(self) -> None:
         with self._connections_lock:

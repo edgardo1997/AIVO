@@ -270,6 +270,7 @@ from routers.events import router as events_router
 from routers.system_live import router as system_live_router
 from routers.consent import router as consent_router
 from routers.clarifications import router as clarifications_router
+from routers.continuations import router as continuations_router
 from sentinel.observability.endpoints import router as observability_router
 from modules.product_experience import router as product_router
 from modules.sentinel_plugins import router as sentinel_plugins_router
@@ -290,6 +291,7 @@ def _register_routes(application: FastAPI) -> None:
         (permissions_router, "/api/permissions", ["permissions"]),
         (sentinel_router, "/api/sentinel", ["sentinel"]),
         (clarifications_router, "/api/sentinel/clarifications", ["clarifications"]),
+        (continuations_router, "/api/sentinel/continuations", ["continuations"]),
         (v1_execute_router, "/v1", ["v1"]),
         (v1_policies_router, "/v1", ["v1"]),
         (v1_audit_router, "/v1", ["v1"]),

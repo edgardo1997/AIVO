@@ -98,6 +98,7 @@ a = Analysis(
         'sidecar.routers.v1.triggers',
         'sidecar.routers.v1.profile',
         'sidecar.routers.auth_jwt',
+        'sidecar.routers.continuations',
         # Services
         'sidecar.services',
         'sidecar.services.ai_service',
@@ -113,6 +114,7 @@ a = Analysis(
         'sidecar.services.proactive_service',
         'sidecar.services.rate_limiter',
         'sidecar.services.triggers_service',
+        'sidecar.services.continuation_executor',
         'sidecar.services.proactive_service',
         # Repositories
         'sidecar.repositories',
@@ -126,6 +128,7 @@ a = Analysis(
         'sidecar.repositories.cloud_authority_store',
         'sidecar.repositories.user_preferences_store',
         'sidecar.repositories.data_control_store',
+        'sidecar.repositories.execution_grant_repository',
         'sidecar.modules.sentinel_lifecycle',
         # Sentinel
         'sentinel',

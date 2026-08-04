@@ -102,7 +102,7 @@ class ContinuationStore:
             for raw in list(self._data.values()):
                 if raw.get("session_id") == session_id and raw.get("user_id") == user_id:
                     if raw.get("state") in (
-                        "clarification_resolved",
+                        "created",
                         "replanning",
                         "awaiting_confirmation",
                         "authorized",

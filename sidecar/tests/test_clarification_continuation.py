@@ -58,7 +58,7 @@ def test_resolve_creates_clarified_request_context(tmp_path):
     assert resolved.resolved_utterance == "report.pdf"
     cont = continuation_store.get(resolved.continuation_id)
     assert cont is not None
-    assert cont["state"] == ContinuationState.REPLANNING
+    assert cont["state"] == ContinuationState.CREATED
     assert cont["resolved_utterance"] == "report.pdf"
     assert cont["clarification_id"] == resolved.clarification_id
 

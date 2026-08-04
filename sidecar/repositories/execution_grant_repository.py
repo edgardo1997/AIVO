@@ -93,6 +93,45 @@ class ExecutionGrantRepository:
     def get_step(self, step_grant_id: str):
         return self._db.fetchone("SELECT * FROM step_execution_grants WHERE step_grant_id=?", (step_grant_id,))
 
+    def invalidate_by_plan_id(
+        self,
+        plan_id: str,
+        session_id: str,
+        reason: str,
+        invalidation_context: dict,
+        actor: dict,
+    ) -> int:
+        """Mark prior grants superseded when a clarification changes the request."""
+        if not plan_id or not session_id:
+            return 0
+        now = self._now()
+        updated = 0
+        with self._db.transaction(immediate=True) as conn:
+            rows = conn.execute(
+                "SELECT grant_id, status, plan_hash FROM plan_approval_grants WHERE plan_id=? AND session_id=? AND status IN ('pending','approved','in_progress')",
+                (plan_id, session_id),
+            ).fetchall()
+            for row in rows:
+                if conn.execute(
+                    "UPDATE plan_approval_grants SET status='superseded_by_clarification', consumed_at=? WHERE grant_id=? AND status=?",
+                    (now, row["grant_id"], row["status"]),
+                ).rowcount == 1:
+                    updated += 1
+                    audit_details = {
+                        **actor,
+                        "reason": reason,
+                        "prior_status": row["status"],
+                        "plan_id": plan_id,
+                        "plan_hash": row["plan_hash"],
+                        **invalidation_context,
+                        "replaced_grant_id": row["grant_id"],
+                    }
+                    self._audit(conn, row["grant_id"], "plan", "superseded_by_clarification", audit_details)
+        return updated
+
+    def get_invalidated(self, grant_id: str):
+        return self._db.fetchone("SELECT * FROM plan_approval_grants WHERE grant_id=? AND status='superseded_by_clarification'", (grant_id,))
+
     def _audit(self, conn, grant_id, kind, event, details):
         details = details or {}
         metadata = details.get("metadata", {})

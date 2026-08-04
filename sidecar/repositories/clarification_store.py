@@ -9,14 +9,20 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import threading
 import time
+import uuid
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from windows_acl import protect_path, sentinel_storage_paths
+
+_SCHEMA_VERSION = 1
+_MAX_RETAINED_RECORDS = 256
+_DEFAULT_TTL_SECONDS = 300
 
 
 @dataclass
@@ -61,8 +67,31 @@ def _default_path() -> Path:
     return base / "clarifications.json"
 
 
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _is_expired(expires_at: str) -> bool:
+    if not expires_at:
+        return False
+    try:
+        return expires_at <= _utc_now()
+    except Exception:
+        return False
+
+
 class ClarificationStore:
-    """Thread-safe JSON file store for clarification records."""
+    """Thread-safe, atomic JSON file store for clarification records.
+
+    Guarantees:
+    * atomic writes via a temporary file and replace;
+    * a backup of the previous file before each write;
+    * schema version tag for future migrations;
+    * recovery from truncated/corrupted JSON by falling back to the backup;
+    * bounded retention (last _MAX_RETAINED_RECORDS terminal records);
+    * thread-safe reads and writes via an RLock;
+    * no secret or prompt fields persisted.
+    """
 
     def __init__(self, path: Optional[Path] = None):
         self._path = path or _default_path()
@@ -71,24 +100,90 @@ class ClarificationStore:
         self._data: Dict[str, Dict[str, Any]] = {}
         self._load()
 
+    @property
+    def _backup_path(self) -> Path:
+        return self._path.with_suffix(".json.bak")
+
     def _load(self) -> None:
+        """Load records from disk, recovering from corruption when possible."""
         if not self._path.exists():
             return
         try:
             with open(self._path, "r", encoding="utf-8") as f:
-                self._data = json.load(f)
-        except Exception:
-            self._data = {}
-
-    def _save(self) -> None:
-        try:
-            tmp = self._path.with_suffix(".json.tmp")
-            with open(tmp, "w", encoding="utf-8") as f:
-                json.dump(self._data, f, ensure_ascii=False, default=str)
-            tmp.replace(self._path)
-            protect_path(str(self._path), directory=False)
+                payload = json.load(f)
+            if self._validate_payload(payload):
+                self._data = payload["records"]
+                return
         except Exception:
             pass
+
+        # Attempt backup recovery.
+        if self._backup_path.exists():
+            try:
+                with open(self._backup_path, "r", encoding="utf-8") as f:
+                    payload = json.load(f)
+                if self._validate_payload(payload):
+                    self._data = payload["records"]
+                    return
+            except Exception:
+                pass
+
+        # Unrecoverable: start empty.
+        self._data = {}
+
+    def _validate_payload(self, payload: Any) -> bool:
+        if not isinstance(payload, dict):
+            return False
+        if payload.get("schema_version") != _SCHEMA_VERSION:
+            return False
+        records = payload.get("records")
+        return isinstance(records, dict)
+
+    def _save(self) -> None:
+        """Atomic write with backup and safe permissions."""
+        with self._lock:
+            payload = {"schema_version": _SCHEMA_VERSION, "records": self._data}
+            tmp = self._path.with_suffix(f".json.tmp.{uuid.uuid4().hex}")
+            try:
+                with open(tmp, "w", encoding="utf-8") as f:
+                    json.dump(payload, f, ensure_ascii=False, default=str)
+                tmp.replace(self._path)
+                # Keep a backup of the new file for corruption recovery.
+                try:
+                    shutil.copy2(self._path, self._backup_path)
+                except Exception:
+                    pass
+                try:
+                    protect_path(str(self._path), directory=False)
+                except Exception:
+                    pass
+            except Exception:
+                if tmp.exists():
+                    try:
+                        tmp.unlink()
+                    except Exception:
+                        pass
+                raise
+
+    def _compact(self) -> int:
+        """Remove oldest terminal records while keeping all active ones."""
+        with self._lock:
+            active = [k for k, v in self._data.items() if v.get("state") == "pending" and not _is_expired(v.get("expires_at", ""))]
+            terminal = [
+                (k, v) for k, v in self._data.items()
+                if v.get("state") != "pending" or _is_expired(v.get("expires_at", ""))
+            ]
+            if len(active) + len(terminal) <= _MAX_RETAINED_RECORDS:
+                return 0
+            terminal.sort(key=lambda item: item[1].get("created_at", "") or "", reverse=True)
+            keep = terminal[: max(0, _MAX_RETAINED_RECORDS - len(active))]
+            keep_keys = set(active) | {k for k, _ in keep}
+            removed = 0
+            for k in list(self._data.keys()):
+                if k not in keep_keys:
+                    del self._data[k]
+                    removed += 1
+            return removed
 
     def get(self, clarification_id: str) -> Optional[ClarificationRecord]:
         with self._lock:
@@ -100,6 +195,7 @@ class ClarificationStore:
     def put(self, record: ClarificationRecord) -> None:
         with self._lock:
             self._data[record.clarification_id] = record.to_dict()
+            self._compact()
             self._save()
 
     def get_pending(
@@ -107,24 +203,24 @@ class ClarificationStore:
     ) -> List[ClarificationRecord]:
         with self._lock:
             out = []
-            now = datetime.now(timezone.utc).isoformat()
             for raw in list(self._data.values()):
                 rec = ClarificationRecord.from_dict(raw)
-                if (
-                    rec.session_id == session_id
-                    and rec.user_id == user_id
-                    and rec.state == "pending"
-                    and rec.expires_at > now
-                ):
+                if rec.session_id == session_id and rec.user_id == user_id and rec.state == "pending":
                     out.append(rec)
-            return out
+            # Expire while loading.
+            for rec in out:
+                if _is_expired(rec.expires_at):
+                    raw = self._data[rec.clarification_id]
+                    raw["state"] = "expired"
+            if any(_is_expired(rec.expires_at) for rec in out):
+                self._save()
+            return [rec for rec in out if not _is_expired(rec.expires_at)]
 
     def clear_expired(self) -> int:
         with self._lock:
-            now = datetime.now(timezone.utc).isoformat()
             expired = [
                 cid for cid, raw in self._data.items()
-                if raw.get("state") == "pending" and raw.get("expires_at", "") <= now
+                if raw.get("state") == "pending" and _is_expired(raw.get("expires_at", ""))
             ]
             for cid in expired:
                 self._data[cid]["state"] = "expired"
@@ -152,3 +248,14 @@ class ClarificationStore:
     def all_records(self) -> List[ClarificationRecord]:
         with self._lock:
             return [ClarificationRecord.from_dict(raw) for raw in self._data.values()]
+
+    def destroy_for_testing(self) -> None:
+        """Remove persisted files. Only for tests."""
+        with self._lock:
+            self._data = {}
+            for p in (self._path, self._backup_path):
+                if p.exists():
+                    try:
+                        p.unlink()
+                    except Exception:
+                        pass

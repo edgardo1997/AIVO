@@ -82,7 +82,8 @@ class _FakeOrchestrator:
         self._tool_gateway = SimpleNamespace(_confirmation_broker=_FakeBroker())
 
     async def process(self, utterance, *, identity=None, session_id=None, dry_run=False, approved_plan_grant_id=None, timeout=None):
-        result = SimpleNamespace(plan=self._plan, error=self._error)
+        # Mirror the real ExecutionResult contract: presentation defaults to None.
+        result = SimpleNamespace(plan=self._plan, error=self._error, presentation=None)
         if not dry_run:
             result.tool_result = SimpleNamespace(success=self._approved)
             result.execution_id = "exec-1"

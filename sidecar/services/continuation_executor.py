@@ -224,8 +224,9 @@ class ContinuationExecutor:
 
             if result and not getattr(result, "error", None) and getattr(result, "approved", False):
                 ctx.transition(ContinuationState.VERIFIED_COMPLETED)
-                ctx.result_summary = getattr(result, "presentation", {}).get("summary", "") or "execution_verified"
-                ctx.execution_id = getattr(result, "execution_id", "")
+                presentation = getattr(result, "presentation", None) or {}
+                ctx.result_summary = presentation.get("summary", "") or "execution_verified"
+                ctx.execution_id = getattr(result, "execution_id", "") or ""
                 ctx.audit_events.append({
                     "event": "execution_verified",
                     "continuation_id": ctx.continuation_id,

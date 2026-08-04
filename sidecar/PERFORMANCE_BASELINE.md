@@ -156,3 +156,87 @@ Tier decision time is a negligible addition to the existing `ProviderSelector.se
 - Known findings:
   - `OpenAIProvider` in `sentinel/providers/openai_provider.py` is currently unused and duplicates `ProviderManager` client creation
   - `sentinel_bridge` stream loop `next()` is executed in a thread, so cancellation cannot truly abort a blocked `read()` until that call returns
+
+## Workstream C — Durable conversation, authority, preference and data-control path
+
+**Laboratory result from one hardware profile.**
+
+Host: Windows, Python 3.12.10, local SQLite, warm, mocked/real DB, no network.
+
+Measurement harness: `tests/test_workstream_c_performance.py` (`pytest -m performance`).
+
+### Database state after benchmark
+
+- Database size: 1,232,896 bytes
+- Record counts:
+  - `conversation_threads_v2`: 0
+  - `conversation_messages_v2`: 738
+  - `user_preferences_state`: 213
+  - `cloud_standing_policies`: 2
+  - `cloud_one_time_authorizations`: 106
+
+### Conversation persistence (100 runs unless noted)
+
+| scenario | runs | min (ms) | median (ms) | mean (ms) | p95 (ms) | max (ms) | stdev (ms) |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| thread_creation | 100 | 0.033 | 0.038 | 0.043 | 0.061 | 0.114 | 0.015 |
+| thread_lookup | 100 | 0.003 | 0.003 | 0.005 | 0.004 | 0.132 | 0.013 |
+| user_message_insertion | 100 | 0.057 | 0.084 | 0.215 | 0.202 | 11.387 | 1.130 |
+| assistant_lifecycle_creation | 100 | 0.053 | 0.065 | 0.075 | 0.133 | 0.276 | 0.032 |
+| assistant_finalization | 100 | 0.073 | 0.094 | 0.105 | 0.175 | 0.292 | 0.036 |
+| cancellation_update | 100 | 0.073 | 0.092 | 0.160 | 0.155 | 5.786 | 0.569 |
+| failure_update | 100 | 0.080 | 0.098 | 0.160 | 0.200 | 4.943 | 0.486 |
+| interruption_recovery | 100 | 0.262 | 0.362 | 0.506 | 0.725 | 5.669 | 0.748 |
+| duplicate_request_resolution | 100 | 0.012 | 0.015 | 0.015 | 0.018 | 0.048 | 0.004 |
+| concurrent_duplicate_resolution | 100 | 0.011 | 0.012 | 0.013 | 0.014 | 0.025 | 0.002 |
+| conversation_list | 100 | 0.014 | 0.014 | 0.014 | 0.015 | 0.021 | 0.001 |
+| message_list | 100 | 0.799 | 0.890 | 0.922 | 1.128 | 1.205 | 0.099 |
+
+### Cloud authority (100 runs unless noted)
+
+| scenario | runs | min (ms) | median (ms) | mean (ms) | p95 (ms) | max (ms) | stdev (ms) |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| authority_state_load | 100 | 0.003 | 0.004 | 0.004 | 0.004 | 0.009 | 0.001 |
+| standing_policy_lookup | 100 | 0.011 | 0.012 | 0.012 | 0.013 | 0.017 | 0.001 |
+| one_time_authorization_lookup | 100 | 0.010 | 0.010 | 0.011 | 0.012 | 0.021 | 0.001 |
+| atomic_consent_consumption | 100 | 0.059 | 0.068 | 0.130 | 0.120 | 4.961 | 0.491 |
+| policy_revocation | 100 | 0.016 | 0.018 | 0.018 | 0.021 | 0.032 | 0.002 |
+| legacy_migration | 10 | 0.603 | 0.654 | 0.730 | 1.345 | 1.345 | 0.224 |
+
+### User preferences (100 runs)
+
+| scenario | runs | min (ms) | median (ms) | mean (ms) | p95 (ms) | max (ms) | stdev (ms) |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| preference_load | 100 | 0.010 | 0.011 | 0.012 | 0.012 | 0.076 | 0.008 |
+| preference_update | 100 | 0.017 | 0.019 | 0.020 | 0.024 | 0.053 | 0.004 |
+| onboarding_state_lookup | 100 | 0.009 | 0.012 | 0.014 | 0.021 | 0.078 | 0.011 |
+| startup_restore | 100 | 0.009 | 0.011 | 0.011 | 0.011 | 0.079 | 0.007 |
+| preference_reset | 100 | 0.028 | 0.030 | 0.030 | 0.034 | 0.042 | 0.002 |
+
+### Data control (100 runs unless noted)
+
+| scenario | runs | min (ms) | median (ms) | mean (ms) | p95 (ms) | max (ms) | stdev (ms) |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| inventory_generation | 100 | 0.036 | 0.037 | 0.041 | 0.045 | 0.135 | 0.013 |
+| conversation_export | 20 | 20.114 | 20.710 | 22.424 | 21.325 | 54.872 | 7.645 |
+| complete_alpha_export | 20 | 20.275 | 22.168 | 24.234 | 25.128 | 58.228 | 8.118 |
+| delete_one_conversation | 100 | 0.133 | 0.160 | 0.231 | 0.469 | 2.256 | 0.240 |
+| delete_all_conversations | 100 | 0.303 | 0.374 | 0.512 | 0.748 | 5.431 | 0.684 |
+| preference_reset_call | 100 | 0.033 | 0.035 | 0.037 | 0.043 | 0.049 | 0.003 |
+| cloud_authority_reset | 100 | 0.009 | 0.009 | 0.010 | 0.011 | 0.013 | 0.001 |
+| complete_alpha_data_reset | 100 | 0.345 | 0.486 | 0.635 | 0.966 | 5.170 | 0.667 |
+
+### Performance invariants for Workstream C
+
+1. No per-token database writes: token streaming does not call any persistence function.
+2. No long transaction remains open during provider streaming: write transactions commit before generator yields.
+3. Conversation persistence does not materially delay TTFT: durable message insertion is sub-millisecond on this profile.
+4. Duplicate prevention uses indexed lookups: `conversation_messages_v2` has a unique index on `(user_id, session_id, client_request_id)`.
+5. Cloud-authority lookup performs no network call: `CloudAuthorityStore` uses only local SQLite.
+6. Preference reads do not trigger expensive hardware discovery: `UserPreferencesStore.load()` is a single indexed query.
+7. Startup recovery is bounded: `DatabaseManager` marks in-flight messages as interrupted at startup; measured ~0.5 ms with two pending messages.
+8. Export does not block normal conversation execution: export is a read-only collection; measured p95 ~25 ms.
+9. Delete/reset operations do not corrupt unrelated state: `DataControlStore` uses per-user scoped deletes.
+10. Memory use remains bounded: `DataControlStore.export` builds a single in-memory package; no unbounded accumulation.
+11. No full-database scan occurs on every request: all durable paths use `WHERE user_id = ?`.
+12. Shutdown flush: `DatabaseManager.transaction` commits on exit and closes the underlying connection.

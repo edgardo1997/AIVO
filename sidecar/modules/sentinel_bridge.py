@@ -539,10 +539,12 @@ async def sentinel_chat_stream(body: dict, request: Request):
         if ambiguity.ask_clarification or understanding.requires_clarification:
             log.info("[CLARIFICATION] Material ambiguity; pausing pipeline")
             clarification_svc = ClarificationService()
+            auth_session_id = identity.get("metadata", {}).get("session_id", "") or session_id or ""
+            log.info(f"[CLARIFICATION] auth_session_id={auth_session_id!r} metadata={identity.get('metadata', {})!r}")
             clarification = clarification_svc.create(
                 understanding=understanding,
                 decision=ambiguity,
-                session_id=session_id or "",
+                session_id=auth_session_id,
                 user_id=identity.get("user_id", ""),
                 original_request_id=correlation_id,
                 response_language=lang_decision.response_language,

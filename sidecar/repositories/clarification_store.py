@@ -75,7 +75,7 @@ def _is_expired(expires_at: str) -> bool:
     if not expires_at:
         return False
     try:
-        return expires_at <= _utc_now()
+        return expires_at < _utc_now()
     except Exception:
         return False
 

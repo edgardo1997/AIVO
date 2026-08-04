@@ -16,7 +16,7 @@ from repositories.clarification_store import ClarificationRecord, ClarificationS
 from services import input_understanding_service as iu
 
 
-DEFAULT_TTL_SECONDS = 300
+DEFAULT_TTL_SECONDS = 3600
 
 
 class ClarificationService:
@@ -119,7 +119,7 @@ class ClarificationService:
             return None
         if record.version != version:
             return None
-        if record.expires_at <= self._now():
+        if record.expires_at < self._now():
             record.state = "expired"
             self._store.put(record)
             return None

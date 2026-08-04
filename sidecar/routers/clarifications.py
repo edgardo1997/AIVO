@@ -56,6 +56,8 @@ async def resolve_clarification(
         "resolved_action": record.resolved_action,
         "correlation_id": record.correlation_id,
         "version": record.version,
+        "continuation_id": record.continuation_id,
+        "requires_confirmation": True,
     }
 
 

@@ -52,6 +52,7 @@ class ClarificationRecord:
     resolved_utterance: str = ""
     resolved_target: str = ""
     resolved_action: str = ""
+    continuation_id: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)

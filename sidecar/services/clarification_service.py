@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional
 
 from repositories.clarification_store import ClarificationRecord, ClarificationStore
 from services import input_understanding_service as iu
+from services.clarification_continuation import ContinuationService, MaterialChangeFlags
 
 
 DEFAULT_TTL_SECONDS = 3600
@@ -22,8 +23,13 @@ DEFAULT_TTL_SECONDS = 3600
 class ClarificationService:
     """Create, resolve and cancel clarifications safely."""
 
-    def __init__(self, store: Optional[ClarificationStore] = None):
+    def __init__(
+        self,
+        store: Optional[ClarificationStore] = None,
+        continuation_service: Optional[ContinuationService] = None,
+    ):
         self._store = store or ClarificationStore()
+        self._continuation = continuation_service or ContinuationService()
 
     def _now(self) -> str:
         return datetime.now(timezone.utc).isoformat()
@@ -152,6 +158,21 @@ class ClarificationService:
 
         record.resolved_action = "proceed"
         record.state = "consumed"
+
+        # Treat the clarified answer as a new interpretation.
+        flags = MaterialChangeFlags(
+            intent_changed=True,
+            target_changed=bool(record.resolved_target),
+            arguments_changed=bool(record.free_text_response),
+        )
+        continuation = self._continuation.create_continuation(
+            record=record,
+            resolved_utterance=record.resolved_utterance,
+            resolved_target=record.resolved_target,
+            material_change_flags=flags,
+            idempotency_key=f"{record.clarification_id}:{record.version}",
+        )
+        record.continuation_id = continuation.continuation_id
         self._store.put(record)
         return record
 

@@ -272,11 +272,13 @@ from sentinel.observability.endpoints import router as observability_router
 from modules.product_experience import router as product_router
 from modules.sentinel_plugins import router as sentinel_plugins_router
 from modules.automations import router as automations_router
+from routers.onboarding import router as onboarding_router
 
 
 def _register_routes(application: FastAPI) -> None:
     for router, prefix, tags in (
         (auth_jwt_router, "", ["auth"]),
+        (onboarding_router, "", ["onboarding"]),
         (admin_router, "", None),
         (fleet_router, "", ["fleet"]),
         (help_router, "", ["help"]),

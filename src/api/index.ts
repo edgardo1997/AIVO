@@ -473,4 +473,10 @@ export const api = {
     resetCircuitBreaker: () => postJSON<{ status: string }>(`${BASE}/api/recovery/reset-circuit-breaker`),
     healthCheck: () => fetchJSON<HealthCheckResult>(`${BASE}/api/recovery/health-check`),
   },
+
+  onboarding: {
+    state: () => fetchJSON<Record<string, unknown>>(`${BASE}/api/onboarding/state`),
+    complete: (body: Record<string, unknown>) => postJSON<Record<string, unknown>>(`${BASE}/api/onboarding/complete`, body),
+    authorizeCloud: (body: Record<string, unknown>) => postJSON<Record<string, unknown>>(`${BASE}/api/onboarding/authorize-cloud`, body),
+  },
 };

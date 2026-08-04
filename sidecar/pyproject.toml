@@ -10,6 +10,7 @@ ignore = ["E402", "E501", "F401"]
 "tests/*" = ["E712"]
 
 [tool.pytest.ini_options]
+
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 markers = [
@@ -22,4 +23,5 @@ markers = [
     "performance: Benchmarks that intentionally repeat comparatively expensive operations",
     "stability: Tests that validate resilience against crashes, corruption, and network failures",
     "alpha_constitutional_gate: Tests that validate Alpha constitutional guarantees",
+    "local_runtime: Fixture marker for onboarding local runtime state in tests",
 ]

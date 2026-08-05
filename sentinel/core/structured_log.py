@@ -21,6 +21,8 @@ class StructuredFormatter(logging.Formatter):
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),
+            "build_id": getattr(record, "build_id", ""),
+            "correlation_id": getattr(record, "correlation_id", ""),
         }
         if record.exc_info and record.exc_info[0]:
             entry["exception"] = self.formatException(record.exc_info)

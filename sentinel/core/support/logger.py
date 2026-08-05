@@ -8,12 +8,14 @@ import logging.handlers
 from pathlib import Path
 from typing import Any, Optional
 
+from ..structured_log import StructuredFormatter
 from .correlation import CorrelationFilter
 
 
 def setup_structured_logging(
     build_id: str = "",
     log_dir: Optional[Path] = None,
+    log_file: Optional[Path] = None,
     max_bytes: int = 5 * 1024 * 1024,
     backup_count: int = 5,
     level: int = logging.INFO,
@@ -22,7 +24,8 @@ def setup_structured_logging(
     if log_dir is None:
         log_dir = Path.home() / ".sentinel" / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
-    log_file = log_dir / "sentinel.jsonl"
+    if log_file is None:
+        log_file = log_dir / "sentinel.jsonl"
 
     handler = logging.handlers.RotatingFileHandler(
         str(log_file),
@@ -31,10 +34,11 @@ def setup_structured_logging(
         encoding="utf-8",
     )
     handler.addFilter(CorrelationFilter(build_id=build_id))
-    handler.setFormatter(logging.Formatter("%(message)s"))
+    handler.setFormatter(StructuredFormatter())
 
     console = logging.StreamHandler()
-    console.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
+    console.addFilter(CorrelationFilter(build_id=build_id))
+    console.setFormatter(StructuredFormatter())
 
     root = logging.getLogger()
     root.setLevel(level)

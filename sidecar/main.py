@@ -9,7 +9,6 @@ import socket
 import threading
 import time as time_mod
 from contextlib import asynccontextmanager
-from logging.handlers import RotatingFileHandler
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -76,27 +75,23 @@ from fastapi.responses import JSONResponse
 
 
 def _configure_logging() -> logging.Logger:
+    from sentinel.core.support.logger import setup_structured_logging
+    from sentinel.security.secret_redaction import SecretRedactionFilter
+
     log_dir = os.environ.get("SENTINEL_LOG_DIR", str(sentinel_storage_paths()["logs"]))
     os.makedirs(log_dir, exist_ok=True)
     protect_path(log_dir, directory=True)
-    handlers = [
-        logging.StreamHandler(sys.stdout),
-        RotatingFileHandler(
-            os.path.join(log_dir, "sidecar.log"),
-            maxBytes=5 * 1024 * 1024,
-            backupCount=3,
-            encoding="utf-8",
-        ),
-    ]
-    logging.basicConfig(
+    log_file = Path(log_dir) / "sidecar.jsonl"
+    setup_structured_logging(
+        build_id=_BUILD_INFO["build_id"],
+        log_dir=Path(log_dir),
+        log_file=log_file,
+        max_bytes=5 * 1024 * 1024,
+        backup_count=3,
         level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        handlers=handlers,
     )
-    from sentinel.security.secret_redaction import SecretRedactionFilter
-
     logging.getLogger().addFilter(SecretRedactionFilter())
-    protect_path(os.path.join(log_dir, "sidecar.log"), directory=False)
+    protect_path(str(log_file), directory=False)
     return logging.getLogger("sentinel")
 
 

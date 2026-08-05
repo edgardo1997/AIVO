@@ -15,6 +15,8 @@ import urllib.request
 import urllib.error
 from logging.handlers import RotatingFileHandler
 
+from sentinel.security.secret_redaction import SecretRedactionFilter
+
 SUPERVISOR_VERSION = "1.0.1"
 SIDECAR_HOST = os.environ.get("SENTINEL_HOST", "127.0.0.1")
 SIDECAR_PORT = int(os.environ.get("SENTINEL_PORT", "8765"))
@@ -101,6 +103,8 @@ def _configure_logging():
             ),
         ],
     )
+    for handler in logging.root.handlers:
+        handler.addFilter(SecretRedactionFilter())
     return logging.getLogger("sentinel.supervisor")
 
 

@@ -51,8 +51,9 @@ def test_release_pipeline_smoke_tests_packaged_binary():
 def test_installer_contains_sidecar_and_onboarding():
     tauri = json.loads((ROOT / "src-tauri" / "tauri.conf.json").read_text(encoding="utf-8"))
     assert "../sidecar/dist/sidecar.exe" in tauri["bundle"]["resources"]
-    app = (ROOT / "src" / "App.tsx").read_text(encoding="utf-8")
-    assert "sentinel.onboarding.v1" in app
+    # onboarding persistence key must be present in the frontend source bundle
+    onboarding = (ROOT / "src" / "components" / "Dashboard" / "Dashboard.tsx").read_text(encoding="utf-8")
+    assert "sentinel.onboarding.v1" in onboarding
 
 
 @pytest.mark.security

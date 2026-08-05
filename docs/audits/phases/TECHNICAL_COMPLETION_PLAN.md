@@ -20,13 +20,13 @@
 | FASE 6 | COMPLETADO (internal-alpha) | — | — | — | — |
 | FASE 10 | COMPLETADO | — | — | — | — |
 | FASE 11 | COMPLETADO | — | — | — | — |
-| FASE 14 | PARCIAL — build ID embebido | `endpoint /api/support` ausente; logs sin `build_id`; package ZIP no generado | GUI manual (`docs/validation/FASE14_GUI_MANUAL_CHECKLIST.md`) | BLOQUE F | Implementar backend de diagnóstico y logs estructurados |
+| FASE 14 | PARCIAL — build ID embebido; diagnostic backend; logs estructurados con build_id/correlation_id | Ninguno técnico | GUI manual (`docs/validation/FASE14_GUI_MANUAL_CHECKLIST.md`) | BLOQUE F | No bloquear; continuar fases técnicas |
 | BLOQUE A | COMPLETADO | — | — | — | — |
 | BLOQUE B | COMPLETADO | — | — | — | — |
 | BLOQUE C | COMPLETADO | — | — | — | — |
 | BLOQUE D | COMPLETADO | — | — | — | — |
 | BLOQUE E | COMPLETADO | — | — | — | — |
-| BLOQUE F | PARCIAL | Deuda técnica FASE 14 | Validación manual GUI | FASE 14 | Cerrar deuda técnica FASE 14 |
+| BLOQUE F | PARCIAL | Deuda Rust/Tauri logs; frontend logging wrapper; encriptación logs en disco | Validación manual GUI | FASE 14 | Evaluar si priorizar Rust/frontend o avanzar ProviderManager |
 | BLOQUE G | NO DEFINIDO | Alcance por definir | — | FASE 7, 8, 9, 13 (sin documentar) | Documentar G1/G2/G3 y decidir qué parte es ejecutable sin GUI |
 
 ---

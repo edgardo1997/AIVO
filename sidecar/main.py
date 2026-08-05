@@ -198,6 +198,7 @@ async def sentinel_lifespan(_app: FastAPI):
 
 
 from modules.auth import auth_middleware
+from sentinel.core.support.correlation import new_correlation_id, set_correlation_id
 
 
 def _ensure_session_token():
@@ -267,8 +268,35 @@ def _create_app() -> FastAPI:
         allow_credentials=False,
         allow_private_network=True,
     )
+    application.middleware("http")(correlation_middleware)
     application.middleware("http")(auth_middleware)
     return application
+
+
+async def correlation_middleware(request: Request, call_next):
+    """Validate/generate correlation_id and propagate it through logs and responses."""
+    from starlette.responses import Response
+    from sentinel.core.support.correlation import get_correlation_id
+
+    header = request.headers.get("X-Correlation-ID", "")
+    if header and _is_valid_correlation_id(header):
+        cid = header
+        set_correlation_id(cid)
+    else:
+        if header:
+            log.warning("Invalid correlation ID received: %s", repr(header[:32]))
+        cid = new_correlation_id()
+    response: Response = await call_next(request)
+    response.headers["X-Correlation-ID"] = cid
+    return response
+
+
+def _is_valid_correlation_id(value: str) -> bool:
+    if len(value) > 64:
+        return False
+    if any(c in value for c in "\r\n\t\x00<>/\\"):
+        return False
+    return bool(value)
 
 
 app = _create_app()
@@ -410,13 +438,30 @@ async def rate_limit_middleware(request: Request, call_next):
     return response
 
 
+def _is_valid_correlation_id(value: str) -> bool:
+    if len(value) > 64:
+        return False
+    if any(c in value for c in "\r\n\t\x00<>/\\"):
+        return False
+    return bool(value)
+
+
 @app.middleware("http")
 async def correlation_middleware(request: Request, call_next):
-    from sentinel.core.support import get_correlation_id, set_correlation_id
-    cid = request.headers.get("X-Correlation-ID") or str(uuid.uuid4().hex)
-    set_correlation_id(cid)
+    from sentinel.core.support import new_correlation_id, set_correlation_id
+
+    header = request.headers.get("X-Correlation-ID", "")
+    if header and _is_valid_correlation_id(header):
+        cid = header
+        set_correlation_id(cid)
+    else:
+        if header:
+            log.warning("Invalid correlation ID received: %s", repr(header[:32]))
+        cid = new_correlation_id()
     response = await call_next(request)
-    response.headers["X-Correlation-ID"] = get_correlation_id()
+    response.headers["X-Correlation-ID"] = cid
+    # ensure downstream logs can read the current ID
+    set_correlation_id(cid)
     return response
 
 

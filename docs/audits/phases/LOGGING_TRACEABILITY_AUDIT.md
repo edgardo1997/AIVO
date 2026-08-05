@@ -108,16 +108,25 @@ state, nonce, passwords, private keys, vault contents, file contents
 
 ---
 
-## 6. Próximas acciones
+## 6. Correcciones aplicadas
 
-1. Eliminar log de token en `sidecar/main.py`.
-2. Aplicar `SecretRedactionFilter` al supervisor.
-3. Agregar `build_id` y `correlation_id` a todos los logs estructurados.
-4. Crear taxonomía de event codes (`docs/architecture/ERROR_EVENT_TAXONOMY.md`).
-5. Normalizar excepciones antes de loguear.
-6. Asegurar que el ZIP de diagnóstico no contenga secrets.
-7. Agregar tests:
-   - `test_build_id_in_every_structured_log`
-   - `test_secret_redaction_before_write`
-   - `test_diagnostic_zip_excludes_secrets`
+- `SlidingWindowRateLimiter` ahora acepta `now=...` y un `Clock` abstraído (`MonotonicClock` / `FakeClock`).
+- `sidecar/tests/test_rate_limiter.py` pasa: límite, retry-after, bucket acotado, concurrencia.
+- `test_release_contract.py::test_installer_contains_sidecar_and_onboarding` apunta a `Dashboard.tsx` donde vive la clave `sentinel.onboarding.v1`.
+- `correlation_middleware` en `sidecar/main.py` valida `X-Correlation-ID` y regenera si es inválido.
+- `test_correlation_end_to_end.py` demuestra propagación end-to-end.
+- `setup_structured_logging` usa `StructuredFormatter` con `build_id` y `correlation_id` en cada línea.
+- `SecretRedactionFilter` aplica a supervisor y handlers de logs.
+- Regresión completa:
+  - `python -m pytest -q` → 3261 passed, 16 skipped, 0 failed
+  - `npm test` → 154 passed
+  - `cargo test` → 5 passed
+  - `cargo clippy` → clean
+
+## 7. Pendientes documentados
+
+- Frontend: sin `console.log` activo; auditoría realizada, riesgo bajo.
+- Tauri/Rust: logging sigue siendo `eprintln!`; se necesita `tracing` o `log` para build ID/correlation ID.
+- Migración global de logs legacy = PARCIAL.
+- Encriptación de logs en disco = PENDIENTE.
    - `test_exception_normalized`

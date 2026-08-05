@@ -286,7 +286,8 @@ class SidecarLifecycle:
     def __init__(self, port: int, instance_id: Optional[str] = None):
         self._instance_id = instance_id or str(uuid.uuid4())
         self._port = port
-        self._parent_pid = int(os.environ.get("SENTINEL_PARENT_PID", os.getppid()))
+        raw_parent = os.environ.get("SENTINEL_PARENT_PID", "")
+        self._parent_pid = int(raw_parent) if raw_parent.isdigit() else 0
         self._session_token = os.environ.get("SENTINEL_SESSION_TOKEN", "")
         self._lock: Optional[SidecarLock] = None
         self._monitor: Optional[ParentMonitor] = None
@@ -307,8 +308,9 @@ class SidecarLifecycle:
         self._lock.write()
         atexit.register(self._lock.remove)
 
-        self._monitor = ParentMonitor(self._parent_pid)
-        self._monitor.start()
+        if self._parent_pid and self._parent_pid > 1:
+            self._monitor = ParentMonitor(self._parent_pid)
+            self._monitor.start()
         logger.info("Sidecar registered instance=%s pid=%s parent=%s", self._instance_id, os.getpid(), self._parent_pid)
 
     def unregister(self) -> None:

@@ -102,22 +102,22 @@ export default function Support() {
 
   return (
     <div className="support-panel">
-      <h1>"Soporte y diagnóstico"</h1>
+      <h1>{"Soporte y diagnóstico"}</h1>
       <section className="support-section">
-        <h2>"Versión"</h2>
+        <h2>{"Versión"}</h2>
         <p className="support-line">
-          <strong>"Versión":</strong> {status?.version}
+          <strong>{"Versión"}:</strong> {status?.version}
         </p>
         <p className="support-line">
-          <strong>"Build ID":</strong> {status?.build_id}
+          <strong>{"Build ID"}:</strong> {status?.build_id}
         </p>
         <p className="support-line">
-          <strong>"Canal":</strong> {status?.channel}
+          <strong>{"Canal"}:</strong> {status?.channel}
         </p>
       </section>
 
       <section className="support-section">
-        <h2>"Estado del sistema"</h2>
+        <h2>{"Estado del sistema"}</h2>
         <ul className="support-list">
           <li>General: {status?.overall}</li>
           <li>Motor de Sentinel: {status?.local_ai}</li>
@@ -126,7 +126,7 @@ export default function Support() {
         </ul>
         {status && status.recent_errors.length > 0 && (
           <div>
-            <h3>"Errores recientes"</h3>
+            <h3>{"Errores recientes"}</h3>
             <ul className="support-error-list">
               {status.recent_errors.map((err, i) => (
                 <li key={i}>{err}</li>
@@ -137,33 +137,33 @@ export default function Support() {
       </section>
 
       <section className="support-section">
-        <h2>"Acciones"</h2>
+        <h2>{"Acciones"}</h2>
         <div className="support-actions">
           <button onClick={createDiagnostic} disabled={loading}>
-            "Crear diagnóstico"
+            {"Crear diagnóstico"}
           </button>
           <button onClick={repairConfig} disabled={loading}>
-            "Reparar configuración"
+            {"Reparar configuración"}
           </button>
         </div>
       </section>
 
       <section className="support-section">
-        <h2>"Restablecer Sentinel"</h2>
+        <h2>{"Restablecer Sentinel"}</h2>
         <div className="support-reset">
           <select value={resetLevel} onChange={(e) => setResetLevel(e.target.value)}>
-            <option value="interface">"Interfaz"</option>
-            <option value="configuration">"Configuración"</option>
-            <option value="full">"Completo"</option>
+            <option value="interface">{"Interfaz"}</option>
+            <option value="configuration">{"Configuración"}</option>
+            <option value="full">{"Completo"}</option>
           </select>
           <button onClick={reset} disabled={loading}>
-            "Restablecer"
+            {"Restablecer"}
           </button>
         </div>
       </section>
 
       <section className="support-section">
-        <h2>"Detalles técnicos"</h2>
+        <h2>Detalles técnicos</h2>
         <button onClick={() => setDetailsOpen((v) => !v)}>
           {detailsOpen ? "Ocultar" : "Ver detalles"}
         </button>

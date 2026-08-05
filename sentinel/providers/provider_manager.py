@@ -351,3 +351,39 @@ class ProviderManager:
             configured=pstate.get("configured", False),
             authenticated=pstate.get("authenticated", False),
         ).model_dump()
+
+    def execute_embedding(self, request: "EmbeddingRequest", provider: Optional[ProviderSpec] = None, model: str = "") -> "EmbeddingResult":
+        """Canonical embedding execution with CloudAuthority enforcement."""
+        from sentinel.core.model_schemas import CapabilityStatus, EmbeddingResult
+
+        if request.local_only:
+            raise RuntimeError("Local-only embedding not implemented in ProviderManager; use OllamaEmbeddingProvider or _TokenEmbeddingProvider")
+        resolved = provider or ProviderSpec(
+            id=request.provider_preference or "openrouter",
+            name=request.provider_preference or "openrouter",
+            task_types=[],
+            is_local=False,
+        )
+        self._assert_cloud_authorized(resolved, model or "text-embedding-3-small")
+        if resolved.id == "openrouter":
+            key = self._key_map.get("openrouter") or os.environ.get("OPENROUTER_API_KEY") or ""
+            from openai import OpenAI
+            client = OpenAI(api_key=key, base_url="https://openrouter.ai/api/v1")
+            vectors: List[List[float]] = []
+            dimensions = 0
+            for i in range(0, len(request.texts), 20):
+                batch = request.texts[i : i + 20]
+                resp = client.embeddings.create(input=batch, model=model or "openai/text-embedding-3-small")
+                for d in resp.data:
+                    vectors.append(d.embedding)
+                    if not dimensions:
+                        dimensions = len(d.embedding)
+            return EmbeddingResult(
+                provider=resolved.id,
+                model=model or "openai/text-embedding-3-small",
+                embeddings=vectors,
+                dimensions=dimensions,
+                semantic=True,
+                correlation_id=request.correlation_id,
+            )
+        raise RuntimeError(f"Embedding not implemented for provider {resolved.id}")

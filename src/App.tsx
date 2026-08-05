@@ -1,39 +1,33 @@
-import { useEffect, useState } from "react";
+import { useCallback } from "react";
 import "./index.css";
 import { Workbench } from "./components/Workbench/Workbench";
 import { Onboarding } from "./components/Onboarding/Onboarding";
 import { WelcomeScreen } from "./components/Welcome/WelcomeScreen";
 import { Toast } from "./components/ui/Toast";
 import { AppProvider } from "./contexts/AppContext";
-import { auth, isLoggedIn } from "./api";
-
-const ONBOARDING_KEY = "sentinel.onboarding.v1";
+import { SessionProvider, useAppSession } from "./contexts/SessionContext";
+import { auth } from "./api";
+import { markOnboardingComplete } from "./services/SessionService";
 
 function AppContent() {
-  const [session, setSession] = useState<"checking" | "none" | "expired" | "valid">("checking");
-  const [onboarding, setOnboarding] = useState(() => localStorage.getItem(ONBOARDING_KEY) !== "complete");
+  const { session, loading, refresh } = useAppSession();
 
-  useEffect(() => {
-    const valid = isLoggedIn();
-    setSession(valid ? "valid" : "none");
-  }, []);
+  const finishOnboarding = useCallback(() => {
+    markOnboardingComplete();
+    void refresh();
+  }, [refresh]);
 
-  const finishOnboarding = () => {
-    localStorage.setItem(ONBOARDING_KEY, "complete");
-    setOnboarding(false);
-  };
+  const handleLogin = useCallback(async (_method: "local" | "google" | "microsoft") => {
+    // TODO: real OAuth will call the appropriate auth flow and then refresh
+    void refresh();
+  }, [refresh]);
 
-  const handleLogin = async (_method: "local" | "google" | "microsoft") => {
-    if (session === "expired") setSession("none");
-    setSession("valid");
-  };
-
-  const handleLogout = () => {
+  const handleLogout = useCallback(() => {
     auth.logout();
-    setSession("none");
-  };
+    void refresh();
+  }, [refresh]);
 
-  if (session === "checking") {
+  if (loading || !session || session.status === "checking") {
     return (
       <div className="app-layout workbench-layout" style={{ alignItems: "center", justifyContent: "center" }}>
         <div role="status" aria-live="polite" style={{ color: "var(--text-secondary)" }}>
@@ -43,7 +37,7 @@ function AppContent() {
     );
   }
 
-  if (session === "none" || session === "expired") {
+  if (session.status === "unauthenticated" || session.status === "expired" || session.status === "error") {
     return (
       <div className="app-layout workbench-layout">
         <WelcomeScreen onLogin={handleLogin} />
@@ -57,12 +51,20 @@ function AppContent() {
       <main className="main-content workbench-main">
         <Workbench onLogout={handleLogout} />
       </main>
-      {onboarding && <Onboarding onComplete={finishOnboarding} onSkip={finishOnboarding} />}
+      {!session.onboardingCompleted && (
+        <Onboarding onComplete={finishOnboarding} onSkip={finishOnboarding} />
+      )}
       <Toast />
     </div>
   );
 }
 
 export default function App() {
-  return <AppProvider><AppContent /></AppProvider>;
+  return (
+    <AppProvider>
+      <SessionProvider>
+        <AppContent />
+      </SessionProvider>
+    </AppProvider>
+  );
 }

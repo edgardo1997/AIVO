@@ -22,7 +22,7 @@ import { Profile } from "../Profile/Profile";
 import { ControlCenterView, MetricsView, ModelCenterView, ModesView } from "../Product";
 import { Reports } from "../Reports/Reports";
 import { Sentinel } from "../Sentinel/Sentinel";
-import { Settings } from "../Settings/Settings";
+import { SettingsShell } from "../Settings/SettingsShell";
 import Support from "../Support/Support";
 import { Triggers } from "../Triggers/Triggers";
 import { Vault } from "../Vault/Vault";
@@ -173,7 +173,7 @@ export function ViewRouter({ view, onNavigate }: { view: ViewKey; onNavigate?: (
     case "profile": return <Profile />;
     case "reports": return <Reports />;
     case "sentinel": return <Sentinel />;
-    case "settings": return <Settings />;
+    case "settings": return <SettingsShell />;
     case "support": return <Support />;
     case "triggers": return <Triggers />;
     case "vault": return <Vault />;

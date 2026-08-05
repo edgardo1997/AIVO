@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useWorkbench } from "./WorkbenchContext";
 import { useAppState } from "../../contexts/AppContext";
+import { useAppSession } from "../../contexts/SessionContext";
 import { userMenu, developerMenu } from "../Views/ViewRouter";
 
 function formatGroup(ts: number): string {
@@ -20,10 +21,17 @@ export function WorkbenchSidebar() {
     accountOpen, setAccountOpen, onLogout,
   } = useWorkbench() as any;
   const { sidecarStatus, mode } = useAppState();
+  const { session } = useAppSession();
 
   const filteredGroups = useMemo(() => {
-    return mode === "developer" ? developerMenu : userMenu;
-  }, [mode]);
+    const base = mode === "developer" ? developerMenu : userMenu;
+    const isAdmin = session?.roles.includes("admin") ?? false;
+    if (isAdmin) return base;
+    return base.map((group) => ({
+      ...group,
+      items: group.items.filter((item) => item.key !== "admin"),
+    })).filter((group) => group.items.length > 0);
+  }, [mode, session]);
   const [search, setSearch] = useState("");
   const [showCount, setShowCount] = useState(50);
 

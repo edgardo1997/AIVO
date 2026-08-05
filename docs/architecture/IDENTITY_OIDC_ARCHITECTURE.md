@@ -211,26 +211,39 @@ http://127.0.0.1:<puerto-aleatorio>/oauth/callback
 ### Datos almacenados
 
 ```text
-OAuthTransaction
+OAuthTransactionModel (SQLite)
 ├── transaction_id: uuid
 ├── provider: google | microsoft
 ├── state_hash: sha256
 ├── nonce_hash: sha256
-├── pkce_verifier: cifrado
+├── code_challenge: s256
+├── code_verifier_hash: sha256 (del verifier, no el verifier)
 ├── redirect_uri: string
 ├── created_at: ISO 8601
 ├── expires_at: ISO 8601
-├── used: bool
-└── user_id: nullable
+├── status: created | waiting_callback | completed | cancelled | expired | failed
+├── used_at: ISO 8601 | null
+├── owner_session_id: string
+├── owner_user_id: string
+└── correlation_id: string
+
+PKCE verifier
+├── almacenado únicamente en memoria (OAuthTransactionStore._verifiers)
+├── nunca persiste en SQLite
+├── nunca se serializa al frontend
+├── nunca aparece en logs ni diagnóstico
+└── se elimina al consumir, cancelar, completar, expirar o reiniciar
 ```
 
 ### Reglas
 
-- Una sola utilización.
+- Una sola utilización atómica (`UPDATE ... WHERE rowcount == 1`).
 - Expiración breve.
 - Eliminación al cancelar o completar.
 - Rechazo de replay.
 - El `verifier` nunca se expone al frontend.
+- Ownership de transacción obligatorio para `status`, `cancel` y `callback`.
+- Rate limiting por acción, usuario, sesión y proveedor.
 
 ---
 
@@ -339,7 +352,11 @@ Para Alpha:
 |------------|--------|
 | LocalProfileRepository | IMPLEMENTADO |
 | AccountLinkingService | IMPLEMENTADO |
-| OAuthTransactionStore | IMPLEMENTADO |
+| OAuthTransactionStore (SQLite + in-memory verifier) | IMPLEMENTADO |
+| Atomic `consume_state` (UPDATE ... WHERE rowcount == 1) | IMPLEMENTADO |
+| Transaction ownership | IMPLEMENTADO |
+| OAuth rate limiting | IMPLEMENTADO |
+| Restart invalidation | IMPLEMENTADO |
 | Loopback listener | IMPLEMENTADO |
 | Onboarding visual | IMPLEMENTADO |
 | Identity provider contracts | IMPLEMENTADO |

@@ -2,6 +2,15 @@ import { useMemo, useState } from "react";
 import { useWorkbench } from "./WorkbenchContext";
 import { useAppState } from "../../contexts/AppContext";
 import { viewGroups } from "../Views/ViewRouter";
+import type { ViewKey } from "../Views/ViewRouter";
+
+const userVisibleViews: Set<ViewKey> = new Set([
+  "dashboard",
+  "sentinel",
+  "permissions",
+  "audit",
+  "help",
+]);
 
 function formatGroup(ts: number): string {
   const diff = Date.now() - ts;
@@ -19,7 +28,14 @@ export function WorkbenchSidebar() {
     deleteConversation, view, setView,
     accountOpen, setAccountOpen, onLogout,
   } = useWorkbench() as any;
-  const { sidecarStatus } = useAppState();
+  const { sidecarStatus, mode } = useAppState();
+
+  const filteredGroups = useMemo(() => {
+    if (mode === "developer") return viewGroups;
+    return viewGroups
+      .map((group) => ({ ...group, items: group.items.filter((item) => userVisibleViews.has(item.key)) }))
+      .filter((group) => group.items.length > 0);
+  }, [mode]);
   const [search, setSearch] = useState("");
   const [showCount, setShowCount] = useState(50);
 
@@ -92,13 +108,14 @@ export function WorkbenchSidebar() {
       </div>
 
       <div className="wb-new-nav">
-        {viewGroups.map((group: any) => (
+        {filteredGroups.map((group: any) => (
           <div key={group.id}>
             {group.items.slice(0, 4).map((item: any) => (
               <button
                 key={item.key}
                 className={`wb-new-nav-item ${view === item.key ? "active" : ""}`}
                 onClick={() => setView(view === item.key ? "" : item.key)}
+                title={mode === "user" ? item.description : `${item.description} (${item.key})`}
               >
                 <span className="icon">{item.icon}</span>
                 {item.label}

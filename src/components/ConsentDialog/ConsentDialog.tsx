@@ -8,10 +8,10 @@ interface Props {
 }
 
 const riskConfig: Record<string, { icon: string; label: string; color: string }> = {
-  low:     { icon: "🟢", label: "Bajo",     color: "var(--success)" },
-  medium:  { icon: "🟡", label: "Medio",    color: "var(--warning)" },
-  high:    { icon: "🟠", label: "Alto",     color: "var(--danger)" },
-  critical:{ icon: "🔴", label: "Crítico",  color: "#ff0000" },
+  low: { icon: "🟢", label: "Bajo", color: "var(--success)" },
+  medium: { icon: "🟡", label: "Medio", color: "var(--warning)" },
+  high: { icon: "🟠", label: "Alto", color: "var(--danger)" },
+  critical: { icon: "🔴", label: "Crítico", color: "#ff0000" },
 };
 
 function actionLabel(p: PendingConsentInfo): string {
@@ -19,6 +19,13 @@ function actionLabel(p: PendingConsentInfo): string {
   if (p.tool_id === "executor.command") return "Ejecutar comando";
   if (p.tool_id === "filesystem.write") return "Escribir archivo";
   if (p.tool_id === "filesystem.delete") return "Eliminar archivo";
+  if (p.tool_id === "filesystem.copy") return "Copiar archivo";
+  if (p.tool_id === "filesystem.move") return "Mover archivo";
+  if (p.tool_id === "filesystem.read") return "Leer archivo";
+  if (p.tool_id === "filesystem.list") return "Listar archivos";
+  if (p.tool_id === "filesystem.create_dir") return "Crear carpeta";
+  if (p.tool_id === "search.find") return "Buscar archivos";
+  if (p.tool_id === "search.filesystem_search") return "Buscar archivos";
   return p.tool_id.replace(/\./g, " ");
 }
 

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../../api";
 import { Modal } from "../ui/Modal";
+import { useAppState } from "../../contexts/AppContext";
 import "./Settings.css";
 
 interface ModelProvider {
@@ -195,7 +196,7 @@ function apiKeyPlaceholder(providerId: string): string {
   return placeholders[providerId] || "Tu API key";
 }
 
-type SettingsSection = "models" | "intelligence";
+type SettingsSection = "models" | "intelligence" | "interface";
 
 export function Settings({ initialSection = "models" }: { initialSection?: SettingsSection }) {
   const [section, setSection] = useState<SettingsSection>(initialSection === "intelligence" ? "models" : initialSection);
@@ -207,6 +208,7 @@ export function Settings({ initialSection = "models" }: { initialSection?: Setti
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentConfig, setCurrentConfig] = useState<{ provider: string; model: string } | null>(null);
+  const { mode, setMode } = useAppState();
 
   // This only records whether the vault or runtime environment has a key.
   const [providerKeyStatus, setProviderKeyStatus] = useState<Record<string, boolean>>({});
@@ -316,6 +318,13 @@ export function Settings({ initialSection = "models" }: { initialSection?: Setti
             <span>🤖</span> Modelos
           </button>
 
+          <button
+            className={section === "interface" ? "active" : ""}
+            onClick={() => setSection("interface")}
+          >
+            <span>⚙</span> Interfaz
+          </button>
+
         </nav>
       </aside>
 
@@ -397,6 +406,38 @@ export function Settings({ initialSection = "models" }: { initialSection?: Setti
             </div>
 
 
+          </div>
+        )}
+
+        {section === "interface" && (
+          <div className="interface-section">
+            <h1>Interfaz</h1>
+            <p>Elige el nivel de detalle que prefieres en la aplicación.</p>
+
+            <div className="interface-mode-card">
+              <h2>Modo usuario</h2>
+              <p>Muestra únicamente las funciones esenciales: chat, permisos, auditoría y configuración básica.</p>
+            </div>
+
+            <div className="interface-mode-card">
+              <h2>Modo desarrollador</h2>
+              <p>Muestra controles avanzados, diagnósticos, modelos y herramientas técnicas.</p>
+            </div>
+
+            <div className="form-group" style={{ marginTop: "1rem" }}>
+              <label className="toggle-label" htmlFor="dev-mode-toggle">
+                <input
+                  id="dev-mode-toggle"
+                  type="checkbox"
+                  checked={mode === "developer"}
+                  onChange={(e) => setMode(e.target.checked ? "developer" : "user")}
+                />
+                {mode === "developer" ? "Modo desarrollador activo" : "Modo usuario activo"}
+              </label>
+              <p className="field-hint">
+                También podés cambiar de modo en cualquier momento con <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd>.
+              </p>
+            </div>
           </div>
         )}
 

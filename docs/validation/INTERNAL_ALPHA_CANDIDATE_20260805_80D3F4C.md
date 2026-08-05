@@ -10,7 +10,7 @@
 | Fecha | 2026-08-05 |
 | Updater | deshabilitado |
 | Firma | no |
-| Estado | **PENDIENTE VALIDACIÓN MANUAL** |
+| Estado | **REVOCADO ANTES DE VALIDACIÓN MANUAL** |
 
 ## Artefactos
 
@@ -69,6 +69,19 @@ artifacts/internal-alpha-candidate/sidecar.sha256
 [ ] Confirmar que no conectan integraciones.
 ```
 
+## Motivo de revocación
+
+Candidato generado antes de completar los gates de seguridad de OAuth:
+
+- `consume_state` no demostrado atómico.
+- Sin rate limiting en endpoints OAuth.
+- Sin ownership de transacciones.
+- Sin invalidación al reinicio.
+- Pruebas de loopback incompletas.
+- Protección de PKCE verifier no verificada.
+
+Se conservan los hashes como evidencia.
+
 ## Notas
 
-Este build no reemplaza `internal-alpha-20260805-229cf37` (Fase 14). Es un candidato interno para validar el nuevo flujo de usuario normal.
+Este build no reemplaza `internal-alpha-20260805-229cf37` (Fase 14). Era un candidato interno prematuro para validar el nuevo flujo de usuario normal.

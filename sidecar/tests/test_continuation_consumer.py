@@ -53,10 +53,10 @@ class _FakeBroker:
         payload = json.dumps(plan_dict, sort_keys=True, default=str)
         return payload, hashlib.sha256(payload.encode()).hexdigest()
 
-    def request_plan_grant(self, **kwargs):
+    def request_continuation_grant(self, **kwargs):
         return "plan-grant-1"
 
-    def approve_plan_grant(self, grant_id, *, user_id):
+    def approve_continuation_grant(self, grant_id, *, user_id):
         return True
 
     class _Grants:

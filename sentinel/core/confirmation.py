@@ -103,6 +103,20 @@ class ConfirmationBroker:
     def approve_plan_grant(self, grant_id: str, *, user_id: str) -> bool:
         return self._grants.transition_plan(grant_id, "pending", "approved", {"user_id": user_id})
 
+    # Public seams for non-router consumers (continuation services).  They keep
+    # the raw factory token names confined to this module and to v1/plans.py.
+    def request_continuation_grant(self, *, user_id: str, session_id: str, identity_hash: str, plan_id: str,
+                                   plan_hash: str, plan_payload: str, risk_level: str, expires_at: str,
+                                   simulation_evidence: Optional[Dict[str, Any]] = None) -> str:
+        return self.request_plan_grant(
+            user_id=user_id, session_id=session_id, identity_hash=identity_hash, plan_id=plan_id,
+            plan_hash=plan_hash, plan_payload=plan_payload, risk_level=risk_level, expires_at=expires_at,
+            simulation_evidence=simulation_evidence,
+        )
+
+    def approve_continuation_grant(self, grant_id: str, *, user_id: str) -> bool:
+        return self.approve_plan_grant(grant_id, user_id=user_id)
+
     def issue_step_grant(self, grant: Dict[str, Any]) -> ExecutionGrantContext:
         """Derive one single-use step grant only from an approved/in-progress plan."""
         if not self._grants.create_step(grant):

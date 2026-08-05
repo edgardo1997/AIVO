@@ -111,7 +111,7 @@ class ContinuationExecutor:
                 if plan_dict is not None and broker is not None:
                     plan_payload, plan_hash = broker.canonical_plan(plan_dict)
                     identity_hash = broker._hash({"user_id": user_id, "session_id": session_id})
-                    plan_grant_id = broker.request_plan_grant(
+                    plan_grant_id = broker.request_continuation_grant(
                         user_id=user_id,
                         session_id=session_id,
                         identity_hash=identity_hash,
@@ -198,7 +198,7 @@ class ContinuationExecutor:
                     return self._as_response(ctx)
 
             # Approve durable plan grant.
-            if broker is not None and not broker.approve_plan_grant(ctx.confirmation_id, user_id=user_id):
+            if broker is not None and not broker.approve_continuation_grant(ctx.confirmation_id, user_id=user_id):
                 ctx.transition(ContinuationState.DENIED)
                 ctx.result_summary = "grant_approval_failed"
                 self._svc._store.put(ctx)

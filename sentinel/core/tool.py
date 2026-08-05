@@ -14,6 +14,14 @@ class ToolStatus(Enum):
     DISABLED = "disabled"
 
 
+class VerificationLevel(str, Enum):
+    REQUESTED = "requested"
+    DISPATCHED = "dispatched"
+    EXECUTED = "executed"
+    EFFECT_OBSERVED = "effect_observed"
+    VERIFIED = "verified"
+
+
 @dataclass
 class ToolSpec:
     id: str
@@ -41,9 +49,15 @@ class ToolResult:
     policy_decision: Optional[str] = None
     policy_result: Optional[Dict[str, Any]] = None
     quality_result: Optional[Dict[str, Any]] = None
+    verification_level: Optional[str] = None
 
     @staticmethod
-    def ok(data: Any, tool_id: str = "", duration_ms: Optional[float] = None) -> "ToolResult":
+    def ok(
+        data: Any,
+        tool_id: str = "",
+        duration_ms: Optional[float] = None,
+        verification_level: Optional[str] = None,
+    ) -> "ToolResult":
         return ToolResult(
             success=True,
             data=data,
@@ -51,10 +65,16 @@ class ToolResult:
             execution_id=uuid.uuid4().hex[:12],
             duration_ms=duration_ms,
             timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            verification_level=verification_level,
         )
 
     @staticmethod
-    def fail(error: str, tool_id: str = "", duration_ms: Optional[float] = None) -> "ToolResult":
+    def fail(
+        error: str,
+        tool_id: str = "",
+        duration_ms: Optional[float] = None,
+        verification_level: Optional[str] = None,
+    ) -> "ToolResult":
         return ToolResult(
             success=False,
             error=error,
@@ -62,6 +82,7 @@ class ToolResult:
             execution_id=uuid.uuid4().hex[:12],
             duration_ms=duration_ms,
             timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            verification_level=verification_level,
         )
 
     @staticmethod

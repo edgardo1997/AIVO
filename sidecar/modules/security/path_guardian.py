@@ -46,6 +46,9 @@ class PathGuardian:
     def validate_delete(self, path: str, context: Optional[Any] = None) -> ValidationResult:
         return self._validate(path, "delete", _unwrap_identity(context))
 
+    def validate_open(self, path: str, context: Optional[Any] = None) -> ValidationResult:
+        return self._validate(path, "open", _unwrap_identity(context))
+
     def validate_search(self, root: str, context: Optional[Any] = None) -> ValidationResult:
         if not root or not root.strip():
             return self._deny("Search root path is empty", "medium")

@@ -10,6 +10,7 @@ from typing import Any, Dict, Optional
 from modules.security.path_guardian import PathGuardian
 from modules.security.interfaces import PathSecurityError
 from sentinel.core.tool import Tool, ToolResult, ToolSpec, ToolStatus
+from sentinel.security.resource_identity import ResourceIdentity, capture_resource_identity
 
 log = logging.getLogger("sentinel.filesystem_service")
 
@@ -437,6 +438,13 @@ class FilesystemService(Tool):
             self._log("mkdir", path, result, auth, status="error")
             raise HTTPException(status_code=500, detail=str(e))
 
+    def _hash_file(self, p: str) -> str:
+        h = hashlib.sha256()
+        with open(p, "rb") as f:
+            for chunk in iter(lambda: f.read(8192), b""):
+                h.update(chunk)
+        return h.hexdigest()
+
     def copy_file(self, source: str, dest: str, auth: Optional[dict] = None, dest_is_dir: bool = False, overwrite: bool = False) -> dict:
         from fastapi import HTTPException
 
@@ -448,10 +456,15 @@ class FilesystemService(Tool):
         safe_source = read_result.normalized_path
         if not os.path.isfile(safe_source):
             raise HTTPException(404, f"Source file not found: {safe_source}")
+        source_identity = capture_resource_identity(safe_source)
 
         dest_is_dir = bool(dest_is_dir) or (os.path.isdir(os.path.expanduser(dest)) if not dest_is_dir else False)
         if dest_is_dir:
-            safe_dest_dir = self._guardian.validate_write(dest, auth).normalized_path
+            write_result = self._guardian.validate_write(dest, auth)
+            if not write_result.allowed:
+                self._log("copy", dest, write_result, auth)
+                raise PathSecurityError(write_result.reason, dest, write_result.risk_level)
+            safe_dest_dir = write_result.normalized_path
             safe_dest = os.path.join(safe_dest_dir, os.path.basename(safe_source))
         else:
             write_result = self._guardian.validate_write(dest, auth)
@@ -466,6 +479,12 @@ class FilesystemService(Tool):
             if os.path.isdir(safe_dest):
                 raise HTTPException(400, f"Destination path is a directory: {safe_dest}")
 
+        # TOCTOU revalidation of source immediately before the copy.
+        current_identity = capture_resource_identity(safe_source)
+        if not source_identity.is_same_identity(current_identity):
+            self._log("copy", source, read_result, auth, status="resource_changed")
+            raise HTTPException(409, "resource_changed_after_approval")
+
         try:
             shutil.copy2(safe_source, safe_dest)
         except PermissionError:
@@ -478,47 +497,49 @@ class FilesystemService(Tool):
         if not os.path.isfile(safe_dest):
             raise HTTPException(500, f"Copy verification failed: destination file not created")
 
-        src_size = os.path.getsize(safe_source)
-        dst_size = os.path.getsize(safe_dest)
-        if src_size != dst_size:
+        # Capture destination identity after copy.
+        dest_identity = capture_resource_identity(safe_dest)
+
+        if dest_identity.size != current_identity.size:
             try:
                 os.remove(safe_dest)
             except Exception:
                 pass
-            raise HTTPException(500, f"Copy verification failed: size mismatch ({dst_size} != {src_size})")
+            raise HTTPException(500, f"Copy verification failed: size mismatch ({dest_identity.size} != {current_identity.size})")
 
         sha256 = None
-        if src_size <= MAX_HASH_SIZE_BYTES:
-            def _hash_file(p: str) -> str:
-                h = hashlib.sha256()
-                with open(p, "rb") as f:
-                    for chunk in iter(lambda: f.read(8192), b""):
-                        h.update(chunk)
-                return h.hexdigest()
-            try:
-                if _hash_file(safe_source) == _hash_file(safe_dest):
-                    sha256 = _hash_file(safe_source)
-                else:
-                    try:
-                        os.remove(safe_dest)
-                    except Exception:
-                        pass
-                    raise HTTPException(500, "Copy verification failed: hash mismatch")
-            except Exception:
-                if sha256 is None:
-                    try:
-                        os.remove(safe_dest)
-                    except Exception:
-                        pass
-                    raise
+        if current_identity.size <= MAX_HASH_SIZE_BYTES:
+            if self._hash_file(safe_source) == self._hash_file(safe_dest):
+                sha256 = self._hash_file(safe_source)
+            else:
+                try:
+                    os.remove(safe_dest)
+                except Exception:
+                    pass
+                raise HTTPException(500, "Copy verification failed: hash mismatch")
 
         self._log("copy", source, read_result, auth, status="success")
         return {
             "path": safe_dest,
             "name": os.path.basename(safe_dest),
             "source": safe_source,
-            "size": dst_size,
+            "source_identity": {
+                "size": source_identity.size,
+                "mtime_ns": source_identity.mtime_ns,
+                "file_id": source_identity.file_id,
+                "volume_id": source_identity.volume_id,
+                "captured_at": source_identity.captured_at,
+            },
+            "dest_identity": {
+                "size": dest_identity.size,
+                "mtime_ns": dest_identity.mtime_ns,
+                "file_id": dest_identity.file_id,
+                "volume_id": dest_identity.volume_id,
+                "captured_at": dest_identity.captured_at,
+            },
+            "size": dest_identity.size,
             "sha256": sha256,
+            "verification_level": "verified",
         }
 
     def delete_file(self, path: str, auth: Optional[dict] = None) -> dict:

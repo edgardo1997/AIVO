@@ -4,6 +4,14 @@ from sentinel.core.integrations import DesktopIntegrationService
 from sentinel.core.tool import Tool, ToolResult, ToolSpec
 
 
+def _auth_from_context(context: Optional[Dict[str, Any]]) -> Optional[dict]:
+    if not context:
+        return None
+    if isinstance(context, dict):
+        return context.get("identity") or context.get("auth")
+    return None
+
+
 class _IntegrationTool(Tool):
     tool_id = ""
     tool_name = ""
@@ -32,7 +40,7 @@ class IntegrationStatusTool(_IntegrationTool):
     description = "Detect real IDE, browser, document, image and operating-system adapters."
 
     async def execute(self, params: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> ToolResult:
-        return ToolResult.ok(self._service.status(), self.tool_id)
+        return ToolResult.ok(self._service.status(), self.tool_id, verification_level="verified")
 
 
 class IdeOpenTool(_IntegrationTool):
@@ -48,7 +56,12 @@ class IdeOpenTool(_IntegrationTool):
 
     async def execute(self, params: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> ToolResult:
         try:
-            return ToolResult.ok(self._service.open_ide(params.get("path", ""), params.get("line")), self.tool_id)
+            auth = _auth_from_context(context)
+            return ToolResult.ok(
+                self._service.open_ide(params.get("path", ""), params.get("line"), auth),
+                self.tool_id,
+                verification_level="dispatched",
+            )
         except Exception as exc:
             return ToolResult.fail(str(exc), self.tool_id)
 
@@ -62,7 +75,12 @@ class BrowserOpenTool(_IntegrationTool):
 
     async def execute(self, params: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> ToolResult:
         try:
-            return ToolResult.ok(self._service.open_browser(params.get("url", "")), self.tool_id)
+            auth = _auth_from_context(context)
+            return ToolResult.ok(
+                self._service.open_browser(params.get("url", ""), auth),
+                self.tool_id,
+                verification_level="dispatched",
+            )
         except Exception as exc:
             return ToolResult.fail(str(exc), self.tool_id)
 
@@ -74,7 +92,12 @@ class FileOpenTool(_IntegrationTool):
 
     async def execute(self, params: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> ToolResult:
         try:
-            return ToolResult.ok(self._service.open_file(params.get("path", ""), self.integration), self.tool_id)
+            auth = _auth_from_context(context)
+            return ToolResult.ok(
+                self._service.open_file(params.get("path", ""), self.integration, auth),
+                self.tool_id,
+                verification_level="dispatched",
+            )
         except Exception as exc:
             return ToolResult.fail(str(exc), self.tool_id)
 
@@ -101,7 +124,12 @@ class ImageInspectTool(_IntegrationTool):
 
     async def execute(self, params: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> ToolResult:
         try:
-            return ToolResult.ok(self._service.inspect_image(params.get("path", "")), self.tool_id)
+            auth = _auth_from_context(context)
+            return ToolResult.ok(
+                self._service.inspect_image(params.get("path", ""), auth),
+                self.tool_id,
+                verification_level="effect_observed",
+            )
         except Exception as exc:
             return ToolResult.fail(str(exc), self.tool_id)
 
@@ -115,6 +143,11 @@ class OsRevealTool(_IntegrationTool):
 
     async def execute(self, params: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> ToolResult:
         try:
-            return ToolResult.ok(self._service.reveal_path(params.get("path", "")), self.tool_id)
+            auth = _auth_from_context(context)
+            return ToolResult.ok(
+                self._service.reveal_path(params.get("path", ""), auth),
+                self.tool_id,
+                verification_level="dispatched",
+            )
         except Exception as exc:
             return ToolResult.fail(str(exc), self.tool_id)

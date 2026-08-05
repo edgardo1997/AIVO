@@ -239,14 +239,40 @@ if (-not $installer) {
     throw "No NSIS installer found under src-tauri/target/release/bundle/nsis"
 }
 
+$sevenZip = "C:\Program Files\7-Zip\7z.exe"
+if (-not (Test-Path $sevenZip)) {
+    $sevenZip = (Get-Command 7z -ErrorAction SilentlyContinue)?.Source
+}
+if (-not (Test-Path $sevenZip)) {
+    throw "7-Zip (7z.exe) is required for build inspection. Install 7-Zip or add it to PATH."
+}
+
+# Clean any leaked Sentinel uninstall entry that still points to %TEMP%
+$uninstallKeys = @(
+    "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Sentinel",
+    "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Sentinel",
+    "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Sentinel"
+)
+$tempPrefix = $env:TEMP.ToLower()
+foreach ($key in $uninstallKeys) {
+    if (Test-Path $key) {
+        $loc = (Get-ItemProperty -Path $key -Name InstallLocation -ErrorAction SilentlyContinue).InstallLocation
+        if ($loc -and $loc.ToLower().StartsWith($tempPrefix)) {
+            Write-Warning "Removing leaked Sentinel uninstall key pointing to temp: $loc"
+            Remove-Item -Path $key -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 $hashMatch = $false
-$inspectDir = Join-Path $env:TEMP "sentinel-build-inspect"
+$inspectDir = Join-Path $env:TEMP ("sentinel-build-inspect-" + [Guid]::NewGuid().ToString("N"))
 Remove-Item -Recurse -Force $inspectDir -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Path $inspectDir | Out-Null
 try {
-    $proc = Start-Process -FilePath $installer.FullName -ArgumentList "/S", "/D=$inspectDir" -PassThru -Wait
-    if ($proc.ExitCode -ne 0) {
-        throw "NSIS silent install failed with exit code $($proc.ExitCode)"
+    # Extract installer contents without executing NSIS or modifying the registry.
+    & $sevenZip "x" $installer.FullName "-o$inspectDir" -y | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "7-Zip extraction failed with exit code $LASTEXITCODE"
     }
     $bundledSidecar = Join-Path $inspectDir "sidecar\sidecar.exe"
     if (-not (Test-Path $bundledSidecar)) {
@@ -346,6 +372,19 @@ $sums | Set-Content -Path (Join-Path $OutputDir "SHA256SUMS.txt")
 # ---------------------------------------------------------------------------
 if (-not $hashMatch) {
     throw "Postcheck failed: bundled sidecar hash does not match canonical."
+}
+
+# ---------------------------------------------------------------------------
+# Sidecar lifecycle regression
+# ---------------------------------------------------------------------------
+Step-Exec "Sidecar smoke repetition" { & { Set-Location $repoRoot; .\scripts\test-smoke-repetition.ps1 -SidecarExe $sidecarCanonical } }
+
+# ---------------------------------------------------------------------------
+# Installer regression: must not register %TEMP% as InstallLocation
+# ---------------------------------------------------------------------------
+$installerArtifact = $manifest.artifacts | Where-Object { $_.name -like "Sentinel_*_x64-setup.exe" } | Select-Object -First 1
+if ($installerArtifact) {
+    Step-Exec "Installer regression" { & { Set-Location $repoRoot; .\scripts\test-installer.ps1 -Installer $installerArtifact.path } }
 }
 
 foreach ($a in $manifest.artifacts) {

@@ -74,9 +74,16 @@ try {
     $health = Wait-Health $Port
     Write-Host "Health OK: $($health | ConvertTo-Json -Compress)" -ForegroundColor Green
 
-    Write-Host "Stopping sidecar (PID $($proc.Id)) ..." -ForegroundColor Cyan
-    Stop-Process -Id $proc.Id -Force
-    $proc.WaitForExit()
+    Write-Host "Stopping sidecar process tree (PID $($proc.Id)) ..." -ForegroundColor Cyan
+    $stopResult = Start-Process -FilePath "taskkill.exe" -ArgumentList "/T", "/F", "/PID", $proc.Id -WindowStyle Hidden -PassThru -Wait
+    if ($stopResult.ExitCode -ne 0 -and $proc.HasExited -eq $false) {
+        Write-Warning "taskkill returned exit code $($stopResult.ExitCode); trying Stop-Process fallback"
+        Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+    }
+    $swExit = [System.Diagnostics.Stopwatch]::StartNew()
+    while (-not $proc.HasExited -and $swExit.Elapsed.TotalSeconds -lt 10) {
+        Start-Sleep -Milliseconds 250
+    }
 
     Start-Sleep -Seconds 1
     $released = $false
@@ -91,6 +98,7 @@ try {
         Write-Host "Port $Port released." -ForegroundColor Green
     }
     Write-Host "SMOKE PASSED" -ForegroundColor Green
+    exit 0
 }
 finally {
     if ($proc -and -not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }

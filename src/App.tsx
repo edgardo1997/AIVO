@@ -1,7 +1,6 @@
-import { useCallback } from "react";
 import "./index.css";
 import { Workbench } from "./components/Workbench/Workbench";
-import { Onboarding } from "./components/Onboarding/Onboarding";
+import { OnboardingShell } from "./components/Onboarding/OnboardingShell";
 import { WelcomeScreen } from "./components/Welcome/WelcomeScreen";
 import { Toast } from "./components/ui/Toast";
 import { AppProvider } from "./contexts/AppContext";
@@ -12,20 +11,19 @@ import { completeOnboardingBackend } from "./services/SessionService";
 function AppContent() {
   const { session, loading, refresh } = useAppSession();
 
-  const finishOnboarding = useCallback(async () => {
+  const finishOnboarding = async () => {
     await completeOnboardingBackend();
     await refresh();
-  }, [refresh]);
+  };
 
-  const handleLogin = useCallback(async (_method: "local" | "google" | "microsoft") => {
-    // TODO: real OAuth will call the appropriate auth flow and then refresh
-    void refresh();
-  }, [refresh]);
+  const handleLogin = async (_method: "local" | "google" | "microsoft") => {
+    await refresh();
+  };
 
-  const handleLogout = useCallback(() => {
+  const handleLogout = () => {
     auth.logout();
     void refresh();
-  }, [refresh]);
+  };
 
   if (loading || !session || session.status === "checking") {
     return (
@@ -46,14 +44,24 @@ function AppContent() {
     );
   }
 
+  if (!session.onboardingCompleted) {
+    return (
+      <div className="app-layout workbench-layout">
+        <OnboardingShell
+          displayName={session.displayName || "Usuario"}
+          onComplete={finishOnboarding}
+          onCancel={() => { auth.logout(); void refresh(); }}
+        />
+        <Toast />
+      </div>
+    );
+  }
+
   return (
     <div className="app-layout workbench-layout">
       <main className="main-content workbench-main">
         <Workbench onLogout={handleLogout} />
       </main>
-      {!session.onboardingCompleted && (
-        <Onboarding onComplete={finishOnboarding} onSkip={finishOnboarding} />
-      )}
       <Toast />
     </div>
   );

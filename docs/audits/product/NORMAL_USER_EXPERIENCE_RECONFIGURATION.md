@@ -240,8 +240,11 @@ Pendiente: `Configuración → Integraciones` con consentimiento separado.
 | Perfil local durable | IMPLEMENTADO (`LocalProfileRepository` SQLite) |
 | Onboarding durable | IMPLEMENTADO EN MEMORIA; persistencia real pendiente |
 | Home | IMPLEMENTADO |
+| OnboardingShell visual | IMPLEMENTADO |
+| App.tsx tree | IMPLEMENTADO |
 | OAuth architecture | DISEÑADA |
 | Google / Microsoft | CONFIGURATION_REQUIRED |
+| Loopback tests | IMPLEMENTADO (infraestructura) / pendiente ajuste tests de red
 
 ## 9. Deuda técnica explícita
 

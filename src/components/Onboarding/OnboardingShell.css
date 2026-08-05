@@ -1,0 +1,240 @@
+.onboarding-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.75);
+  z-index: 1000;
+}
+
+.onboarding-shell {
+  width: 100%;
+  max-width: 560px;
+  max-height: 90vh;
+  overflow-y: auto;
+  padding: 32px;
+  border-radius: 16px;
+  background: var(--surface, #14161c);
+  border: 1px solid var(--border, #272a35);
+  color: var(--text, #e9ebf0);
+}
+
+.onboarding-title {
+  font-size: 22px;
+  font-weight: 600;
+  margin: 0 0 16px;
+  outline: none;
+}
+
+.onboarding-step-count {
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--text-secondary, #9ba3b4);
+}
+
+.onboarding-step {
+  margin-bottom: 24px;
+}
+
+.onboarding-step-content p {
+  color: var(--text-secondary, #9ba3b4);
+  line-height: 1.5;
+  margin: 0 0 16px;
+}
+
+.onboarding-options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.onboarding-option {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border, #272a35);
+  background: var(--bg, #0c0d10);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.onboarding-option:has(input:checked),
+.onboarding-option.selected {
+  border-color: var(--accent, #3b6ef7);
+  background: rgba(59, 110, 247, 0.1);
+}
+
+.onboarding-option input {
+  margin-right: 8px;
+}
+
+.onboarding-option-title {
+  font-weight: 600;
+}
+
+.onboarding-option-desc {
+  font-size: 13px;
+  color: var(--text-secondary, #9ba3b4);
+}
+
+.onboarding-hint {
+  font-size: 12px;
+  color: var(--text-muted, #6b7280);
+}
+
+.onboarding-info {
+  padding: 14px;
+  border-radius: 10px;
+  background: var(--bg, #0c0d10);
+  border: 1px solid var(--border, #272a35);
+  margin-bottom: 16px;
+}
+
+.onboarding-info h3 {
+  margin: 0 0 6px;
+  font-size: 14px;
+}
+
+.onboarding-info p {
+  margin: 0;
+  font-size: 13px;
+}
+
+.onboarding-provider-status p {
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+
+.onboarding-unconfigured {
+  color: var(--text-muted, #6b7280);
+}
+
+.onboarding-field-label {
+  display: block;
+  font-size: 13px;
+  margin-bottom: 6px;
+  color: var(--text-secondary, #9ba3b4);
+}
+
+.onboarding-input {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border, #272a35);
+  background: var(--bg, #0c0d10);
+  color: var(--text, #e9ebf0);
+  font-size: 14px;
+  margin-bottom: 16px;
+}
+
+.onboarding-review {
+  margin: 0 0 20px;
+}
+
+.onboarding-review dt {
+  font-weight: 600;
+  margin-top: 12px;
+  color: var(--text-secondary, #9ba3b4);
+}
+
+.onboarding-review dd {
+  margin: 4px 0 0;
+  font-size: 14px;
+}
+
+.onboarding-accept {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 14px;
+}
+
+.onboarding-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.onboarding-btn-primary,
+.onboarding-btn-secondary {
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+
+.onboarding-btn-primary {
+  background: var(--accent, #3b6ef7);
+  color: #fff;
+}
+
+.onboarding-btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.onboarding-btn-secondary {
+  background: transparent;
+  color: var(--text, #e9ebf0);
+  border-color: var(--border, #272a35);
+}
+
+.onboarding-error {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(255, 107, 107, 0.1);
+  color: var(--error, #ff6b6b);
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+.onboarding-progress {
+  margin-bottom: 24px;
+}
+
+.onboarding-progress ol {
+  display: flex;
+  justify-content: space-between;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.onboarding-progress-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-muted, #6b7280);
+}
+
+.onboarding-progress-step.current {
+  color: var(--text, #e9ebf0);
+}
+
+.onboarding-progress-step.completed {
+  color: var(--success, #22c55e);
+}
+
+.onboarding-progress-number {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--surface-2, #1c1f29);
+  font-size: 12px;
+}
+
+.onboarding-progress-step.current .onboarding-progress-number {
+  background: var(--accent, #3b6ef7);
+  color: #fff;
+}

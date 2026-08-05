@@ -58,9 +58,6 @@ class _CallbackHandler(BaseHTTPRequestHandler):
         error = (query.get("error") or [""])[0]
 
         server = self.server
-        if not server:
-            self._respond(500, self._error_page("Server unavailable"))
-            return
         if server._received:
             self._respond(400, self._error_page("Callback already received"))
             return
@@ -77,7 +74,6 @@ class _CallbackHandler(BaseHTTPRequestHandler):
             server._received = True
             self._respond(200, self._success_page())
 
-        # Signal the server to stop.
         server._shutdown_event.set()
 
     def do_POST(self):
@@ -88,7 +84,6 @@ class OAuthLoopbackServer(HTTPServer):
     """Single-shot loopback server for an OAuth transaction."""
 
     def __init__(self):
-        # Bind to 127.0.0.1 only with an OS-assigned port.
         self._address = ("127.0.0.1", 0)
         super().__init__(self._address, _CallbackHandler)
         self._code = ""
@@ -97,6 +92,8 @@ class OAuthLoopbackServer(HTTPServer):
         self._received = False
         self._shutdown_event = threading.Event()
         self._thread: threading.Thread | None = None
+        # Ensure sockets allow quick port reuse after close.
+        self.allow_reuse_address = True
 
     @property
     def redirect_uri(self) -> str:
@@ -106,24 +103,11 @@ class OAuthLoopbackServer(HTTPServer):
     def start(self, timeout: int = _DEFAULT_TIMEOUT) -> str:
         """Start the listener and return the redirect URI."""
         self.socket.settimeout(timeout)
-        self._thread = threading.Thread(target=self._serve, daemon=True)
+        self._thread = threading.Thread(target=self.serve_forever, daemon=True)
         self._thread.start()
+        time.sleep(0.1)
         logger.info("OAuth loopback started on %s", self.redirect_uri)
         return self.redirect_uri
-
-    def _serve(self) -> None:
-        try:
-            while not self._shutdown_event.is_set():
-                self.handle_request()
-                if self._received:
-                    break
-        except OSError:
-            pass
-        finally:
-            try:
-                self.server_close()
-            except Exception:
-                pass
 
     def wait_for_callback(self, timeout: int = _DEFAULT_TIMEOUT) -> dict:
         """Block until a callback arrives or the timeout expires."""
@@ -131,6 +115,7 @@ class OAuthLoopbackServer(HTTPServer):
         while not self._received and (time.time() - started) < timeout:
             if self._shutdown_event.wait(0.1):
                 break
+        self.stop()
         if not self._received:
             return {"status": "timeout"}
         if self._error:
@@ -144,8 +129,6 @@ class OAuthLoopbackServer(HTTPServer):
     def stop(self) -> None:
         """Stop the listener immediately."""
         self._shutdown_event.set()
-        if self._thread and self._thread.is_alive():
-            self._thread.join(timeout=2.0)
         try:
             self.shutdown()
         except Exception:

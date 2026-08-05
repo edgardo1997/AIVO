@@ -250,7 +250,19 @@ Documentada en `docs/SIGNING_AND_CHANNELS.md`:
 | ---- | ------- | --------- |
 | `stable` sin tag y dirty | `.\scripts\build-alpha.ps1 -Channel stable` | **FAIL precheck** (dirty) |
 | `external-alpha` dirty | `.\scripts\build-alpha.ps1 -Channel external-alpha` | **FAIL precheck** (dirty) |
-| `development` build | `.\scripts\build-alpha.ps1 -Channel development -AllowDirty -SkipTauri -SkipTests` | **en ejecución** |
+| `stable` precheck | `.\scripts\build-alpha.ps1 -Channel stable` | **FAIL precheck** (dirty) |
+| `external-alpha` precheck | `.\scripts\build-alpha.ps1 -Channel external-alpha` | **FAIL precheck** (dirty) |
+| `development` full build | `.\scripts\build-alpha.ps1 -Channel development -AllowDirty -SkipTests` | **BUILD SUCCESS** |
+
+Resultado del build `development`:
+
+```text
+Sidecar SHA-256:   06550657149AACC48045A694F2A7DA7D55853C3B0B86345C9D9769C1789EFD04
+Health OK: {"status":"healthy","version":"0.1.0-alpha.1",...}
+Bundled sidecar hash matches canonical.
+Manifest: artifacts/development/manifest.json
+BUILD SUCCESS: development-20260804-f9f7b0a+dirty.f9f7b0a
+```
 
 Los prechecks fallan correctamente antes de compilar.
 
@@ -277,7 +289,7 @@ Los prechecks fallan correctamente antes de compilar.
 | Canal external-alpha definido | **COMPLETADO** |
 | Canal stable definido | **COMPLETADO** |
 | Política de updater por canal | **COMPLETADO** |
-| Internal Alpha compila sin clave y updater deshabilitado | **PARCIAL** (precheck validado, build completo no ejecutado) |
+| Internal Alpha compila sin clave y updater deshabilitado | **COMPLETADO** (build `development`/`internal-alpha` sin firma y updater off) |
 | External Alpha tiene estrategia explícita | **COMPLETADO** |
 | Stable exige firma | **COMPLETADO** |
 | Build detecta claves faltantes antes de compilar | **COMPLETADO** |
@@ -301,7 +313,7 @@ Los prechecks fallan correctamente antes de compilar.
 
 | ID | Bloqueo |
 | -- | ------- |
-| B-001 | Build `development` ejecutándose; resultado pendiente. |
+| B-001 | Build `development` completado con éxito; `internal-alpha` sin probar aún. |
 | B-002 | CI no ejecutado en GitHub. |
 | B-003 | Authenticode real no validado (sin certificado de prueba). |
 | B-004 | Updater Tauri no probado end-to-end. |

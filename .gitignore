@@ -86,6 +86,9 @@ sidecar/build/
 # Installer build output
 installer/
 
+# Channel build output
+artifacts/
+
 # Local model binaries (download at runtime). Python source is tracked.
 sentinel/local_model/models/
 sentinel/local_model/*.gguf

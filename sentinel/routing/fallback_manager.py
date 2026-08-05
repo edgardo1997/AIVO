@@ -26,12 +26,16 @@ class FallbackManager:
         self._fallback_history: List[Dict[str, Any]] = fallback_history if fallback_history is not None else []
         self._circuit_breaker = circuit_breaker or CircuitBreaker()
         self._failure_reporter = None
+        self._fallback_validator = None
 
     def set_circuit_breaker(self, cb: CircuitBreaker) -> None:
         self._circuit_breaker = cb
 
     def set_failure_reporter(self, reporter) -> None:
         self._failure_reporter = reporter
+
+    def set_fallback_validator(self, validator) -> None:
+        self._fallback_validator = validator
 
     def set_default_fallback_chain(self, chain: List[str]) -> None:
         self._default_fallback_chain = chain
@@ -132,6 +136,26 @@ class FallbackManager:
             provider = provider_map.get(candidate.provider_id)
             if not provider:
                 continue
+            if self._fallback_validator is not None and idx > 0:
+                from sentinel.core.model_schemas import CapabilityStatus, ModelCandidate, ModelCapability, ModelRequest
+                m_candidate = ModelCandidate(
+                    provider_id=candidate.provider_id,
+                    model_id=candidate.model,
+                    is_local=provider.is_local,
+                    capabilities=[ModelCapability(name="chat", status=CapabilityStatus.DECLARED)],
+                    healthy=True,
+                )
+                request = ModelRequest(
+                    task_type=task_type.value,
+                    required_capabilities=[],
+                    context_tokens=sum(len(str(m.get("content", "")).split()) for m in messages),
+                    fallback_policy="ordered_chain",
+                    cloud_allowed=True,
+                )
+                try:
+                    self._fallback_validator.revalidate(request, m_candidate, messages, request.context_tokens)
+                except Exception:
+                    continue
             elapsed = time.monotonic() - start_time
             remaining = max(5.0, TOTAL_TIMEOUT_BUDGET - elapsed)
             per_call_timeout = min(remaining, LOCAL_CALL_TIMEOUT if provider.is_local else CALL_TIMEOUT)

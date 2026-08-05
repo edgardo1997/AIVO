@@ -1,0 +1,9 @@
+# Default: LF for all text files
+* text=auto eol=lf
+
+# PowerShell scripts may use CRLF on Windows
+*.ps1 text eol=crlf
+
+# Tauri generates these files with CRLF on Windows; match the generator
+src-tauri/Cargo.toml text eol=crlf
+src-tauri/gen/schemas/*.json text eol=crlf

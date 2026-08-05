@@ -169,6 +169,9 @@ Origen: `declared` / `probed` / `verified` / `unknown`.
 
 - [x] Integrar `BudgetManager` en `ModelRouter` para filtrar por presupuesto en caliente.
 - [x] `FallbackValidator` con revalidación de authority, budget, capabilities, context.
+- [x] `MetricsStore` integrado en `ModelRouter.route` y `ProviderManager.execute_inference`.
+- [x] Runtime local compartido (`get_local_runtime`) en `ProviderManager`.
+- [x] Presupuesto reservado antes de selección.
 - [x] `AdapterContract` con clasificación SUPPORTED/EXPERIMENTAL/DISABLED/UNSUPPORTED.
 - [x] `MetricsStore` con esquema canónico y guardrails de privacidad.
 - [x] `ContextWindowValidator` y `model_errors.py` estables.

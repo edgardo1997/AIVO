@@ -111,7 +111,7 @@ jobs:
         run: cargo build --release --locked --manifest-path src-tauri/Cargo.toml
 
       - name: Upload build artifacts for signing job
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: sentinel-build-output
           path: |

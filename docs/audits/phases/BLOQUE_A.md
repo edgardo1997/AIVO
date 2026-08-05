@@ -1,88 +1,113 @@
-# Bloque A — Fases 0, 1 y 2: Reproducibilidad
+# Bloque A — Validación limpia: Fases 0, 1 y 2
 
 Fecha: 2026-08-05
-Repositorio: `C:\Dev\AIVO`
-Commit inicial: `7d5cbc4`
-Commit actual: `cff16de`
+Repositorio canónico: `C:\Dev\AIVO`
+Clon de validación: `C:\Dev\AIVO-repro-validation`
+Commit validado: `bb919c8a18b19bcfe23ffb56f7cb918af6ff3f8d`
 
-## 1. Estado inicial
+## 1. Estado final
 
-| Fase | Estado | Bloqueos |
-| ---- | ------ | -------- |
-| FASE 0 | no documentado | sin `docs/alpha/ALPHA_SCOPE.md` |
-| FASE 1 | PARCIAL | B-001 (sidecar build), B-002 (`sentinel.local_model`), B-003 (`npm ci` limpio) |
-| FASE 2 | RECHAZADO | `uv.lock`, `.python-version`, `rust-toolchain.toml`, bootstrap |
+| Fase | Estado | Justificación |
+| ---- | ------ | ------------- |
+| FASE 0 | **COMPLETADO** | `docs/alpha/ALPHA_SCOPE.md` publicado en `main` |
+| FASE 1 | **COMPLETADO** | Clon limpio reconstruye e inicia sidecar; pytest, npm y cargo gates pasan; solo quedan 2 bugs ya clasificados |
+| FASE 2 | **PARCIAL** | Compilación, lockfiles y `.env.example` presentes; el build de Tauri modifica `src-tauri/gen/schemas/*.json`, dejando el working tree sucio hasta hacer `git checkout --` de los generados |
 
-## 2. Trabajo realizado
+## 2. Validación limpia
 
-### FASE 0 — Alcance Alpha
-
-- Creado `docs/alpha/ALPHA_SCOPE.md`.
-- Define funciones incluidas, excluidas, Feature Freeze y release gates.
-
-### FASE 1 — Línea base reproducible
-
-#### B-001: orden de build del sidecar
-
-- Creado `scripts/build-sidecar.ps1`.
-- Modificado `sidecar/sidecar.spec` para usar `SPECPATH` y rutas absolutas.
-- Eliminado el prefijo `sidecar.` de los `hiddenimports` para que PyInstaller resuelva los paquetes del directorio del spec.
-- El sidecar compila y pasa el smoke:
+### Preparación
 
 ```text
-Health OK: {"status":"healthy","version":"0.1.0-alpha.1",...}
-SMOKE PASSED
+working tree limpio
+rama main
+HEAD local == origin/main  →  bb919c8a18b19bcfe23ffb56f7cb918af6ff3f8d
 ```
 
-#### B-002: `sentinel.local_model`
+### Clon
 
-- Verificado: `sentinel/local_model/__init__.py` y `runtime.py` están versionados.
-- `.gitignore` ya ignora solo binarios (`*.gguf`, `models/`, `runtime/`).
-- **Resuelto**.
+```text
+C:\Dev\AIVO-repro-validation
+main
+bb919c8a18b19bcfe23ffb56f7cb918af6ff3f8d
+working tree limpio
+```
 
-#### B-003: Node limpio
+### Artefactos heredados
 
-- `uv sync --frozen` funciona.
-- `npm ci` funciona y no modifica `package-lock.json`.
-- **Pendiente validar en clon limpio**.
+| Ruta | Existe |
+| ---- | ------ |
+| `.venv` | `False` |
+| `node_modules` | `False` |
+| `sidecar\dist` | `False` |
+| `sidecar\build` | `False` |
+| `src-tauri\target` | `False` |
+| `.env` | `False` |
 
-## 3. Matriz de import de sidecar
-
-| Import fallido | Archivo consumidor | Tipo de import | Causa raíz | Corrección |
-| -------------- | ------------------ | -------------- | ---------- | ---------- |
-| `from modules.sidecar_supervision import ...` | `sidecar/main.py` | absoluto top-level | `pathex=['.', '..']` en `sidecar.spec` dependía del CWD; al invocar `pyinstaller` desde la raíz, `.` era el repositorio y no `sidecar/` | Usar `SPECPATH` y `REPO_DIR` en `pathex` y rutas absolutas en `datas`/`Analysis` |
-| `from modules import ...` | múltiples archivos sidecar | absoluto top-level | Los `hiddenimports` listaban `sidecar.modules.*` mientras el código importa `modules.*` | Eliminar prefijo `sidecar.` en `hiddenimports` |
-| `from services import ...` | `sidecar/main.py` y servicios | absoluto top-level | Mismo pathex | Idem |
-| `from routers import ...` | `sidecar/main.py` y routers | absoluto top-level | Mismo pathex | Idem |
-| `from repositories import ...` | `sidecar/main.py` y tests | absoluto top-level | Mismo pathex | Idem |
-| `import windows_acl` | `sidecar/main.py` | módulo top-level | Mismo pathex | Idem |
-
-## 4. Pruebas
+### Cadena ejecutada
 
 | Comando | Resultado |
 | ------- | --------- |
-| `uv sync --frozen` | OK |
-| `npm ci` | OK (2 high vulnerabilities sin resolver) |
-| `.\scripts\build-sidecar.ps1 -AllowDirty` | **SMOKE PASSED** |
+| `uv sync --frozen` | OK (132 paquetes) |
+| `npm ci` | OK (124 paquetes, 2 high vulnerabilities preexistentes) |
+| `git status --short` (después de `npm ci`) | limpio |
+| `.\scripts\build-sidecar.ps1` | **SMOKE PASSED** |
 | `python -m pytest -m alpha_constitutional_gate -q` | **215 passed, 2 failed** |
+| `npm test` | **151 passed, 34 test files** |
+| `npm run build` | **OK** |
+| `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check` | **OK** |
+| `cargo test --locked --manifest-path src-tauri/Cargo.toml` | **5 passed, 0 failed** |
+| `cargo clippy --locked --manifest-path src-tauri/Cargo.toml -- -D warnings` | **OK** |
+| `cargo build --locked --release --manifest-path src-tauri/Cargo.toml` | **OK** |
 
-Fallos aislados observados (no bloquean B-001):
+### Sidecar smoke
 
-- `test_corrupt_lock_file_removed_not_killed`: termina un proceso huérfano real del entorno.
-- `test_replaced_file_same_name_same_size_fails`: `ResourceIdentity` no calcula hash de contenido para contenidos de mismo tamaño.
+```text
+Health OK: {"status":"healthy","version":"0.1.0-alpha.1","runtime":"ready","database":"connected","gateway":"212 tools","router":"initialized","timestamp":"2026-08-04T23:16:32.239564-04:00"}
+SMOKE PASSED
+Sidecar hash: 3833a7596a0a7ca7f7a8cb6194938557c9b861f3d5f32744225022ab046c35f1
+```
 
-## 5. Commits
+## 3. Estados de B-001, B-002, B-003
+
+- **B-001** (`sidecar build`): `COMPLETADO` en clon limpio.
+- **B-002** (`sentinel.local_model`): `COMPLETADO` — archivos fuente versionados.
+- **B-003** (`npm ci` limpio): `COMPLETADO` — no modifica `package-lock.json`, `npm test` y `npm run build` pasan.
+
+## 4. Fallos preservados para otros bloques
+
+| Test | Bloque asignado | Causa observada |
+| ---- | --------------- | --------------- |
+| `test_corrupt_lock_file_removed_not_killed` | **Bloque C — Fase 10** | El cleanup de orfanos mata cualquier sidecar que no tenga lock válido, incluidos los del test |
+| `test_replaced_file_same_name_same_size_fails` | **Bloque B — Fase 3** | `ResourceIdentity` no calcula hash de contenido cuando dos archivos tienen el mismo nombre y tamaño |
+
+## 5. Problema Fase 2 detectado
+
+El build de Tauri (`cargo build --release`) modifica:
+
+- `src-tauri/gen/schemas/desktop-schema.json`
+- `src-tauri/gen/schemas/windows-schema.json`
+
+El working tree deja de estar limpio. Restaurar los archivos con `git checkout -- src-tauri/gen/schemas/*.json` devuelve el estado a limpio, pero esto indica que los esquemas generados deberían:
+
+- estar en `.gitignore`; o
+- ser reproducción determinista; o
+- ser materializados fuera del repositorio.
+
+Fase 2 permanece `PARCIAL` hasta resolverlo.
+
+## 6. Working tree final del clon
+
+```text
+limpio (tras descartar cambios en esquemas generados)
+```
+
+## 7. Commits relevantes en `origin/main`
 
 - `df7e510` — `chore(env): add uv lockfiles`
 - `76bae19` — `chore(build): add sidecar build script and Alpha scope doc`
 - `cff16de` — `fix(packaging): resolve B-001 sidecar PyInstaller packaging`
+- `bb919c8` — `docs(audit): add Block A progress report`
 
-## 6. Bloqueos restantes
+## 8. Siguiente bloque
 
-- Validar FASE 1 en clon limpio (`C:\Dev\AIVO-repro-validation`).
-- Resolver 2 tests de `alpha_constitutional_gate` fallidos.
-- Alinear `rust-toolchain.toml` y validar `cargo` en clon limpio.
-
-## 7. Siguiente paso
-
-Crear clon limpio, ejecutar los gates oficiales y, si pasan, marcar FASE 1 como `COMPLETADO`. Luego continuar con el Bloque B: FASE 3.
+**Bloque B — Fase 3: constitucional**. Se inicia con la reproducción y corrección de `test_replaced_file_same_name_same_size_fails` en `sentinel/security/resource_identity.py`.

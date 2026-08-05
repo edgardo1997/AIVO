@@ -213,7 +213,7 @@ def _create_app() -> FastAPI:
     application = FastAPI(
         title="Sentinel Sidecar",
         description="Local trust layer for AI orchestration, policy-gated execution, and audit.",
-        version="1.0.0",
+        version="0.1.0-alpha.1",
         docs_url="/docs" if docs_enabled else None,
         redoc_url="/redoc" if docs_enabled else None,
         openapi_url="/openapi.json" if docs_enabled else None,
@@ -662,7 +662,7 @@ def health():
         status = "failed"
     return {
         "status": status,
-        "version": "1.0.0",
+        "version": "0.1.0-alpha.1",
         "runtime": _runtime_status,
         "database": "connected" if db_ok else "disconnected",
         "gateway": f"{len(gw.list_active()) if gw_ok else 0} tools" if gw_ok else "unavailable",
@@ -676,7 +676,7 @@ def info(request: Request):
     identity = getattr(request.state, "identity", None)
     result: dict[str, object] = {
         "name": "Sentinel Sidecar",
-        "version": "1.0.0",
+        "version": "0.1.0-alpha.1",
     }
     if identity and identity.is_authenticated:
         result["modules"] = [

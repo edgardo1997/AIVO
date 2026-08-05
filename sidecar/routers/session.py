@@ -17,12 +17,17 @@ from services.identity_provider import (
     ProviderConfig,
 )
 from services.oauth_loopback import OAuthLoopbackServer
+from services.rate_limiter import RateLimiter
 
 log = logging.getLogger("sentinel.session")
 router = APIRouter()
 
 repo = LocalProfileRepository()
 tx_store = OAuthTransactionStore()
+rate_limiter = RateLimiter()
+
+# Invalidate any in-flight OAuth state on sidecar startup.
+tx_store.startup_cleanup()
 
 
 def _google_config() -> ProviderConfig:
@@ -96,7 +101,10 @@ class LocalProfile(BaseModel):
 class ProviderInfo(BaseModel):
     provider: str
     configured: bool
+    available: bool
+    status: str
     display_name: str
+    capabilities: list[str]
 
 
 class OAuthStartResponse(BaseModel):
@@ -125,6 +133,15 @@ class OAuthCallbackResponse(BaseModel):
 
 def _profile_key() -> str:
     return "_local_"
+
+
+def _session_id(identity) -> str:
+    return (identity.metadata or {}).get("session_id", "") if hasattr(identity, "metadata") else ""
+
+
+def _require_owner(transaction_id: str, identity):
+    if not tx_store.is_owner(transaction_id, _session_id(identity), identity.user_id):
+        raise HTTPException(status_code=404, detail="Transaction not found")
 
 
 # ── Session ─────────────────────────────────────────────────
@@ -244,15 +261,38 @@ async def create_local_profile(body: LocalProfileRequest, request: Request):
 @router.get("/auth/providers", response_model=list[ProviderInfo])
 async def list_providers():
     return [
-        ProviderInfo(provider="local", configured=True, display_name="Este dispositivo"),
-        ProviderInfo(provider="google", configured=_google_config().enabled and bool(_google_config().client_id), display_name="Google"),
-        ProviderInfo(provider="microsoft", configured=_microsoft_config().enabled and bool(_microsoft_config().client_id), display_name="Microsoft"),
+        ProviderInfo(
+            provider="local",
+            configured=True,
+            available=True,
+            status="ready",
+            display_name="Este dispositivo",
+            capabilities=["start", "profile", "logout"],
+        ),
+        ProviderInfo(
+            provider="google",
+            configured=False,
+            available=_google_config().enabled,
+            status="CONFIGURATION_REQUIRED",
+            display_name="Google",
+            capabilities=["start", "logout"],
+        ),
+        ProviderInfo(
+            provider="microsoft",
+            configured=False,
+            available=_microsoft_config().enabled,
+            status="CONFIGURATION_REQUIRED",
+            display_name="Microsoft",
+            capabilities=["start", "logout"],
+        ),
     ]
 
 
 @router.post("/auth/oauth/{provider}/start", response_model=OAuthStartResponse)
 async def start_oauth(provider: str, request: Request):
     identity = request_identity(request)
+    if not rate_limiter.allow("start", identity.user_id, provider):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded")
     prov = _provider(provider)
     if not prov.is_configured:
         return OAuthStartResponse(
@@ -274,7 +314,13 @@ async def start_oauth(provider: str, request: Request):
     # Google/Microsoft use PKCE loopback.
     server = OAuthLoopbackServer()
     redirect_uri = server.start()
-    tx = tx_store.create(provider, redirect_uri, correlation_id=identity.user_id)
+    tx = tx_store.create(
+        provider,
+        redirect_uri,
+        owner_session_id=_session_id(identity),
+        owner_user_id=identity.user_id,
+        correlation_id=identity.user_id,
+    )
     # Build the authorization URL with code_challenge and state.
     # The transaction store keeps the verifier; only the challenge goes to the URL.
     state = tx._raw_state
@@ -319,23 +365,34 @@ def _build_authorization_url(provider: str, redirect_uri: str, code_challenge: s
     return ""
 
 
+class OAuthCancelRequest(BaseModel):
+    transaction_id: str = Field(min_length=8)
+
+
 @router.post("/auth/oauth/{provider}/cancel", response_model=OAuthStatusResponse)
-async def cancel_oauth(provider: str, request: Request):
-    # The caller must provide the transaction_id; for simplicity we return the
-    # last known transaction for the provider, but a real implementation would
-    # look it up by id.
+async def cancel_oauth(provider: str, body: OAuthCancelRequest, request: Request):
+    identity = request_identity(request)
+    if not rate_limiter.allow("cancel", identity.user_id, provider):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+    _require_owner(body.transaction_id, identity)
+    if not tx_store.cancel(body.transaction_id):
+        raise HTTPException(status_code=404, detail="Transaction not found")
     return OAuthStatusResponse(
-        transaction_id="",
+        transaction_id=body.transaction_id,
         provider=provider,
         status="cancelled",
         authorization_url="",
-        message="Cancellation requires a transaction_id in the request body",
+        message="OAuth transaction cancelled",
         redirect_uri="",
     )
 
 
 @router.get("/auth/oauth/{transaction_id}/status", response_model=OAuthStatusResponse)
-async def oauth_status(transaction_id: str):
+async def oauth_status(transaction_id: str, request: Request):
+    identity = request_identity(request)
+    if not rate_limiter.allow("poll", identity.user_id, "*"):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+    _require_owner(transaction_id, identity)
     tx = tx_store.get(transaction_id)
     if not tx:
         raise HTTPException(status_code=404, detail="Transaction not found")

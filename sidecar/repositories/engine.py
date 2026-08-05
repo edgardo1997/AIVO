@@ -55,7 +55,10 @@ def get_engine():
         Base.metadata.create_all(engine)
 
         with engine.connect() as conn:
-            existing_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(audit_log)")).fetchall()}
+            try:
+                existing_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(audit_log)")).fetchall()}
+            except Exception:
+                existing_cols = set()
             extra_cols = {
                 "event_id": "TEXT",
                 "execution_id": "TEXT",
@@ -63,10 +66,13 @@ def get_engine():
                 "previous_hash": "TEXT NOT NULL DEFAULT ''",
                 "entry_hash": "TEXT",
             }
-            for col, decl in extra_cols.items():
-                if col not in existing_cols:
-                    conn.execute(text(f"ALTER TABLE audit_log ADD COLUMN {col} {decl}"))
-            conn.commit()
+            try:
+                for col, decl in extra_cols.items():
+                    if col not in existing_cols:
+                        conn.execute(text(f"ALTER TABLE audit_log ADD COLUMN {col} {decl}"))
+                conn.commit()
+            except Exception:
+                conn.rollback()
 
         _SessionFactory = sessionmaker(bind=engine, expire_on_commit=False)
         _engine_instance = engine

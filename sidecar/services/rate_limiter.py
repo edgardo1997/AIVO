@@ -1,72 +1,81 @@
-import math
-import threading
+"""In-memory rate limiters for Sentinel endpoints.
+
+OAuth limiter is per owner (user/session) and provider. IP is not used because
+all traffic originates from 127.0.0.1.
+
+SlidingWindowRateLimiter is a generic per-key, per-path sliding window limiter
+used by the main sidecar middleware.
+"""
+
+import logging
 import time
-from collections import deque
+from collections import defaultdict, deque
 from dataclasses import dataclass
-from typing import Deque, Dict, Optional
+from threading import Lock
+from typing import Dict, Tuple
+
+logger = logging.getLogger("sentinel.rate_limit")
 
 
-@dataclass(frozen=True)
-class RateLimitDecision:
+class RateLimiter:
+    """OAuth-aware rate limiter."""
+
+    def __init__(self, limits: Dict[str, Tuple[int, int]] | None = None):
+        # key: (action, owner_id, provider) -> list of timestamps
+        self._windows: Dict[Tuple[str, str, str], list[float]] = defaultdict(list)
+        self._lock = Lock()
+        self._limits = limits or {
+            "start": (5, 60),     # 5 starts per 60s
+            "poll": (30, 60),     # 30 polls per 60s
+            "cancel": (5, 60),    # 5 cancels per 60s
+            "callback_failure": (10, 60),
+        }
+
+    def _prune(self, timestamps: list[float], window: int) -> list[float]:
+        now = time.time()
+        return [t for t in timestamps if now - t < window]
+
+    def allow(self, action: str, owner_id: str, provider: str) -> bool:
+        key = (action, owner_id, provider)
+        limit, window = self._limits.get(action, (10, 60))
+        with self._lock:
+            self._windows[key] = self._prune(self._windows[key], window)
+            if len(self._windows[key]) >= limit:
+                logger.warning("Rate limit hit: action=%s owner=%s provider=%s", action, owner_id, provider)
+                return False
+            self._windows[key].append(time.time())
+            return True
+
+
+@dataclass
+class Decision:
     allowed: bool
     remaining: int
-    retry_after: int = 0
+    retry_after: float
 
 
 class SlidingWindowRateLimiter:
-    """Thread-safe, bounded sliding-window limiter using a monotonic clock."""
+    """Generic per-key sliding window rate limiter."""
 
-    def __init__(self, window_seconds: float = 60, max_buckets: int = 2048):
-        if window_seconds <= 0 or max_buckets <= 0:
-            raise ValueError("window_seconds and max_buckets must be positive")
-        self._window = float(window_seconds)
+    def __init__(self, window_seconds: int = 60, max_buckets: int = 1024):
+        self._window = window_seconds
         self._max_buckets = max_buckets
-        self._buckets: Dict[str, Deque[float]] = {}
-        self._lock = threading.RLock()
+        self._buckets: Dict[str, deque[float]] = {}
+        self._lock = Lock()
 
-    def allow(
-        self,
-        key: str,
-        *,
-        limit: int,
-        now: Optional[float] = None,
-    ) -> RateLimitDecision:
-        if limit <= 0:
-            raise ValueError("limit must be positive")
-        current = time.monotonic() if now is None else now
-        cutoff = current - self._window
-
+    def allow(self, key: str, limit: int) -> Decision:
+        now = time.time()
         with self._lock:
-            self._evict_stale(cutoff)
-            if key not in self._buckets and len(self._buckets) >= self._max_buckets:
-                oldest_key = min(
-                    self._buckets,
-                    key=lambda bucket_key: self._buckets[bucket_key][-1],
-                )
-                del self._buckets[oldest_key]
-
             bucket = self._buckets.setdefault(key, deque())
-            while bucket and bucket[0] <= cutoff:
+            while bucket and now - bucket[0] >= self._window:
                 bucket.popleft()
-
             if len(bucket) >= limit:
-                retry_after = max(1, math.ceil(self._window - (current - bucket[0])))
-                return RateLimitDecision(False, remaining=0, retry_after=retry_after)
-
-            bucket.append(current)
-            return RateLimitDecision(True, remaining=max(0, limit - len(bucket)))
+                logger.warning("Rate limit hit: key=%s limit=%d", key, limit)
+                retry_after = max(0.0, self._window - (now - bucket[0])) if bucket else float(self._window)
+                return Decision(allowed=False, remaining=0, retry_after=retry_after)
+            bucket.append(now)
+            return Decision(allowed=True, remaining=limit - len(bucket), retry_after=0.0)
 
     def clear(self) -> None:
         with self._lock:
             self._buckets.clear()
-
-    def bucket_count(self) -> int:
-        with self._lock:
-            return len(self._buckets)
-
-    def _evict_stale(self, cutoff: float) -> None:
-        for key, bucket in list(self._buckets.items()):
-            while bucket and bucket[0] <= cutoff:
-                bucket.popleft()
-            if not bucket:
-                del self._buckets[key]

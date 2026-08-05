@@ -82,8 +82,8 @@ class UserProfileManager:
         now = datetime.now(timezone.utc).isoformat()
         try:
             self._db.execute(
-                "INSERT INTO user_profiles (user_id, username, display_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-                (user_id, username, display_name, now, now),
+                "INSERT INTO user_profiles (user_id, username, display_name, avatar, theme, timezone, locale, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (user_id, username, display_name, "", "", "", "en", now, now),
             )
             self._db._get_conn().commit()
         except Exception:

@@ -1,4 +1,6 @@
 import asyncio
+import fnmatch
+import hashlib
 import logging
 import os
 import shutil
@@ -17,6 +19,7 @@ MAX_SEARCH_DEPTH = 8  # directory levels
 MAX_SEARCH_RESULTS = 500  # files returned
 MAX_DIR_ENTRIES = 2000  # entries listed
 MAX_WRITE_SIZE_BYTES = 5 * 1024 * 1024  # 5 MB
+MAX_HASH_SIZE_BYTES = 250 * 1024 * 1024  # 250 MB
 
 
 FILESYSTEM_TOOL_SPECS = {
@@ -76,13 +79,50 @@ FILESYSTEM_TOOL_SPECS = {
         parameters={
             "type": "object",
             "properties": {
-                "query": {"type": "string", "description": "Search term"},
+                "query": {"type": "string", "description": "Search term or glob (e.g. *.pdf)"},
                 "root": {"type": "string", "description": "Root directory to search", "default": "C:\\"},
+                "sort_by_mtime": {"type": "boolean", "description": "Return files sorted by mtime", "default": False},
             },
             "required": ["query"],
         },
         required_permissions=["filesystem.read"],
         timeout_seconds=30,
+        category="filesystem",
+    ),
+    "filesystem.mkdir": ToolSpec(
+        id="filesystem.mkdir",
+        name="Create Directory",
+        description="Create a directory idempotently if it does not exist",
+        version="1.0.0",
+        parameters={
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Directory path to create"},
+                "exist_ok": {"type": "boolean", "description": "Succeed if the directory already exists", "default": True},
+            },
+            "required": ["path"],
+        },
+        required_permissions=["filesystem.write"],
+        timeout_seconds=15,
+        category="filesystem",
+    ),
+    "filesystem.copy": ToolSpec(
+        id="filesystem.copy",
+        name="Copy File",
+        description="Copy a file to a destination directory or path with verification",
+        version="1.0.0",
+        parameters={
+            "type": "object",
+            "properties": {
+                "source": {"type": "string", "description": "Source file path"},
+                "dest": {"type": "string", "description": "Destination path (file or directory)"},
+                "dest_is_dir": {"type": "boolean", "description": "Treat dest as a directory", "default": False},
+                "overwrite": {"type": "boolean", "description": "Allow overwriting existing destination", "default": False},
+            },
+            "required": ["source", "dest"],
+        },
+        required_permissions=["filesystem.read", "filesystem.write"],
+        timeout_seconds=60,
         category="filesystem",
     ),
     "filesystem.delete": ToolSpec(
@@ -171,7 +211,29 @@ class FilesystemService(Tool):
             elif tid == "filesystem.list":
                 result = await asyncio.to_thread(self.list_directory, params.get("path", "."), auth)
             elif tid == "filesystem.search":
-                result = await asyncio.to_thread(self.search_files, params["query"], params.get("root", "C:\\"), auth)
+                result = await asyncio.to_thread(
+                    self.search_files,
+                    params["query"],
+                    params.get("root", "C:\\"),
+                    auth,
+                    sort_by_mtime=params.get("sort_by_mtime", False),
+                )
+            elif tid == "filesystem.mkdir":
+                result = await asyncio.to_thread(
+                    self.make_directory,
+                    params["path"],
+                    auth,
+                    exist_ok=params.get("exist_ok", True),
+                )
+            elif tid == "filesystem.copy":
+                result = await asyncio.to_thread(
+                    self.copy_file,
+                    params["source"],
+                    params["dest"],
+                    auth,
+                    dest_is_dir=params.get("dest_is_dir", False),
+                    overwrite=params.get("overwrite", False),
+                )
             elif tid == "filesystem.delete":
                 result = await asyncio.to_thread(self.delete_file, params["path"], auth)
             elif tid == "filesystem.undo_write":
@@ -250,9 +312,6 @@ class FilesystemService(Tool):
         except PermissionError:
             self._log("write", path, result, auth, status="denied")
             raise HTTPException(403, f"Access denied: {safe_path}")
-        except IsADirectoryError:
-            self._log("write", path, result, auth, status="is_dir")
-            raise HTTPException(400, f"Path is a directory: {safe_path}")
         except PathSecurityError:
             raise
         except Exception as e:
@@ -296,7 +355,7 @@ class FilesystemService(Tool):
             self._log("list", path, result, auth, status="error")
             raise HTTPException(status_code=500, detail=str(e))
 
-    def search_files(self, query: str, root: str = "C:\\", auth: Optional[dict] = None) -> dict:
+    def search_files(self, query: str, root: str = "C:\\", auth: Optional[dict] = None, sort_by_mtime: bool = False) -> dict:
         from fastapi import HTTPException
 
         auth = _resolve_auth(auth)
@@ -308,27 +367,159 @@ class FilesystemService(Tool):
             raise PathSecurityError(result.reason, root, result.risk_level)
         safe_root = result.normalized_path
         results = []
+        files = []
         depth = 0
+        use_glob = "*" in query or "?" in query
         try:
-            for root_dir, dirs, files in os.walk(safe_root):
+            for root_dir, dirs, files_in_dir in os.walk(safe_root):
                 rel = os.path.relpath(root_dir, safe_root)
                 depth = 0 if rel == "." else rel.count(os.sep) + 1
                 if depth >= MAX_SEARCH_DEPTH:
                     dirs[:] = []
                     continue
-                for f in files:
-                    if query.lower() in f.lower():
-                        results.append(os.path.join(root_dir, f))
+                for f in files_in_dir:
+                    matches = fnmatch.fnmatch(f.lower(), query.lower()) if use_glob else query.lower() in f.lower()
+                    if matches:
+                        full = os.path.join(root_dir, f)
+                        try:
+                            st = os.stat(full)
+                        except OSError:
+                            continue
+                        results.append(full)
+                        files.append({
+                            "name": f,
+                            "path": full,
+                            "mtime": st.st_mtime,
+                            "ctime": st.st_ctime,
+                            "size": st.st_size,
+                        })
                     if len(results) >= MAX_SEARCH_RESULTS:
                         self._log("search", root, result, auth, status="success")
-                        return {"query": query, "results": results, "truncated": True}
+                        return {"query": query, "results": results, "files": files, "truncated": True}
                 dirs[:] = [d for d in dirs if not d.startswith(".") and not d.startswith("$")]
         except PermissionError:
             log.debug("Permission denied accessing directory during search")
         except OSError as e:
             log.warning("Error during file search: %s", e)
+
+        if sort_by_mtime:
+            files.sort(key=lambda x: (-x["mtime"], x["path"]))
+            results = [f["path"] for f in files]
+
         self._log("search", root, result, auth, status="success")
-        return {"query": query, "results": results}
+        return {"query": query, "results": results, "files": files, "truncated": False}
+
+    def make_directory(self, path: str, auth: Optional[dict] = None, exist_ok: bool = True) -> dict:
+        from fastapi import HTTPException
+
+        auth = _resolve_auth(auth)
+        result = self._guardian.validate_write(path, auth)
+        if not result.allowed:
+            self._log("mkdir", path, result, auth)
+            raise PathSecurityError(result.reason, path, result.risk_level)
+        safe_path = result.normalized_path
+        if os.path.exists(safe_path):
+            if os.path.isdir(safe_path):
+                self._log("mkdir", path, result, auth, status="success")
+                return {"path": safe_path, "created": False, "existed": True}
+            self._log("mkdir", path, result, auth, status="blocked")
+            raise HTTPException(400, f"Path exists but is not a directory: {safe_path}")
+        try:
+            os.makedirs(safe_path, exist_ok=exist_ok)
+            self._log("mkdir", path, result, auth, status="success")
+            return {"path": safe_path, "created": True}
+        except PermissionError:
+            self._log("mkdir", path, result, auth, status="denied")
+            raise HTTPException(403, f"Access denied: {safe_path}")
+        except PathSecurityError:
+            raise
+        except Exception as e:
+            self._log("mkdir", path, result, auth, status="error")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    def copy_file(self, source: str, dest: str, auth: Optional[dict] = None, dest_is_dir: bool = False, overwrite: bool = False) -> dict:
+        from fastapi import HTTPException
+
+        auth = _resolve_auth(auth)
+        read_result = self._guardian.validate_read(source, auth)
+        if not read_result.allowed:
+            self._log("copy", source, read_result, auth)
+            raise PathSecurityError(read_result.reason, source, read_result.risk_level)
+        safe_source = read_result.normalized_path
+        if not os.path.isfile(safe_source):
+            raise HTTPException(404, f"Source file not found: {safe_source}")
+
+        dest_is_dir = bool(dest_is_dir) or (os.path.isdir(os.path.expanduser(dest)) if not dest_is_dir else False)
+        if dest_is_dir:
+            safe_dest_dir = self._guardian.validate_write(dest, auth).normalized_path
+            safe_dest = os.path.join(safe_dest_dir, os.path.basename(safe_source))
+        else:
+            write_result = self._guardian.validate_write(dest, auth)
+            if not write_result.allowed:
+                self._log("copy", dest, write_result, auth)
+                raise PathSecurityError(write_result.reason, dest, write_result.risk_level)
+            safe_dest = write_result.normalized_path
+
+        if os.path.exists(safe_dest):
+            if not overwrite:
+                raise HTTPException(409, f"Destination already exists and overwrite is disabled: {safe_dest}")
+            if os.path.isdir(safe_dest):
+                raise HTTPException(400, f"Destination path is a directory: {safe_dest}")
+
+        try:
+            shutil.copy2(safe_source, safe_dest)
+        except PermissionError:
+            self._log("copy", source, read_result, auth, status="denied")
+            raise HTTPException(403, f"Access denied copying to {safe_dest}")
+        except Exception as e:
+            self._log("copy", source, read_result, auth, status="error")
+            raise HTTPException(status_code=500, detail=str(e))
+
+        if not os.path.isfile(safe_dest):
+            raise HTTPException(500, f"Copy verification failed: destination file not created")
+
+        src_size = os.path.getsize(safe_source)
+        dst_size = os.path.getsize(safe_dest)
+        if src_size != dst_size:
+            try:
+                os.remove(safe_dest)
+            except Exception:
+                pass
+            raise HTTPException(500, f"Copy verification failed: size mismatch ({dst_size} != {src_size})")
+
+        sha256 = None
+        if src_size <= MAX_HASH_SIZE_BYTES:
+            def _hash_file(p: str) -> str:
+                h = hashlib.sha256()
+                with open(p, "rb") as f:
+                    for chunk in iter(lambda: f.read(8192), b""):
+                        h.update(chunk)
+                return h.hexdigest()
+            try:
+                if _hash_file(safe_source) == _hash_file(safe_dest):
+                    sha256 = _hash_file(safe_source)
+                else:
+                    try:
+                        os.remove(safe_dest)
+                    except Exception:
+                        pass
+                    raise HTTPException(500, "Copy verification failed: hash mismatch")
+            except Exception:
+                if sha256 is None:
+                    try:
+                        os.remove(safe_dest)
+                    except Exception:
+                        pass
+                    raise
+
+        self._log("copy", source, read_result, auth, status="success")
+        return {
+            "path": safe_dest,
+            "name": os.path.basename(safe_dest),
+            "source": safe_source,
+            "size": dst_size,
+            "sha256": sha256,
+        }
 
     def delete_file(self, path: str, auth: Optional[dict] = None) -> dict:
         from fastapi import HTTPException

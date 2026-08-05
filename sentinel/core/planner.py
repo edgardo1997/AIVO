@@ -45,6 +45,7 @@ class Plan:
 ROLLBACK_MAP: Dict[str, tuple[str, Optional[Dict[str, str]]]] = {
     "filesystem.write": ("filesystem.undo_write", {"original_content": "original_content"}),
     "filesystem.delete": ("filesystem.restore", None),
+    "filesystem.copy": ("filesystem.delete", None),
     "executor.kill": ("executor.restart", {"pid": "pid", "process_name": "process_name"}),
 }
 
@@ -173,6 +174,52 @@ STEP_DEFINITIONS: Dict[str, List[PlanStep]] = {
             estimated_impact="high",
             is_reversible=True,
             rollback_tool_id="filesystem.restore",
+        ),
+    ],
+    "review_document": [
+        PlanStep(
+            id="search",
+            tool_id="filesystem.search",
+            params={"query": "*.pdf", "root": "{{parameters.source_dir}}", "sort_by_mtime": True},
+            description="Search for the latest PDF in the source directory",
+            estimated_impact="low",
+        ),
+        PlanStep(
+            id="mkdir",
+            tool_id="filesystem.mkdir",
+            params={"path": "{{parameters.target_dir}}"},
+            description="Ensure the Reviewed directory exists",
+            depends_on=["search"],
+            estimated_impact="low",
+        ),
+        PlanStep(
+            id="copy",
+            tool_id="filesystem.copy",
+            params={
+                "source": "{{steps.search.data.files.0.path}}",
+                "dest": "{{parameters.target_dir}}",
+                "dest_is_dir": True,
+            },
+            description="Copy the most recent PDF into Reviewed",
+            depends_on=["mkdir"],
+            estimated_impact="high",
+            is_reversible=True,
+        ),
+        PlanStep(
+            id="verify",
+            tool_id="filesystem.list",
+            params={"path": "{{parameters.target_dir}}"},
+            description="Verify the copied file is present in Reviewed",
+            depends_on=["copy"],
+            estimated_impact="low",
+        ),
+        PlanStep(
+            id="open",
+            tool_id="document.open",
+            params={"path": "{{steps.copy.data.path}}"},
+            description="Open the copied PDF with the default application",
+            depends_on=["verify"],
+            estimated_impact="medium",
         ),
     ],
 }

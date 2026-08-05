@@ -540,6 +540,8 @@ def register_tools(gateway):
         "filesystem.write",
         "filesystem.list",
         "filesystem.search",
+        "filesystem.mkdir",
+        "filesystem.copy",
         "filesystem.delete",
         "filesystem.undo_write",
         "filesystem.restore",

@@ -779,6 +779,8 @@ class Orchestrator:
                 intent.confidence,
             )
 
+            context["parameters"] = getattr(intent, "parameters", {}) or {}
+
             cached_plan = self._plan_cache.get(intent) if self._plan_cache else None
             if cached_plan:
                 plan = cached_plan
@@ -1117,6 +1119,7 @@ class Orchestrator:
                 description="Grounding pre-check",
             )
             grounding_levels = self._planner.resolve_dependencies(grounding_only)
+            context["step_results"] = grounding_step_results
             grounding_exec_start = datetime.now(timezone.utc)
             for level in grounding_levels:
                 tasks = [self._execute_single_step(s, intent, context, dry_run=dry_run) for s in level]
@@ -1200,6 +1203,7 @@ class Orchestrator:
             # Durable grants are a strict sequence: no two independently
             # authorized steps may race, even if the dependency graph permits it.
             levels = [[step] for step in plan.steps]
+        context["step_results"] = step_results
         if plan.steps and not levels and not step_results:
             tool_result = ToolResult.fail(error="Invalid plan dependency graph", tool_id="planner")
         for level in levels:
@@ -1526,6 +1530,43 @@ class Orchestrator:
             task_type=task_type,
         )
 
+    def _resolve_step_params(self, params: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
+        resolved = dict(params)
+        for key, value in resolved.items():
+            if isinstance(value, str) and value.startswith("{{") and value.endswith("}}"):
+                resolved[key] = self._resolve_placeholder(value[2:-2].strip(), context)
+        return resolved
+
+    def _resolve_placeholder(self, path: str, context: Dict[str, Any]) -> Any:
+        parts = path.split(".")
+        if not parts:
+            raise ValueError("empty placeholder")
+        if parts[0] == "parameters":
+            obj = context.get("parameters", {})
+            parts = parts[1:]
+        elif parts[0] == "steps":
+            if len(parts) < 3 or parts[2] != "data":
+                raise ValueError(f"invalid step placeholder: {path}")
+            step_id = parts[1]
+            step_result = next((sr for sr in context.get("step_results", []) if sr.step_id == step_id), None)
+            if step_result is None:
+                raise ValueError(f"step '{step_id}' not found for placeholder {path}")
+            obj = step_result.data or {}
+            parts = parts[3:]
+        else:
+            raise ValueError(f"unknown placeholder root: {parts[0]}")
+        for part in parts:
+            if obj is None:
+                raise ValueError(f"cannot resolve '{part}' in {path}")
+            try:
+                if part.isdigit():
+                    obj = obj[int(part)]
+                else:
+                    obj = obj[part]
+            except (KeyError, IndexError, TypeError) as exc:
+                raise ValueError(f"cannot resolve '{part}' in {path}: {exc}") from exc
+        return obj
+
     async def _execute_single_step(
         self,
         step: PlanStep,
@@ -1579,7 +1620,7 @@ class Orchestrator:
                         data={"rate_limited": True, "retry_after": dec.retry_after, "tool_category": tool_cat},
                     )
 
-        step_params = dict(step.params)
+        step_params = self._resolve_step_params(dict(step.params), context)
         if step.tool_id == "executor.command":
             step_params.setdefault("command", intent.parameters.get("command", ""))
         elif step.tool_id == "executor.kill":
@@ -1612,6 +1653,8 @@ class Orchestrator:
                     step_id=step.id, tool_id=step.tool_id, success=False, error="durable plan grant context is invalid"
                 )
             try:
+                # Transition plan grant to in_progress and verify the immutable payload.
+                broker.resume_approved_plan(plan_grant_id, user_id=user_id, session_id=session_id, identity_hash=identity_hash)
                 execution_grant = broker.issue_next_step_grant(
                     plan_grant_id=plan_grant_id,
                     user_id=user_id,

@@ -36,6 +36,19 @@ if (Test-Path $distDir) { Remove-Item -Recurse -Force $distDir }
 if (Test-Path $buildDir) { Remove-Item -Recurse -Force $buildDir }
 New-Item -ItemType Directory -Path $distDir -Force | Out-Null
 
+# Embed build metadata so the running sidecar can report it
+$commit = git rev-parse HEAD
+$buildId = "$Channel-$(Get-Date -Format 'yyyyMMdd')-$($commit.Substring(0,7))"
+$version = (Get-Content (Join-Path $repoRoot 'package.json') | ConvertFrom-Json).version
+$buildInfoPy = Join-Path $sidecarDir '_build_info.py'
+@(
+    "BUILD_ID = `"$buildId`""
+    "VERSION = `"$version`""
+    "COMMIT = `"$commit`""
+    "CHANNEL = `"$Channel`""
+    "TIMESTAMP_UTC = `"$((Get-Date -Format 'o'))`""
+) -join "`n" | Out-File -FilePath $buildInfoPy -Encoding utf8
+
 # Build sidecar with uv + PyInstaller
 Write-Host "Building sidecar..."
 $pyinstaller = (Get-Item (Join-Path $repoRoot '.venv\Scripts\pyinstaller.exe')).FullName
@@ -47,7 +60,7 @@ if (-not (Test-Path $sidecarExe)) {
 
 # Smoke test
 Write-Host "Running sidecar smoke..."
-& (Join-Path $PSScriptRoot 'smoke-sidecar.ps1') -SidecarPath $sidecarExe
+& (Join-Path $PSScriptRoot 'smoke-sidecar.ps1') -SidecarExe $sidecarExe
 
 # Hash
 $hash = (Get-FileHash $sidecarExe -Algorithm SHA256).Hash.ToLower()

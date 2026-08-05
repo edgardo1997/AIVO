@@ -16,6 +16,9 @@ env/
 coverage.xml
 htmlcov/
 
+# Generated build metadata
+sidecar/_build_info.py
+
 # Node
 node_modules/
 .vite/

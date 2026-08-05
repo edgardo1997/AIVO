@@ -171,6 +171,17 @@ if (-not (Test-Path "$repoRoot\dist\index.html")) {
 # Sidecar
 # ---------------------------------------------------------------------------
 Step-Exec "uv sync" { python -m uv sync --frozen }
+
+# Embed build metadata for the frozen sidecar
+$buildInfoPy = Get-CanonicalPath "sidecar\_build_info.py"
+@(
+    "BUILD_ID = `"$buildId`""
+    "VERSION = `"$version`""
+    "COMMIT = `"$commit`""
+    "CHANNEL = `"$Channel`""
+    "TIMESTAMP_UTC = `"$timestamp`""
+) -join "`n" | Out-File -FilePath $buildInfoPy -Encoding utf8
+
 Step-Exec "sidecar PyInstaller" {
     Push-Location sidecar
     try {
@@ -191,6 +202,21 @@ Write-Host "Sidecar canonical: $sidecarCanonical" -ForegroundColor Green
 Write-Host "Sidecar SHA-256:   $sidecarHash" -ForegroundColor Green
 
 Step-Exec "sidecar smoke" { & { Set-Location $repoRoot; .\scripts\smoke-sidecar.ps1 -SidecarExe $sidecarCanonical } }
+
+$sidecarHashFile = Get-CanonicalPath "sidecar\dist\sidecar.sha256"
+$sidecarManifest = Get-CanonicalPath "sidecar\dist\sidecar-manifest.json"
+$sidecarHash | Out-File -FilePath $sidecarHashFile -Encoding ascii
+@{
+    version        = $version
+    build_id       = $buildId
+    commit         = $commit
+    channel        = $Channel
+    timestamp_utc  = $timestamp
+    sidecar_sha256 = $sidecarHash
+    platform       = "windows"
+    architecture   = "x86_64"
+} | ConvertTo-Json -Depth 3 | Out-File -FilePath $sidecarManifest -Encoding utf8
+Write-Host "Sidecar manifest: $sidecarManifest" -ForegroundColor Green
 
 # ---------------------------------------------------------------------------
 # Rust gates

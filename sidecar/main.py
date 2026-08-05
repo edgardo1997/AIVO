@@ -32,6 +32,27 @@ def _should_enable_fleet_startup() -> bool:
     return os.environ.get("SENTINEL_ENABLE_FLEET_STARTUP", "1") != "0"
 
 
+def _load_build_info() -> dict:
+    """Load build metadata from the frozen build info module or environment."""
+    build_id = os.environ.get("SENTINEL_BUILD_ID", "")
+    version = "0.1.0-alpha.1"
+    if build_id:
+        return {"build_id": build_id, "version": version}
+    try:
+        import _build_info
+        return {
+            "build_id": getattr(_build_info, "BUILD_ID", ""),
+            "version": getattr(_build_info, "VERSION", version),
+            "commit": getattr(_build_info, "COMMIT", ""),
+            "channel": getattr(_build_info, "CHANNEL", ""),
+        }
+    except Exception:
+        return {"build_id": "", "version": version}
+
+
+_BUILD_INFO = _load_build_info()
+
+
 if _should_enable_acl():
     secure_runtime_directories()
 
@@ -660,15 +681,17 @@ def health():
     status = "healthy" if not failed else "degraded"
     if _runtime_status == "failed":
         status = "failed"
-    return {
+    result = {
         "status": status,
-        "version": "0.1.0-alpha.1",
+        "version": _BUILD_INFO["version"],
+        "build_id": _BUILD_INFO["build_id"],
         "runtime": _runtime_status,
         "database": "connected" if db_ok else "disconnected",
         "gateway": f"{len(gw.list_active()) if gw_ok else 0} tools" if gw_ok else "unavailable",
         "router": "initialized" if mr_ok else "unavailable",
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
+    return result
 
 
 @app.get("/api/info", tags=["system"])
@@ -676,7 +699,8 @@ def info(request: Request):
     identity = getattr(request.state, "identity", None)
     result: dict[str, object] = {
         "name": "Sentinel Sidecar",
-        "version": "0.1.0-alpha.1",
+        "version": _BUILD_INFO["version"],
+        "build_id": _BUILD_INFO["build_id"],
     }
     if identity and identity.is_authenticated:
         result["modules"] = [

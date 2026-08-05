@@ -24,4 +24,12 @@ markers = [
     "stability: Tests that validate resilience against crashes, corruption, and network failures",
     "alpha_constitutional_gate: Tests that validate Alpha constitutional guarantees",
     "local_runtime: Fixture marker for onboarding local runtime state in tests",
+    "contract: Tests that validate API schema and structural contracts",
+    "smoke: Smoke tests against a built artifact",
+    "build: Tests that validate build artifacts and packaging",
+    "legacy: Tests that have not been classified into an official category",
+    "experimental: Tests under active development or investigation",
+    "production: Tests that require a production-like environment",
+    "stress: Tests that validate behavior under sustained load",
+    "chaos: Tests that validate recovery from injected failures",
 ]

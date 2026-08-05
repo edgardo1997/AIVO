@@ -205,13 +205,57 @@ _OFFICIAL_MARKERS = {
 }
 
 
+def _infer_marker(nodeid: str) -> str | None:
+    """Infer a primary marker from the test file path.
+
+    This is a coarse classifier; it does not replace explicit markers on tests.
+    """
+    name = nodeid.lower().replace("\\", "/")
+    if "tests/security/" in name or "tests/runtime/security" in name:
+        return "security"
+    if "tests/observability/" in name:
+        return "stability"
+    if "tests/storage/" in name:
+        return "integration"
+    if "tests/runtime/" in name:
+        return "integration"
+    if "tests/intelligence/" in name:
+        return "unit"
+    if "_e2e_real" in name:
+        return "e2e_real"
+    if "_e2e" in name:
+        return "e2e"
+    if "_adversarial" in name or "_pentest" in name:
+        return "adversarial"
+    if "_security" in name or "_hardening" in name or "_toctou" in name or "_execution_bypass" in name or "_secret_redaction" in name:
+        return "security"
+    if "_contract" in name or "_durable_" in name or "_fase2_" in name:
+        return "contract"
+    if "_benchmark" in name or "_phase8" in name or "_performance" in name or "_stability" in name:
+        return "performance"
+    if "_integration" in name or "_conversation_" in name or "_chat_" in name or "_live_" in name or "_sidecar_" in name or "_filesystem" in name or "_bootstrap" in name:
+        return "integration"
+    if "_alpha_" in name or "_constitutional" in name or "_ambiguity" in name:
+        return "alpha_constitutional_gate"
+    if "_unit" in name:
+        return "unit"
+    # Default for unmarked tests under tests/ that do not match a specific pattern
+    if "tests/" in name:
+        return "unit"
+    return None
+
+
 def pytest_collection_modifyitems(config, items):
     """Track unmarked tests and tag them so the suite can be audited."""
     unmarked = []
     for item in items:
         if not any(m.name in _OFFICIAL_MARKERS for m in item.own_markers):
-            item.add_marker("legacy")
-            unmarked.append(item.nodeid)
+            inferred = _infer_marker(item.nodeid)
+            if inferred:
+                item.add_marker(inferred)
+            else:
+                item.add_marker("legacy")
+                unmarked.append(item.nodeid)
     if unmarked:
         # Warnings are printed but the suite still runs. CI can fail with -W error::UserWarning if desired.
         import warnings

@@ -2,56 +2,53 @@
 
 Fecha: 2026-08-05
 Repositorio canónico: `C:\Dev\AIVO`
-Commit inicial: `997a463`
-Commit final: `TBD`
+Commit inicial: `0bcfeb6`
+Commit final: `0bcfeb6`
 
 ## 1. Estado final
 
 | Fase | Estado | Justificación |
 | ---- | ------ | ------------- |
-| FASE 5 | **COMPLETADO** | Pipeline canónico ejecutado exitosamente; sidecar canónico empaquetado, smoke pasa, Tauri bundle termina, hashes coinciden |
-| FASE 6 | **COMPLETADO** | Canal `internal-alpha` definido; updater deshabilitado; no requiere private key; build termina exit 0; manifest generado |
-| FASE 2 | **PARCIAL** | Build de Tauri modifica `src-tauri/Cargo.toml` y `src-tauri/gen/schemas/*.json` por conversión de finales de línea (CRLF vs LF); el árbol deja de estar limpio tras compilar |
+| FASE 5 | **COMPLETADO** | Build oficial `internal-alpha` limpio pasa; sidecar canónico, hash y bundle verificados |
+| FASE 6 | **COMPLETADO** | Canal `internal-alpha` definido; updater deshabilitado; sin private key; manifest generado; Build ID único |
+| FASE 2 | **COMPLETADO** | Build de Tauri ya no ensucia `src-tauri/Cargo.toml` ni `src-tauri/gen/schemas/*.json`; `git status` limpio tras build |
 
-## 2. Pipeline canónico
+## 2. Build oficial limpio
 
-Comando ejecutado:
+Comando:
 
 ```powershell
-.\scripts\build-alpha.ps1 -Channel internal-alpha -AllowDirty
+.\scripts\build-alpha.ps1 -Channel internal-alpha
 ```
 
-**Resultado:** `BUILD SUCCESS: internal-alpha-20260805-997a463`
+(no se usó `-AllowDirty`)
 
-### Etapas
-
-| Etapa | Entrada | Salida | Estado |
-| ----- | ------- | ------ | ------ |
-| `npm ci` | `package-lock.json` | `node_modules/` | OK |
-| `npm run build` | `src/` | `dist/` | OK (`dist/index.html` generado) |
-| `uv sync --frozen` | `uv.lock` | `.venv/` | OK (132 paquetes) |
-| `pyinstaller sidecar.spec` | `sidecar/main.py` | `sidecar/dist/sidecar.exe` | OK |
-| `smoke-sidecar` | `sidecar/dist/sidecar.exe` | health OK | **SMOKE PASSED** |
-| `cargo test` | `src-tauri/` | test binary | **5 passed, 0 failed** |
-| `cargo clippy` | `src-tauri/` | análisis | OK |
-| `cargo fmt --check` | `src-tauri/` | — | OK |
-| `tauri build` | `src-tauri/` + `dist/` + `sidecar/dist/` | `src-tauri/target/release/bundle/nsis/*.exe` | OK |
-| verificación hash | `sidecar/dist/sidecar.exe` vs empaquetado | hash SHA-256 | **MATCH** |
-| manifest | metadatos + hashes | `artifacts/internal-alpha/manifest.json` | OK |
-
-### Hashes
+Resultado:
 
 ```text
-sidecar canónico: 511C58C6995437F35F624697CA87A4E4A0C9C6A91FA78ECC1D54E0581D8C8481
-sidecar empaquetado: 511C58C6995437F35F624697CA87A4E4A0C9C6A91FA78ECC1D54E0581D8C8481
-instalador NSIS: 45D1D3ACA024CC186384E581A60B995471500FDD9B5D8D10C7FC972F21F9D7E0
+BUILD SUCCESS: internal-alpha-20260805-0bcfeb6
+exit code 0
+git status --short: limpio
 ```
 
-El empaquetado y el canónico coinciden.
+### Build ID único
 
-## 3. Canal `internal-alpha`
+- `buildId` se genera una vez en `build-alpha.ps1`.
+- Se propaga a `sidecar/_build_info.py` vía `build-sidecar.ps1 -BuildId`.
+- Sidecar `/api/health` y `/api/info` reportan `build_id`.
+- Manifest de artefactos incluye el mismo `build_id`.
 
-Contrato verificado:
+### Verificación de hashes
+
+```text
+sidecar canónico: 87D45FD38F2298882307CFD72F9188EDB68FD92D8014DB65F0A772E0E75C6DD7
+sidecar empaquetado: 87D45FD38F2298882307CFD72F9188EDB68FD92D8014DB65F0A772E0E75C6DD7
+instalador NSIS: 8BA892CDBC9515572C01A00BB183520C2C4B95FC96F6DBFA6EBE710A12A3E868
+```
+
+Los hashes del sidecar canónico y empaquetado coinciden.
+
+### Canal `internal-alpha`
 
 ```text
 channel = internal-alpha
@@ -61,95 +58,21 @@ Tauri private signing key = not required
 Authenticode = optional/no requerido
 hashes = required
 manifest = required
-working tree = clean al inicio (el build lo ensucia por esquemas generados)
+working tree = clean
 exit code final = 0
 ```
 
-- `tauri.conf.json`: `bundle.createUpdaterArtifacts: false`, `plugins.updater.endpoints: []`.
-- `build-alpha.ps1`: rechaza `TAURI_SIGNING_PRIVATE_KEY` ausente para `external-alpha` y `stable`; `internal-alpha` no lo requiere.
-- Manifest: `updater_enabled: false`, `tauri_signed: false`.
+## 3. Determinismo Fase 2
 
-## 4. Ruta canónica del sidecar
+- Se añadió `.gitattributes` con reglas de finales de línea.
+- `src-tauri/Cargo.toml` y `src-tauri/gen/schemas/*.json` se normalizan a CRLF para coincidir con el generador Tauri en Windows.
+- `cargo build --release` ejecutado dos veces; en ambas `git status --short` quedó vacío.
 
-```text
-C:\Dev\AIVO\sidecar\dist\sidecar.exe
-```
+## 4. Commits
 
-- PyInstaller produce directamente en esa ruta.
-- `smoke-sidecar.ps1` la prueba.
-- `tauri.conf.json` la empaqueta como `../sidecar/dist/sidecar.exe` → `sidecar/sidecar.exe`.
-- No se encontraron rutas duplicadas ni `src-tauri/binaries/sidecar.exe` legacy.
+- `911c858` — `build: normalize Tauri generated files to CRLF via .gitattributes`
+- `0bcfeb6` — `build: unify Build ID through build-sidecar.ps1`
 
-## 5. Versionado
+## 5. Siguiente bloque
 
-| Fuente | Valor |
-| ------ | ------ |
-| `package.json` | `0.1.0-alpha.1` |
-| `src-tauri/tauri.conf.json` | `0.1.0-alpha.1` |
-| `Cargo.toml` | `0.1.0-alpha.1` |
-| sidecar manifest | `0.1.0-alpha.1` |
-
-Todas coinciden.
-
-## 6. Hidden imports de PyInstaller
-
-Warnings persistentes, no críticos:
-
-| Import | Tipo | Acción |
-| ------ | ---- | ------ |
-| `pysqlite2` | opcional | MySQL/SQLite alternativo no usado |
-| `MySQLdb` | opcional | driver MySQL no usado |
-| `psycopg2` | opcional | driver PostgreSQL no usado |
-
-Son dependencias opcionales de SQLAlchemy para dialectos no utilizados en Windows/SQLite.
-
-## 7. Fase 2: problema de esquemas Tauri
-
-Tras `cargo build --release`, Git reporta modificaciones en:
-
-- `src-tauri/Cargo.toml`
-- `src-tauri/gen/schemas/desktop-schema.json`
-- `src-tauri/gen/schemas/windows-schema.json`
-
-La diferencia parece ser exclusivamente de finales de línea (CRLF generado por `tauri-build` vs LF en el índice). Fase 2 sigue `PARCIAL` hasta que se resuelva `.gitattributes` o se normalicen los archivos generados.
-
-## 8. Manifest de artefactos
-
-```text
-artifacts/internal-alpha/manifest.json
-```
-
-Incluye:
-
-```text
-channel
-build_id
-version
-commit
-commit_short
-timestamp_utc
-dirty
-tag
-sidecar_sha256
-frontend_dist
-platform / arch / python / node / rust
-updater_enabled
-authenticode
-tauri_signed
-artifacts[] (path, sha256, size)
-```
-
-## 9. Commits
-
-- `0364dc1` — `fix(tests): encapsulate durable plan grant factory`
-- `997a463` — `docs(audit): downgrade Block D to partial`
-
-## 10. Working tree final
-
-```text
-modificado por build de Tauri (src-tauri/Cargo.toml y gen/schemas/*.json)
-```
-
-## 11. Siguiente bloque
-
-**Bloque F — Fase 14: diagnóstico**.
+**Bloque F-Cierre — Fase 14: diagnóstico**.

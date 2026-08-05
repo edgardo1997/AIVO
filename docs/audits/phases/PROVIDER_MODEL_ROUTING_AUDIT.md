@@ -168,6 +168,10 @@ Origen: `declared` / `probed` / `verified` / `unknown`.
 ## 8. Deuda restante
 
 - [x] Integrar `BudgetManager` en `ModelRouter` para filtrar por presupuesto en caliente.
+- [x] `FallbackValidator` con revalidación de authority, budget, capabilities, context.
+- [x] `AdapterContract` con clasificación SUPPORTED/EXPERIMENTAL/DISABLED/UNSUPPORTED.
+- [x] `MetricsStore` con esquema canónico y guardrails de privacidad.
+- [x] `ContextWindowValidator` y `model_errors.py` estables.
 - Migrar embeddings OpenRouter a adapters externos.
 - Tests de adapter contract suite.
 - Health/readiness real para modelo local (proceso vs. listo).

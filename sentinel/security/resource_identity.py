@@ -36,6 +36,10 @@ class ResourceIdentity:
         """Return True if the two identities refer to the same resource version."""
         if not other:
             return False
+        # If both identities have a content hash, a different hash is definitive.
+        if self.content_hash is not None and other.content_hash is not None:
+            if self.content_hash != other.content_hash:
+                return False
         if self.file_id and self.volume_id and other.file_id and other.volume_id:
             return (
                 self.file_id == other.file_id
@@ -117,8 +121,8 @@ def capture_resource_identity(path: str, hash_level: str = "fast") -> ResourceId
     """Capture the current identity of ``path``.
 
     ``hash_level``:
-        - ``fast``: metadata only (size, mtime, file id).
-        - ``strong``: also compute SHA-256 for files <= 250 MB.
+        - ``fast``: metadata + SHA-256 for files <= 250 MB.
+        - ``strong``: metadata + SHA-256 for files <= 250 MB.
     """
     normalized = os.path.normpath(os.path.abspath(os.path.expanduser(os.path.expandvars(path))))
     st = os.lstat(normalized)
@@ -126,10 +130,11 @@ def capture_resource_identity(path: str, hash_level: str = "fast") -> ResourceId
     is_junction = _is_junction(normalized)
     content_hash: Optional[str] = None
     hash_algorithm: Optional[str] = None
-    if hash_level == "strong":
-        content_hash = _content_hash(normalized)
-        if content_hash:
-            hash_algorithm = "sha256"
+    # Always compute SHA-256 for small files; this closes the TOCTOU window
+    # where content changes without affecting metadata (same name, same size).
+    content_hash = _content_hash(normalized)
+    if content_hash:
+        hash_algorithm = "sha256"
     return ResourceIdentity(
         normalized_path=normalized,
         size=st.st_size,

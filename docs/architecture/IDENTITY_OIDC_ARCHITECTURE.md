@@ -297,6 +297,55 @@ No pedir todavía:
 
 - Google Drive
 - Gmail
+
+## 10. Vinculación de cuentas
+
+Identificador externo canónico:
+
+```text
+issuer + subject
+```
+
+No email.
+
+### Reglas
+
+- `issuer+subject` existente → iniciar sesión como la cuenta vinculada.
+- Email verificado con emisor diferente → no vincular automáticamente.
+- Email no verificado → no vincular.
+- Cuenta local autenticada → vinculación explícita.
+- Desvincular proveedor → conservar perfil local.
+
+### Servicio
+
+- `AccountLinkingService` en `sidecar/services/account_linking.py`.
+- Métodos: `find_identity`, `link_identity`, `unlink_identity`, `list_linked_identities`, `validate_link_request`.
+- Auditoría de cada acción.
+
+## 11. Protección del PKCE verifier
+
+Para Alpha:
+
+- El verifier se mantiene únicamente en memoria dentro de `OAuthTransactionStore`.
+- No se persiste en SQLite.
+- No se serializa al frontend.
+- No se escribe en logs.
+- Se elimina al completar, cancelar o expirar.
+- Reinicio del sidecar invalida todas las transacciones pendientes.
+
+## 12. Estado de implementación
+
+| Componente | Estado |
+|------------|--------|
+| LocalProfileRepository | IMPLEMENTADO |
+| AccountLinkingService | IMPLEMENTADO |
+| OAuthTransactionStore | IMPLEMENTADO |
+| Loopback listener | IMPLEMENTADO |
+| Onboarding visual | IMPLEMENTADO |
+| Identity provider contracts | IMPLEMENTADO |
+| Google | CONFIGURATION_REQUIRED |
+| Microsoft | CONFIGURATION_REQUIRED |
+
 - Calendar
 - Microsoft Graph
 - OneDrive

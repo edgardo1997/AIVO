@@ -30,7 +30,7 @@ if (-not (Test-Path $Installer)) {
 }
 
 if ([string]::IsNullOrWhiteSpace($InstallRoot)) {
-    $InstallRoot = Join-Path $env:LOCALAPPDATA "Sentinel-Install-Test-$([Guid]::NewGuid().ToString("N"))"
+    $InstallRoot = Join-Path $env:LOCALAPPDATA "Programs\Sentinel-Install-Test-$([Guid]::NewGuid().ToString("N"))"
 }
 
 $tempPrefix = $env:TEMP.ToLower()

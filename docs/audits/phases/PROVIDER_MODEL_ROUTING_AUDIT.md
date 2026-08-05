@@ -152,10 +152,31 @@ Origen: `declared` / `probed` / `verified` / `unknown`.
 
 ---
 
-## 7. Próximas acciones
+## 7. Avance implementado
 
-1. Cerrar bypasses críticos en `sidecar/services/ai_service.py` y `sentinel/core/knowledge_base.py`.
-2. Implementar `ModelRequest` / `RoutingDecision` como schemas canónicos.
-3. Normalizar capacidades en `model_registry.py` y `router_types.py`.
-4. Añadir tests de routing listados en la misión.
-5. Re-ejecutar suite completa.
+- Contratos canónicos: `sentinel/core/model_schemas.py` (`ModelRequest`, `RoutingDecision`, etc.).
+- `sentinel/core/provider_registry.py` responsabilidad limitada a metadata.
+- `ProviderManager` contratos canónicos: `execute_inference`, `execute_inference_stream`, `execute_embedding`, `get_provider_state`, `get_model_state`.
+- `ModelRouter.route` / `execute` / `execute_stream` canonicalizados.
+- `sentinel/core/budget.py` reserva atómica con concurrencia probada.
+- Circuit breaker testeado.
+- Embeddings con autoridad obligatoria (`local_only` por defecto).
+- Tool calling: adaptador normaliza propuestas, no ejecuta.
+- AIService: eliminados bypasses directos OpenAI.
+- `create_embedding_provider` no usa OpenRouter por defecto.
+
+## 8. Deuda restante
+
+- Integrar `BudgetManager` en `ModelRouter` para filtrar por presupuesto en caliente.
+- Migrar embeddings OpenRouter a adapters externos.
+- Tests de adapter contract suite.
+- Health/readiness real para modelo local (proceso vs. listo).
+- Context window validation integrado.
+- Fallback rechecks authority/budget en cadena.
+
+## 9. Suite
+
+- Python: 3272 passed
+- JS: 154 passed
+- Rust: 5 passed
+- Clippy: OK

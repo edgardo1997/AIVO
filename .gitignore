@@ -90,3 +90,10 @@ sentinel/local_model/
 
 # Build artifacts from AI-assisted build sessions
 .codex-*
+
+# Pre-Alpha baseline: ad-hoc reports, benchmarks and temporary scripts
+*.patch
+*.tmp
+*.bak
+sidecar/collected_tests.txt
+sidecar/benchmarks/

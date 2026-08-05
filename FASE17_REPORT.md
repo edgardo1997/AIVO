@@ -36,7 +36,7 @@ No se realizaron. El build actual no cumple los gates.
 
 ## 40. Veredicto
 
-**BLOQUEADO POR FASE ANTERIOR.**
+**BLOQUEADO** — por fase anterior.
 
 Se logró:
 

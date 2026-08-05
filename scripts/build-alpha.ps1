@@ -39,7 +39,7 @@ function Get-IsDirty {
 }
 
 function Get-CanonicalPath($relative) {
-    $p = Join-Path (Get-Location).Path $relative
+    $p = Join-Path $repoRoot $relative
     return [System.IO.Path]::GetFullPath($p)
 }
 
@@ -171,7 +171,15 @@ if (-not (Test-Path "$repoRoot\dist\index.html")) {
 # Sidecar
 # ---------------------------------------------------------------------------
 Step-Exec "uv sync" { python -m uv sync --frozen }
-Step-Exec "sidecar PyInstaller" { & { Set-Location sidecar; python -m uv run pyinstaller sidecar.spec --noconfirm } }
+Step-Exec "sidecar PyInstaller" {
+    Push-Location sidecar
+    try {
+        python -m uv run pyinstaller sidecar.spec --noconfirm
+    }
+    finally {
+        Pop-Location
+    }
+}
 
 $sidecarCanonical = Get-CanonicalPath "sidecar\dist\sidecar.exe"
 if (-not (Test-Path $sidecarCanonical)) {

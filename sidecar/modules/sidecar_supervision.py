@@ -235,7 +235,9 @@ def verified_orphan_cleanup(exe_path: Optional[str] = None) -> List[int]:
             real = Path(proc["exe_path"]).resolve()
         except Exception:
             continue
-        if real != expected and real.name != expected.name:
+        # Only terminate the exact executable we are responsible for;
+        # never kill sidecar.exe processes from other installations or tests.
+        if real != expected:
             continue
         try:
             result = subprocess.run(

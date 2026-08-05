@@ -28,7 +28,7 @@ jobs:
       BETA_TAG: ${{ inputs.tag }}
       ROLLBACK_TAG: ${{ inputs.rollback_tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.tag }}
           fetch-depth: 0

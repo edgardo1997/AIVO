@@ -7,14 +7,14 @@ import { Toast } from "./components/ui/Toast";
 import { AppProvider } from "./contexts/AppContext";
 import { SessionProvider, useAppSession } from "./contexts/SessionContext";
 import { auth } from "./api";
-import { markOnboardingComplete } from "./services/SessionService";
+import { completeOnboardingBackend } from "./services/SessionService";
 
 function AppContent() {
   const { session, loading, refresh } = useAppSession();
 
-  const finishOnboarding = useCallback(() => {
-    markOnboardingComplete();
-    void refresh();
+  const finishOnboarding = useCallback(async () => {
+    await completeOnboardingBackend();
+    await refresh();
   }, [refresh]);
 
   const handleLogin = useCallback(async (_method: "local" | "google" | "microsoft") => {

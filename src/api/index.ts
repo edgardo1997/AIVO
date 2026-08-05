@@ -100,6 +100,15 @@ export async function requestJSON<T>(url: string, options: RequestInit = {}, _re
 export async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T> { return requestJSON<T>(url, options); }
 export async function postJSON<T>(url: string, body?: unknown, method = "POST"): Promise<T> { return requestJSON<T>(url, { method, body: body !== undefined ? JSON.stringify(body) : undefined }); }
 
+export interface UserSession {
+  user_id: string;
+  display_name: string;
+  identity_provider: "local" | "google" | "microsoft";
+  roles: string[];
+  onboarding_completed: boolean;
+  expires_at?: string;
+}
+
 export const auth = {
   connectLocal: async () => {
     const token = await getSessionToken();
@@ -107,6 +116,13 @@ export const auth = {
     _accessToken = token; _refreshToken = null;
     return { authentication_method: "local_session" };
   },
+  session: async () => fetchJSON<UserSession>(`${BASE}/auth/session`),
+  localProfile: async () => fetchJSON<{ user_id: string; display_name: string; identity_provider: string; created_at: string } | null>(`${BASE}/auth/local/profile`),
+  createLocalProfile: async (display_name: string) =>
+    postJSON<{ user_id: string; display_name: string; identity_provider: string; created_at: string }>(`${BASE}/auth/local/profile`, { display_name }),
+  getOnboarding: async () => fetchJSON<{ onboarding_completed: boolean; required_steps: string[] }>(`${BASE}/auth/onboarding`),
+  setOnboarding: async (completed: boolean) =>
+    postJSON<{ onboarding_completed: boolean; required_steps: string[] }>(`${BASE}/auth/onboarding`, { completed }),
   login: async (user_id: string, password = "") => {
     const res = await fetch(`${BASE}/auth/login`, {
       method: "POST", headers: { "Content-Type": "application/json" },

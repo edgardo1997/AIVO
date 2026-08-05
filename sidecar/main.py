@@ -292,6 +292,7 @@ from routers.v1.profile import router as v1_profile_router
 from routers.v1.admin_fleet import router as v1_admin_fleet_router
 from routers.v1.plans import router as v1_plans_router
 from routers.auth_jwt import router as auth_jwt_router
+from routers.session import router as session_router
 from modules.admin import router as admin_router
 from modules.fleet import router as fleet_router
 from modules.help import router as help_router
@@ -315,6 +316,7 @@ from routers.support import router as support_router
 def _register_routes(application: FastAPI) -> None:
     for router, prefix, tags in (
         (auth_jwt_router, "", ["auth"]),
+        (session_router, "", ["session"]),
         (onboarding_router, "", ["onboarding"]),
         (admin_router, "", None),
         (fleet_router, "", ["fleet"]),

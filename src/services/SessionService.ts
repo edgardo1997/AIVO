@@ -1,4 +1,4 @@
-import { auth, isLoggedIn } from "../api";
+import { auth } from "../api";
 
 export type SessionStatus =
   | "checking"
@@ -21,18 +21,16 @@ export interface UserSession {
 /**
  * Canonical session contract.
  *
- * TODO/DEBT: onboarding is currently read from localStorage as a UX preference.
- * The backend must still validate that required onboarding contracts exist
- * before accepting actions that depend on them. Replace localStorage with a
- * backend-backed onboarding record before declaring onboarding complete.
+ * The source of truth for the session is the Tauri/backend sidecar.
+ * This service queries /auth/session and never trusts localStorage
+ * for authentication, roles, permissions, or tokens.
  *
- * localStorage is intentionally used here only for non-sensitive UI preferences:
- * - onboarding_completed
- * - developer_mode_visible (UI flag)
+ * localStorage is intentionally limited to non-sensitive UI preferences:
+ * - developer_mode_visible
  * - sidebar_collapsed
  * - selected_language
  *
- * It is NOT the source of truth for:
+ * It is NOT used for:
  * - authenticated
  * - session_valid
  * - user_role
@@ -40,58 +38,47 @@ export interface UserSession {
  * - permissions
  * - cloud_authority
  * - tokens
+ * - OAuth state/nonce/PKCE
  * - grants
  */
-const ONBOARDING_KEY = "sentinel.onboarding.v1";
-
-function readOnboarding(): boolean {
-  try {
-    return localStorage.getItem(ONBOARDING_KEY) === "complete";
-  } catch {
-    return false;
-  }
-}
-
-export function markOnboardingComplete() {
-  try {
-    localStorage.setItem(ONBOARDING_KEY, "complete");
-  } catch {
-    // ignore
-  }
-}
 
 export async function getSession(): Promise<UserSession> {
-  // The actual access token is held in-memory by the API layer (not localStorage).
-  // This call only checks whether the frontend believes it has a valid session.
   try {
-    const loggedIn = isLoggedIn();
-    if (!loggedIn) {
-      return { status: "unauthenticated", roles: [], onboardingCompleted: readOnboarding() };
-    }
-
-    const onboardingCompleted = readOnboarding();
+    const s = await auth.session();
     return {
       status: "authenticated",
-      userId: "local",
-      displayName: "Usuario local",
-      identityProvider: "local",
-      roles: [],
-      onboardingCompleted,
+      userId: s.user_id,
+      displayName: s.display_name,
+      identityProvider: s.identity_provider,
+      roles: s.roles,
+      onboardingCompleted: s.onboarding_completed,
+      expiresAt: s.expires_at,
     };
-  } catch (e) {
+  } catch (e: any) {
+    if (e.message?.includes("401")) {
+      return {
+        status: "unauthenticated",
+        roles: [],
+        onboardingCompleted: false,
+      };
+    }
     return {
       status: "error",
       roles: [],
-      onboardingCompleted: readOnboarding(),
+      onboardingCompleted: false,
     };
   }
+}
+
+export async function completeOnboardingBackend(): Promise<void> {
+  await auth.setOnboarding(true);
+}
+
+export function markOnboardingComplete() {
+  // Local UI preference only; backend is the source of truth.
+  // TODO: remove once all flows call completeOnboardingBackend.
 }
 
 export function logout() {
   auth.logout();
-  try {
-    localStorage.removeItem(ONBOARDING_KEY);
-  } catch {
-    // ignore
-  }
 }

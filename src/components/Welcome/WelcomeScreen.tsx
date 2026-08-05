@@ -27,9 +27,7 @@ export function WelcomeScreen({ onLogin }: Props) {
     setLoading("google");
     setError("");
     try {
-      // TODO: implement Google OIDC PKCE flow
-      // onLogin("google");
-      setError("Inicio de sesión con Google aún no está disponible en esta build.");
+      setError("Inicio de sesión con Google: disponible próximamente.");
     } finally {
       setLoading(null);
     }
@@ -39,9 +37,7 @@ export function WelcomeScreen({ onLogin }: Props) {
     setLoading("microsoft");
     setError("");
     try {
-      // TODO: implement Microsoft OIDC PKCE flow
-      // onLogin("microsoft");
-      setError("Inicio de sesión con Microsoft aún no está disponible en esta build.");
+      setError("Inicio de sesión con Microsoft: disponible próximamente.");
     } finally {
       setLoading(null);
     }

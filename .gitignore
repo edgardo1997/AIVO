@@ -86,8 +86,12 @@ sidecar/build/
 # Installer build output
 installer/
 
-# Local model binaries (download at runtime)
-sentinel/local_model/
+# Local model binaries (download at runtime). Python source is tracked.
+sentinel/local_model/models/
+sentinel/local_model/*.gguf
+sentinel/local_model/*.bin
+sentinel/local_model/runtime/
+sentinel/local_model/*.zip
 
 # Build artifacts from AI-assisted build sessions
 .codex-*

@@ -2992,7 +2992,7 @@ dependencies = [
 
 [[package]]
 name = "sentinel"
-version = "1.0.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "rand",
  "reqwest 0.12.28",

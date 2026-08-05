@@ -49,11 +49,26 @@ ALLOWED_SAFE_CMDS = {
 
 
 def _load_destructive_patterns():
+    default_patterns = [
+        "rm -rf",
+        "format ",
+        "del /f",
+        "erase",
+        "rd /s",
+        "rmdir /s",
+        ":(){:|:&};:",
+        "mkfs",
+        "dd if=",
+        "fsutil delete",
+        "bdelete",
+        "cipher /w",
+        "remove-item -recurse -force",
+    ]
     data = load_or_default(
         "destructive_patterns.yaml",
-        default_factory=lambda: {"destructive_patterns": []},
+        default_factory=lambda: {"destructive_patterns": default_patterns},
     )
-    return data.get("destructive_patterns", [])
+    return data.get("destructive_patterns", default_patterns)
 
 
 DESTRUCTIVE_PATTERNS: list[str] | None = None
@@ -170,6 +185,10 @@ class ExecutorService(Tool):
         if not command:
             return ToolResult.fail(error="command is required", tool_id="executor.command")
 
+        path = self._extract_path(command)
+        if path and self._is_system_path(path):
+            return ToolResult.fail(error="Command blocked: system path is protected", tool_id="executor.command")
+
         try:
             if self._guardian and self._is_file_operation(command):
                 path = self._extract_path(command)
@@ -282,6 +301,11 @@ class ExecutorService(Tool):
             if not confirmed:
                 self._log_action("command_blocked", f"{safe_cmd} (user denied)", "blocked")
                 return {"stdout": "", "stderr": "Action was not confirmed", "returncode": -1}
+
+        target = self._extract_path(safe_cmd)
+        if target and self._is_system_path(target):
+            self._log_action("command_blocked", safe_cmd, "blocked: system path")
+            return {"stdout": "", "stderr": "Command blocked: system path is protected", "returncode": -1, "classification": "blocked"}
 
         try:
             result = self._exec_safe(safe_cmd, timeout=timeout)
@@ -665,6 +689,22 @@ class ExecutorService(Tool):
 
     def get_destructive_patterns(self) -> dict:
         return {"patterns": _destructive_patterns()}
+
+    def _is_system_path(self, path: str) -> bool:
+        """Block known Windows system and reserved paths."""
+        import re
+        normalized = path.replace("/", "\\").lower().rstrip("\\")
+        if re.match(r"^[a-z]:\\windows($|\\)", normalized):
+            return True
+        if re.match(r"^\\windows($|\\)", normalized):
+            return True
+        if re.match(r"^[a-z]:\\program files($|\\)", normalized):
+            return True
+        if re.match(r"^[a-z]:\\programdata($|\\)", normalized):
+            return True
+        if re.match(r"^[a-z]:\\\.sentinel($|\\)", normalized):
+            return True
+        return False
 
     def _is_file_operation(self, command: str) -> bool:
         file_keywords = {

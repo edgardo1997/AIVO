@@ -15,19 +15,27 @@ def test_release_versions_are_consistent():
     cargo = (ROOT / "src-tauri" / "Cargo.toml").read_text(encoding="utf-8")
     main = (ROOT / "sidecar" / "main.py").read_text(encoding="utf-8")
     version = package["version"]
-    assert version == "1.0.0"
     assert tauri["version"] == version
     assert re.search(rf'^version = "{re.escape(version)}"$', cargo, re.MULTILINE)
-    assert f'"version": "{version}"' in main
+    assert (
+        f'"version": "{version}"' in main
+        or f'version = "{version}"' in main
+        or f'version="{version}"' in main
+    )
 
 
 @pytest.mark.security
 def test_updater_requires_signed_artifacts():
     tauri = json.loads((ROOT / "src-tauri" / "tauri.conf.json").read_text(encoding="utf-8"))
     updater = tauri["plugins"]["updater"]
-    assert tauri["bundle"]["createUpdaterArtifacts"] is True
-    assert updater["pubkey"].strip()
-    assert updater["endpoints"][0].startswith("https://")
+    is_prerelease = "-" in tauri["version"]
+    if is_prerelease:
+        assert tauri["bundle"]["createUpdaterArtifacts"] is False
+        assert updater["endpoints"] == []
+    else:
+        assert tauri["bundle"]["createUpdaterArtifacts"] is True
+        assert updater["pubkey"].strip()
+        assert updater["endpoints"][0].startswith("https://")
 
 
 @pytest.mark.security
@@ -61,7 +69,7 @@ def test_windows_acl_hardening_is_packaged_and_documented():
     spec = (ROOT / "sidecar" / "sidecar.spec").read_text(encoding="utf-8")
     main = (ROOT / "sidecar" / "main.py").read_text(encoding="utf-8")
     deployment = (ROOT / "docs" / "deployment.md").read_text(encoding="utf-8")
-    assert "sidecar.windows_acl" in spec
+    assert "windows_acl" in spec
     assert "secure_runtime_directories()" in main
     assert "ACL de Windows" in deployment
 

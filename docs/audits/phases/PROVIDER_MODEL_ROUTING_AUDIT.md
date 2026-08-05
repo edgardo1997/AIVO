@@ -175,6 +175,9 @@ Origen: `declared` / `probed` / `verified` / `unknown`.
 - [x] `AdapterContract` con clasificación SUPPORTED/EXPERIMENTAL/DISABLED/UNSUPPORTED.
 - [x] `MetricsStore` con esquema canónico y guardrails de privacidad.
 - [x] `ContextWindowValidator` y `model_errors.py` estables.
+- [x] `FallbackManager` invoca `FallbackValidator` para candidatos secundarios.
+- [x] Tests de contrato público para `chat`.
+- [x] Fakes adapters para tests canónicos.
 - Migrar embeddings OpenRouter a adapters externos.
 - Tests de adapter contract suite.
 - Health/readiness real para modelo local (proceso vs. listo).

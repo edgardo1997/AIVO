@@ -1,0 +1,120 @@
+.welcome-page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 24px;
+  background: var(--bg, #0c0d10);
+  color: var(--text, #e9ebf0);
+}
+
+.welcome-card {
+  width: 100%;
+  max-width: 420px;
+  padding: 40px 32px;
+  border-radius: 16px;
+  background: var(--surface, #14161c);
+  border: 1px solid var(--border, #272a35);
+  text-align: center;
+}
+
+.welcome-logo {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14px;
+  background: var(--accent, #3b6ef7);
+  color: #fff;
+  font-size: 28px;
+  font-weight: 600;
+}
+
+.welcome-title {
+  font-size: 28px;
+  font-weight: 700;
+  margin: 0 0 8px;
+}
+
+.welcome-subtitle {
+  font-size: 14px;
+  color: var(--text-secondary, #9ba3b4);
+  line-height: 1.5;
+  margin: 0 0 28px;
+}
+
+.welcome-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.welcome-btn {
+  width: 100%;
+  padding: 12px 16px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: opacity 0.2s, background 0.2s;
+}
+
+.welcome-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.welcome-btn-primary {
+  background: var(--accent, #3b6ef7);
+  color: #fff;
+}
+
+.welcome-btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover, #5a86ff);
+}
+
+.welcome-btn-secondary {
+  background: transparent;
+  color: var(--text, #e9ebf0);
+  border-color: var(--border, #272a35);
+}
+
+.welcome-btn-secondary:hover:not(:disabled) {
+  background: var(--surface-2, #1c1f29);
+}
+
+.welcome-error {
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--error, #ff6b6b);
+  background: rgba(255, 107, 107, 0.1);
+  margin-bottom: 16px;
+}
+
+.welcome-note {
+  font-size: 12px;
+  color: var(--text-muted, #6b7280);
+  line-height: 1.5;
+  margin: 0 0 24px;
+}
+
+.welcome-footer {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  font-size: 12px;
+}
+
+.welcome-footer a {
+  color: var(--text-secondary, #9ba3b4);
+  text-decoration: none;
+}
+
+.welcome-footer a:hover {
+  text-decoration: underline;
+}

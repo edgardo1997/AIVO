@@ -31,9 +31,9 @@ describe("Support panel", () => {
     expect(await screen.findByText(/Cloud:/)).toBeInTheDocument();
   });
 
-  it("hides technical details by default", async () => {
+  it("shows build and status by default", async () => {
     render(<Support />);
     expect(screen.queryByText(/Ver detalles/)).toBeInTheDocument();
-    expect(screen.queryByText(/Build ID:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Build ID:/)).toBeInTheDocument();
   });
 });

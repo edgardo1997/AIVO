@@ -22,6 +22,7 @@ import { Profile } from "../Profile/Profile";
 import { ControlCenterView, MetricsView, ModelCenterView, ModesView } from "../Product";
 import { Reports } from "../Reports/Reports";
 import { Sentinel } from "../Sentinel/Sentinel";
+import { Settings } from "../Settings/Settings";
 import Support from "../Support/Support";
 import { Triggers } from "../Triggers/Triggers";
 import { Vault } from "../Vault/Vault";
@@ -56,6 +57,7 @@ export type ViewKey =
   | "proactive"
   | "profile"
   | "reports"
+  | "settings"
   | "support";
 
 export type ViewGroup = {
@@ -65,84 +67,82 @@ export type ViewGroup = {
 };
 
 // oxlint-disable-next-line react/only-export-components
-export const viewGroups: ViewGroup[] = [
+export const userMenu: ViewGroup[] = [
   {
-    id: "product",
-    label: "Producto",
+    id: "main",
+    label: "Principal",
     items: [
-      { key: "modes", label: "Modos", icon: "◈", description: "Modos de uso con respaldo" },
-      { key: "modelcenter", label: "Modelos", icon: "◇", description: "Centro de modelos" },
-      { key: "controlcenter", label: "Control", icon: "◎", description: "Centro de control del sistema" },
-      { key: "metrics", label: "Métricas", icon: "◉", description: "Métricas de producto" },
-    ],
-  },
-  {
-    id: "system",
-    label: "Sistema",
-    items: [
-      { key: "dashboard", label: "Panel", icon: "◇", description: "Métricas y acceso rápido" },
-      { key: "livedashboard", label: "Live", icon: "◉", description: "Sistema en vivo" },
-      { key: "monitor", label: "Monitor", icon: "◎", description: "CPU, memoria, disco en tiempo real" },
-      { key: "console", label: "Consola", icon: "⌘", description: "Ejecutar comandos" },
-      { key: "execute", label: "Ejecutor", icon: "▶", description: "Acciones directas" },
-      { key: "observability", label: "Observabilidad", icon: "◉", description: "Trazas y debugging" },
-    ],
-  },
-  {
-    id: "data",
-    label: "Datos",
-    items: [
-      { key: "files", label: "Archivos", icon: "▣", description: "Explorar y gestionar" },
-      { key: "knowledge", label: "Conocimiento", icon: "◇", description: "Base documental" },
-      { key: "vault", label: "Bóveda", icon: "◈", description: "Secretos cifrados" },
-      { key: "memory", label: "Memoria", icon: "◉", description: "Contexto e historial" },
-      { key: "reports", label: "Reportes", icon: "▤", description: "Exportar informes" },
-    ],
-  },
-  {
-    id: "admin",
-    label: "Administración",
-    items: [
-      { key: "admin", label: "Admin", icon: "⊙", description: "Configuración general" },
-      { key: "agents", label: "Agentes", icon: "◑", description: "Agentes especializados" },
-      { key: "fleet", label: "Flota", icon: "◎", description: "Dispositivos y sync" },
-      { key: "plugins", label: "Plugins", icon: "▤", description: "Extensiones y marketplace" },
-      { key: "triggers", label: "Disparadores", icon: "⚡", description: "Reglas automáticas" },
-      { key: "policies", label: "Políticas", icon: "△", description: "YAML y permisos" },
-      { key: "profile", label: "Perfil", icon: "◉", description: "Usuario y sesión" },
-    ],
-  },
-  {
-    id: "security",
-    label: "Seguridad",
-    items: [
-      { key: "permissions", label: "Permisos", icon: "△", description: "Niveles de autoridad" },
-      { key: "audit", label: "Auditoría", icon: "◈", description: "Registro verificable" },
-      { key: "alertas", label: "Alertas", icon: "⚠", description: "Notificaciones activas" },
-      { key: "proactive", label: "Proactivo", icon: "✦", description: "Sugerencias inteligentes" },
-    ],
-  },
-  {
-    id: "ai",
-    label: "IA",
-    items: [
-      { key: "sentinel", label: "Sentinel", icon: "◆", description: "Orquestación de acciones" },
-      { key: "feedback", label: "Retroalimentación", icon: "↗", description: "Costos y calidad" },
-    ],
-  },
-  {
-    id: "help",
-    label: "Ayuda",
-    items: [
-      { key: "help", label: "Ayuda", icon: "?", description: "Documentación" },
-      { key: "support", label: "Soporte", icon: "☖", description: "Soporte y diagnóstico" },
+      { key: "dashboard", label: "Inicio", icon: "◇", description: "Pantalla principal con estado, IA activa y acciones sugeridas" },
+      { key: "sentinel", label: "Chat", icon: "💬", description: "Conversación con la IA gobernada" },
+      { key: "audit", label: "Actividad", icon: "◉", description: "Acciones recientes, auditoría y alertas" },
+      { key: "files", label: "Archivos", icon: "▣", description: "Explorar y gestionar archivos" },
+      { key: "permissions", label: "Permisos", icon: "△", description: "Carpetas, herramientas, cloud e integraciones" },
+      { key: "settings", label: "Configuración", icon: "⚙", description: "Cuenta, IA, privacidad y soporte" },
+      { key: "help", label: "Ayuda", icon: "?", description: "Documentación y primeros pasos" },
     ],
   },
 ];
 
 // oxlint-disable-next-line react/only-export-components
+export const developerMenu: ViewGroup[] = [
+  {
+    id: "dev-development",
+    label: "Desarrollo",
+    items: [
+      { key: "console", label: "Consola", icon: "⌘", description: "Ejecutar comandos" },
+      { key: "plugins", label: "Plugins", icon: "▤", description: "Extensiones y marketplace" },
+      { key: "agents", label: "Agentes", icon: "◑", description: "Agentes especializados" },
+      { key: "triggers", label: "Disparadores", icon: "⚡", description: "Reglas automáticas" },
+    ],
+  },
+  {
+    id: "dev-observability",
+    label: "Observabilidad",
+    items: [
+      { key: "metrics", label: "Métricas", icon: "◉", description: "Métricas de producto" },
+      { key: "monitor", label: "Monitor", icon: "◎", description: "CPU, memoria, disco en tiempo real" },
+      { key: "livedashboard", label: "Live", icon: "◉", description: "Sistema en vivo" },
+      { key: "alertas", label: "Alertas", icon: "⚠", description: "Notificaciones activas" },
+      { key: "observability", label: "Observabilidad", icon: "◉", description: "Trazas y debugging" },
+    ],
+  },
+  {
+    id: "dev-intelligence",
+    label: "Inteligencia",
+    items: [
+      { key: "modelcenter", label: "Modelos avanzados", icon: "◇", description: "Centro de modelos" },
+      { key: "memory", label: "Memoria", icon: "◉", description: "Contexto e historial" },
+      { key: "knowledge", label: "Conocimiento", icon: "◇", description: "Base documental" },
+      { key: "proactive", label: "Proactivo", icon: "✦", description: "Sugerencias inteligentes" },
+    ],
+  },
+  {
+    id: "dev-governance",
+    label: "Gobernanza",
+    items: [
+      { key: "permissions", label: "Permisos avanzados", icon: "△", description: "Niveles de autoridad" },
+      { key: "audit", label: "Auditoría detallada", icon: "◈", description: "Registro verificable" },
+      { key: "vault", label: "Bóveda", icon: "◈", description: "Secretos cifrados" },
+      { key: "controlcenter", label: "Control", icon: "◎", description: "Centro de control del sistema" },
+    ],
+  },
+  {
+    id: "dev-system",
+    label: "Sistema",
+    items: [
+      { key: "admin", label: "Admin", icon: "⊙", description: "Configuración general" },
+      { key: "fleet", label: "Flota", icon: "◎", description: "Dispositivos y sync" },
+      { key: "support", label: "Diagnóstico técnico", icon: "☖", description: "Soporte y diagnóstico" },
+    ],
+  },
+];
+
+// oxlint-disable-next-line react/only-export-components
+export const viewGroups: ViewGroup[] = userMenu;
+
+// oxlint-disable-next-line react/only-export-components
 export const viewMeta: Record<ViewKey, { label: string; icon: string; description: string }> =
-  Object.fromEntries(viewGroups.flatMap((g) => g.items.map((item) => [item.key, { label: item.label, icon: item.icon, description: item.description }]))) as any;
+  Object.fromEntries([...userMenu, ...developerMenu].flatMap((g) => g.items.map((item) => [item.key, { label: item.label, icon: item.icon, description: item.description }]))) as any;
 
 export function ViewRouter({ view, onNavigate }: { view: ViewKey; onNavigate?: (tab: string) => void }) {
   switch (view) {
@@ -173,6 +173,7 @@ export function ViewRouter({ view, onNavigate }: { view: ViewKey; onNavigate?: (
     case "profile": return <Profile />;
     case "reports": return <Reports />;
     case "sentinel": return <Sentinel />;
+    case "settings": return <Settings />;
     case "support": return <Support />;
     case "triggers": return <Triggers />;
     case "vault": return <Vault />;

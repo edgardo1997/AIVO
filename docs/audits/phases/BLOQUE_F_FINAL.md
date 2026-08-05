@@ -13,7 +13,7 @@ Commit final: `229cf37`
 | FASE 4 | **COMPLETADO** |
 | FASE 5 | **COMPLETADO** |
 | FASE 6 | **COMPLETADO para internal-alpha** |
-| FASE 14 | **RECHAZADA** |
+| FASE 14 | **PARCIAL — validación automática APROBADA, validación manual GUI PENDIENTE** |
 | Bloque G | **NO INICIADO** |
 
 **Motivo del rechazo:** validación manual del build `internal-alpha-20260805-59be78e` encontró tres fallos graves:
@@ -105,6 +105,20 @@ La nueva build pasó:
 - sidecar smoke normal;
 - sidecar smoke repetition (3x, 0 huérfanos);
 - installer regression (instalación, inicio, desinstalación, 0 procesos residuales).
+
+### Re-validación automatizada posterior
+
+```powershell
+.\scripts\test-installer.ps1 -Installer "artifacts\internal-alpha\Sentinel_0.1.0-alpha.1_x64-setup.exe"
+```
+
+```text
+InstallLocation: C:\Users\edgar\AppData\Local\Programs\Sentinel-Install-Test-<guid>
+UninstallString: C:\Users\edgar\AppData\Local\Programs\Sentinel-Install-Test-<guid>\uninstall.exe
+[PASS] Installer regression passed.
+```
+
+Pendiente: validación manual GUI (`docs/validation/FASE14_GUI_MANUAL_CHECKLIST.md`).
 
 ## 2. Fase 4 — COMPLETADO
 

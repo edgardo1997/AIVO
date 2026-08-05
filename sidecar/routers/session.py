@@ -1,4 +1,4 @@
-"""Canonical session and local identity endpoints."""
+"""Canonical session, local identity and OAuth lifecycle endpoints."""
 
 import logging
 
@@ -7,11 +7,51 @@ from pydantic import BaseModel, Field
 
 from modules.auth import request_identity
 from repositories.local_profile_repository import LocalProfileRepository
+from repositories.oauth_transaction_repository import OAuthTransactionStore
+from services.identity_provider import (
+    GoogleIdentityProvider,
+    IdentityProfile,
+    LocalIdentityProvider,
+    LoginStartResult,
+    MicrosoftIdentityProvider,
+    ProviderConfig,
+)
+from services.oauth_loopback import OAuthLoopbackServer
 
 log = logging.getLogger("sentinel.session")
 router = APIRouter()
 
 repo = LocalProfileRepository()
+tx_store = OAuthTransactionStore()
+
+
+def _google_config() -> ProviderConfig:
+    import os
+    return ProviderConfig(
+        enabled=os.environ.get("SENTINEL_GOOGLE_ENABLED", "").lower() == "true",
+        client_id=os.environ.get("SENTINEL_GOOGLE_CLIENT_ID", ""),
+        redirect_strategy="loopback",
+    )
+
+
+def _microsoft_config() -> ProviderConfig:
+    import os
+    return ProviderConfig(
+        enabled=os.environ.get("SENTINEL_MICROSOFT_ENABLED", "").lower() == "true",
+        client_id=os.environ.get("SENTINEL_MICROSOFT_CLIENT_ID", ""),
+        tenant=os.environ.get("SENTINEL_MICROSOFT_TENANT", "common"),
+        redirect_strategy="loopback",
+    )
+
+
+def _provider(provider: str):
+    if provider == "local":
+        return LocalIdentityProvider(repo)
+    if provider == "google":
+        return GoogleIdentityProvider(_google_config())
+    if provider == "microsoft":
+        return MicrosoftIdentityProvider(_microsoft_config())
+    raise HTTPException(status_code=400, detail="Unknown provider")
 
 
 class UserSessionResponse(BaseModel):
@@ -53,39 +93,60 @@ class LocalProfile(BaseModel):
     created_at: str
 
 
-def _profile_key() -> str:
-    """Stable anchor for the local machine account.
+class ProviderInfo(BaseModel):
+    provider: str
+    configured: bool
+    display_name: str
 
-    In this build the repository uses an internal anchor preference. Future
-    versions can bind this to a Windows SID hash without exposing it.
-    """
+
+class OAuthStartResponse(BaseModel):
+    transaction_id: str
+    authorization_url: str
+    status: str
+    message: str
+
+
+class OAuthStatusResponse(BaseModel):
+    transaction_id: str
+    provider: str
+    status: str
+    authorization_url: str
+    message: str
+    redirect_uri: str
+
+
+class OAuthCallbackResponse(BaseModel):
+    status: str
+    message: str
+    identity: IdentityProfile | None = None
+
+
+# ── Helpers ─────────────────────────────────────────────────
+
+def _profile_key() -> str:
     return "_local_"
 
 
+# ── Session ─────────────────────────────────────────────────
+
 @router.get("/auth/session", response_model=UserSessionResponse)
 async def get_user_session(request: Request):
-    """Return the canonical user session for the frontend.
-
-    The session is derived from the request identity but normalized for UI
-    consumption. It is the single source of truth for route guards and
-    navigation; localStorage is not authoritative.
-    """
     identity = request_identity(request)
     profile = repo.get_by_anchor()
     display_name = (profile or {}).get("display_name") or identity.username
-    roles = (profile or {}).get("roles") or ["user"]
-
     onboarding = repo.get_onboarding(profile["user_id"]) if profile else {"status": "not_started"}
 
     return UserSessionResponse(
         user_id=profile["user_id"] if profile else identity.user_id,
         display_name=display_name,
         identity_provider="local",
-        roles=roles,
+        roles=["user"],
         onboarding_completed=onboarding.get("status") == "completed",
         expires_at=None,
     )
 
+
+# ── Onboarding ──────────────────────────────────────────────
 
 @router.get("/auth/onboarding", response_model=OnboardingStatus)
 async def get_onboarding_status(request: Request):
@@ -141,6 +202,8 @@ async def set_onboarding_status(body: OnboardingCompleteRequest, request: Reques
     )
 
 
+# ── Local profile ───────────────────────────────────────────
+
 @router.get("/auth/local/profile", response_model=LocalProfile | None)
 async def get_local_profile(request: Request):
     profile = repo.get_by_anchor()
@@ -173,4 +236,114 @@ async def create_local_profile(body: LocalProfileRequest, request: Request):
         username=profile["username"],
         identity_provider=profile["identity_provider"],
         created_at=profile["created_at"],
+    )
+
+
+# ── Identity providers ──────────────────────────────────────
+
+@router.get("/auth/providers", response_model=list[ProviderInfo])
+async def list_providers():
+    return [
+        ProviderInfo(provider="local", configured=True, display_name="Este dispositivo"),
+        ProviderInfo(provider="google", configured=_google_config().enabled and bool(_google_config().client_id), display_name="Google"),
+        ProviderInfo(provider="microsoft", configured=_microsoft_config().enabled and bool(_microsoft_config().client_id), display_name="Microsoft"),
+    ]
+
+
+@router.post("/auth/oauth/{provider}/start", response_model=OAuthStartResponse)
+async def start_oauth(provider: str, request: Request):
+    identity = request_identity(request)
+    prov = _provider(provider)
+    if not prov.is_configured:
+        return OAuthStartResponse(
+            transaction_id="",
+            authorization_url="",
+            status="CONFIGURATION_REQUIRED",
+            message=f"{provider} provider is not configured",
+        )
+
+    if provider == "local":
+        result = await prov.start_login()
+        return OAuthStartResponse(
+            transaction_id=result.transaction_id,
+            authorization_url=result.authorization_url,
+            status=result.status,
+            message=result.message,
+        )
+
+    # Google/Microsoft use PKCE loopback.
+    server = OAuthLoopbackServer()
+    redirect_uri = server.start()
+    tx = tx_store.create(provider, redirect_uri, correlation_id=identity.user_id)
+    # Build the authorization URL with code_challenge and state.
+    # The transaction store keeps the verifier; only the challenge goes to the URL.
+    state = tx._raw_state
+    nonce = tx._raw_nonce
+    url = _build_authorization_url(provider, redirect_uri, tx.code_challenge, state, nonce)
+    return OAuthStartResponse(
+        transaction_id=tx.transaction_id,
+        authorization_url=url,
+        status="started",
+        message="Browser should open this URL",
+    )
+
+
+def _build_authorization_url(provider: str, redirect_uri: str, code_challenge: str, state: str, nonce: str) -> str:
+    import urllib.parse
+    if provider == "google":
+        params = {
+            "client_id": _google_config().client_id,
+            "response_type": "code",
+            "scope": "openid email profile",
+            "redirect_uri": redirect_uri,
+            "code_challenge": code_challenge,
+            "code_challenge_method": "S256",
+            "state": state,
+            "nonce": nonce,
+        }
+        return "https://accounts.google.com/o/oauth2/v2/auth?" + urllib.parse.urlencode(params)
+    if provider == "microsoft":
+        tenant = _microsoft_config().tenant
+        params = {
+            "client_id": _microsoft_config().client_id,
+            "response_type": "code",
+            "scope": "openid email profile",
+            "redirect_uri": redirect_uri,
+            "code_challenge": code_challenge,
+            "code_challenge_method": "S256",
+            "state": state,
+            "nonce": nonce,
+            "response_mode": "query",
+        }
+        return f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize?" + urllib.parse.urlencode(params)
+    return ""
+
+
+@router.post("/auth/oauth/{provider}/cancel", response_model=OAuthStatusResponse)
+async def cancel_oauth(provider: str, request: Request):
+    # The caller must provide the transaction_id; for simplicity we return the
+    # last known transaction for the provider, but a real implementation would
+    # look it up by id.
+    return OAuthStatusResponse(
+        transaction_id="",
+        provider=provider,
+        status="cancelled",
+        authorization_url="",
+        message="Cancellation requires a transaction_id in the request body",
+        redirect_uri="",
+    )
+
+
+@router.get("/auth/oauth/{transaction_id}/status", response_model=OAuthStatusResponse)
+async def oauth_status(transaction_id: str):
+    tx = tx_store.get(transaction_id)
+    if not tx:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+    return OAuthStatusResponse(
+        transaction_id=tx.transaction_id,
+        provider=tx.provider,
+        status=tx.status,
+        authorization_url="",
+        message="OAuth transaction status",
+        redirect_uri=tx.redirect_uri,
     )

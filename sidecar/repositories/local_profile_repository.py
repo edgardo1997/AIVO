@@ -108,7 +108,6 @@ class LocalProfileRepository:
             session.add(profile)
             self._set_pref(session, "_sentinel_", "local_profile_anchor", user_id)
             self._set_pref(session, user_id, "identity_provider", identity_provider)
-            self._set_pref(session, user_id, "roles", ["user"])
             self._set_pref(session, user_id, "profile_version", 1)
             self._set_pref(session, user_id, "onboarding_status", "not_started")
             self._set_pref(session, user_id, "onboarding_current_step", 1)
@@ -160,12 +159,24 @@ class LocalProfileRepository:
                 select(UserProfile.user_id).where(UserProfile.user_id == anchor)
             ).scalar_one_or_none() is not None
 
-    def recover(self) -> dict | None:
+    def recover(self, allow_new_identity: bool = False) -> dict | None:
         """Attempt to recover a usable profile after corruption.
 
-        Returns the first local profile found, or None.
+        Returns the first local profile found, or None. It never creates a new
+        user silently; `allow_new_identity` must be True and only after explicit
+        user confirmation.
         """
         with self._session_scope() as session:
+            anchor = self._get_pref(session, "_sentinel_", "local_profile_anchor", None)
+            if anchor:
+                # First try the anchored profile to preserve identity.
+                anchored = session.execute(
+                    select(UserProfile).where(UserProfile.user_id == anchor)
+                ).scalar_one_or_none()
+                if anchored:
+                    return self._to_profile(session, anchored)
+
+            # If anchor is missing, search for any local profile to recover.
             profile = session.execute(
                 select(UserProfile)
                 .where(UserProfile.username.like("local:%"))
@@ -229,6 +240,8 @@ class LocalProfileRepository:
             "created_at": row.created_at,
             "updated_at": row.updated_at,
             "identity_provider": self._get_pref(session, row.user_id, "identity_provider", "local"),
-            "roles": self._get_pref(session, row.user_id, "roles", ["user"]),
+            # Roles are canonical: local normal users are always ["user"].
+            # Admin is not a preference and cannot be elevated by modifying storage.
+            "roles": ["user"],
             "profile_version": self._get_pref(session, row.user_id, "profile_version", 1),
         }

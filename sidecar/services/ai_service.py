@@ -456,19 +456,7 @@ class AIService:
 
         def _run_chat(msgs):
             if not self._router:
-                chat_cfg = dict(cfg)
-                chat_provider = provider or chat_cfg.get("provider", "sentinel_local")
-                if self._vault:
-                    stored = self._vault.reveal_value(f"ai-provider-{chat_provider}")
-                    if stored:
-                        chat_cfg["api_key"] = stored
-                client = self._make_client(chat_cfg)
-                resp = client.chat.completions.create(model=model, messages=msgs)
-                return {
-                    "response": resp.choices[0].message.content,
-                    "provider": chat_provider,
-                    "model": model,
-                }
+                raise RuntimeError("AI router not configured; direct provider calls are disabled")
             old_preferred = None
             if provider and self._router:
                 old_preferred = getattr(self._router, "_preferred_provider", None)
@@ -658,14 +646,7 @@ class AIService:
                 core = self._conversation.respond(ConversationRequest(message="system status", purpose="analysis"))
                 return {"analysis": core.text, "conversation_mode": core.mode.value}
 
-        model = cfg.get("model") or self._get_default_model(cfg.get("provider", "sentinel_local"))
-        try:
-            client = self._make_client(cfg)
-            resp = client.chat.completions.create(model=model, messages=messages)
-            return {"analysis": resp.choices[0].message.content}
-        except Exception as e:
-            log.error("AI analysis error: %s", e)
-            raise
+        raise RuntimeError("AI router not configured; direct provider calls are disabled")
 
     def get_free_providers(self) -> dict:
         from sentinel.core.model_router import PROVIDER_URLS
@@ -694,17 +675,6 @@ class AIService:
             if p.id == provider:
                 return p.default_model
         return "gpt-4o"
-
-    @staticmethod
-    def _make_client(cfg: dict):
-        from openai import OpenAI
-
-        base_url = cfg.get("base_url") or ""
-        api_key = cfg.get("api_key", "")
-        if cfg.get("provider") in ("ollama", "sentinel_local"):
-            api_key = cfg.get("provider")
-        return OpenAI(base_url=base_url, api_key=api_key)
-
 
 class _RuntimeCapabilities:
     def __init__(self, service: AIService):

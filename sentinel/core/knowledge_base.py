@@ -174,11 +174,16 @@ class _TokenEmbeddingProvider(EmbeddingProvider):
 def create_embedding_provider(prefer: str = "auto") -> EmbeddingProvider:
     if prefer == "ollama":
         return OllamaEmbeddingProvider()
+    if prefer == "openrouter":
+        # OpenRouter embedding provider is experimental and must be explicitly requested.
+        # It does not pass through the canonical ProviderManager/CloudAuthority gate yet.
+        # Use only in trusted, non-production contexts.
+        key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OPENAI_API_KEY")
+        if key:
+            return OpenRouterEmbeddingProvider(api_key=key)
+        raise RuntimeError("OpenRouter embedding requested but no OPENROUTER_API_KEY configured")
     if prefer == "token":
         return _TokenEmbeddingProvider()
-    key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OPENAI_API_KEY")
-    if key:
-        return OpenRouterEmbeddingProvider(api_key=key)
     try:
         import urllib.request
 
@@ -189,7 +194,7 @@ def create_embedding_provider(prefer: str = "auto") -> EmbeddingProvider:
                 return OllamaEmbeddingProvider()
     except Exception as exc:
         logger.debug("Ollama embedding probe failed: %s", exc)
-    logger.info("No embedding API key or Ollama found, using fallback token embedding")
+    logger.info("No Ollama found, using local token embedding fallback")
     return _TokenEmbeddingProvider()
 
 

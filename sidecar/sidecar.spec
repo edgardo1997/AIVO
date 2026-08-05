@@ -7,21 +7,31 @@ sys.setrecursionlimit(5000)
 
 block_cipher = None
 
+# PyInstaller defines SPECPATH as the absolute directory of this spec file.
+# All paths below are derived from it so the build is independent of CWD.
+SPEC_DIR = os.path.abspath(SPECPATH)
+REPO_DIR = os.path.dirname(SPEC_DIR)
+
 datas = []
 # Include entire sentinel package (core + tools + policies)
-for root, dirs, files in os.walk("../sentinel"):
-    dest = Path(root).relative_to("..").as_posix()
+sentinel_dir = os.path.join(REPO_DIR, 'sentinel')
+for root, dirs, files in os.walk(sentinel_dir):
+    rel = os.path.relpath(root, REPO_DIR)
+    dest = rel.replace('\\', '/')
     datas.append((root, dest))
 
 # Include plugins directory
-for root, dirs, files in os.walk("plugins"):
-    dest = Path(root).as_posix()
-    if "__pycache__" not in dest:
-        datas.append((root, dest))
+plugins_dir = os.path.join(SPEC_DIR, 'plugins')
+if os.path.isdir(plugins_dir):
+    for root, dirs, files in os.walk(plugins_dir):
+        rel = os.path.relpath(root, SPEC_DIR)
+        dest = rel.replace('\\', '/')
+        if "__pycache__" not in dest:
+            datas.append((root, dest))
 
 a = Analysis(
-    ['main.py'],
-    pathex=['.', '..'],
+    [os.path.join(SPEC_DIR, 'main.py')],
+    pathex=[SPEC_DIR, REPO_DIR],
     binaries=[],
     datas=datas,
     hiddenimports=[
@@ -64,71 +74,71 @@ a = Analysis(
         'watchfiles',
         'websockets',
         # App modules
-        'sidecar.modules',
-        'sidecar.modules.sidecar_supervision',
-        'sidecar.modules.monitor',
-        'sidecar.modules.executor',
-        'sidecar.modules.ai_provider',
-        'sidecar.modules.filesystem',
-        'sidecar.modules.permissions',
-        'sidecar.modules.permissions_memory',
-        'sidecar.modules.audit',
-        'sidecar.modules.proactive',
-        'sidecar.modules.plugins',
-        'sidecar.modules.fleet',
-        'sidecar.modules.auth',
-        'sidecar.modules.authorization',
-        'sidecar.modules.sentinel_bridge',
-        'sidecar.modules.admin',
-        'sidecar.modules.help',
-        'sidecar.modules.error_recovery',
-        'sidecar.modules.proactive',
-        'sidecar.modules.triggers',
-        'sidecar.modules.profile',
-        'sidecar.modules.security',
-        'sidecar.modules.security.windows_acl',
-        'sidecar.windows_acl',
+        'modules',
+        'modules.sidecar_supervision',
+        'modules.monitor',
+        'modules.executor',
+        'modules.ai_provider',
+        'modules.filesystem',
+        'modules.permissions',
+        'modules.permissions_memory',
+        'modules.audit',
+        'modules.proactive',
+        'modules.plugins',
+        'modules.fleet',
+        'modules.auth',
+        'modules.authorization',
+        'modules.sentinel_bridge',
+        'modules.admin',
+        'modules.help',
+        'modules.error_recovery',
+        'modules.proactive',
+        'modules.triggers',
+        'modules.profile',
+        'modules.security',
+        'modules.security.windows_acl',
+        'windows_acl',
         # Routers
-        'sidecar.routers',
-        'sidecar.routers.v1',
-        'sidecar.routers.v1.execute',
-        'sidecar.routers.v1.policies',
-        'sidecar.routers.v1.audit',
-        'sidecar.routers.v1.agents',
-        'sidecar.routers.v1.triggers',
-        'sidecar.routers.v1.profile',
-        'sidecar.routers.auth_jwt',
-        'sidecar.routers.continuations',
+        'routers',
+        'routers.v1',
+        'routers.v1.execute',
+        'routers.v1.policies',
+        'routers.v1.audit',
+        'routers.v1.agents',
+        'routers.v1.triggers',
+        'routers.v1.profile',
+        'routers.auth_jwt',
+        'routers.continuations',
         # Services
-        'sidecar.services',
-        'sidecar.services.ai_service',
-        'sidecar.services.local_model_service',
-        'sidecar.services.audit_service',
-        'sidecar.services.executor_service',
-        'sidecar.services.filesystem_service',
-        'sidecar.services.fleet_service',
-        'sidecar.services.monitor_service',
-        'sidecar.services.permissions_service',
-        'sidecar.services.plugins_service',
-        'sidecar.services.plugin_sandbox',
-        'sidecar.services.proactive_service',
-        'sidecar.services.rate_limiter',
-        'sidecar.services.continuation_executor',
-        'sidecar.services.proactive_service',
+        'services',
+        'services.ai_service',
+        'services.local_model_service',
+        'services.audit_service',
+        'services.executor_service',
+        'services.filesystem_service',
+        'services.fleet_service',
+        'services.monitor_service',
+        'services.permissions_service',
+        'services.plugins_service',
+        'services.plugin_sandbox',
+        'services.proactive_service',
+        'services.rate_limiter',
+        'services.continuation_executor',
+        'services.proactive_service',
         # Repositories
-        'sidecar.repositories',
-        'sidecar.repositories.database',
-        'sidecar.repositories.ai_repository',
-        'sidecar.repositories.audit_repository',
-        'sidecar.repositories.fleet_repository',
-        'sidecar.repositories.permissions_repository',
-        'sidecar.repositories.agent_repository',
-        'sidecar.repositories.async_engine',
-        'sidecar.repositories.cloud_authority_store',
-        'sidecar.repositories.user_preferences_store',
-        'sidecar.repositories.data_control_store',
-        'sidecar.repositories.execution_grant_repository',
-        'sidecar.modules.sentinel_lifecycle',
+        'repositories',
+        'repositories.database',
+        'repositories.ai_repository',
+        'repositories.audit_repository',
+        'repositories.fleet_repository',
+        'repositories.permissions_repository',
+        'repositories.agent_repository',
+        'repositories.async_engine',
+        'repositories.cloud_authority_store',
+        'repositories.user_preferences_store',
+        'repositories.data_control_store',
+        'repositories.execution_grant_repository',
+        'modules.sentinel_lifecycle',
         # Sentinel
         'sentinel',
         'sentinel.core',

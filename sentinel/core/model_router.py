@@ -105,6 +105,8 @@ class ModelRouter:
             fallback_history=self._fallback_history,
         )
         self._provider_manager = ProviderManager(cloud_authority=self._cloud_authority)
+        from sentinel.core.fallback_validator import FallbackValidator
+        self._fallback_validator = FallbackValidator(self._provider_manager, self._budget_manager, self._cb_store)
         self._tool_executor = ToolExecutor(capability_selector=self._capability_selector)
         self._conversation_handler = ConversationHandler(chat_fn=self.chat)
         self._health_checker_component = HealthChecker()

@@ -295,10 +295,70 @@ Sin la validación visual, no se cumple el criterio `GUI compilada fue validada 
 | Build limpio internal-alpha | OK |
 | Validación GUI compilada | **BLOQUEADO EXTERNO** |
 
-## 7. Siguiente paso
+## 8. Paquete de validación manual Fase 14
+
+### 8.1 Build para validación
+
+```powershell
+git status --short
+.\scripts\build-alpha.ps1 -Channel internal-alpha
+```
+
+Build: `internal-alpha-20260805-<commit-corto>`
+Instalador: `artifacts\internal-alpha\Sentinel_0.1.0-alpha.1_x64-setup.exe`
+
+### 8.2 Datos de prueba seguros
+
+Script: `scripts/prepare-fase14-manual-validation.ps1`
+
+Secretos falsos:
+
+```text
+FAKE_API_KEY_SENTINEL_TEST
+FAKE_BEARER_TOKEN_SENTINEL_TEST
+FAKE_PASSWORD_SENTINEL_TEST
+FAKE_PRIVATE_KEY_SENTINEL_TEST
+FAKE_COOKIE_SENTINEL_TEST
+```
+
+### 8.3 Checklist manual
+
+Documento: `docs/validation/FASE14_GUI_MANUAL_CHECKLIST.md`
+
+Cubre: inicio, soporte, detalles técnicos, crear diagnóstico, revisar ZIP, reparar configuración, restablecer interfaz, restablecer configuración, restablecimiento completo, cierre y reapertura.
+
+### 8.4 Validación automática del ZIP
+
+Script: `scripts/validate-diagnostic-package.ps1`
+
+```powershell
+.\scripts\validate-diagnostic-package.ps1 -DiagnosticZip <ruta> -ExpectedBuildId <build-id>
+```
+
+Comprueba: archivos obligatorios, manifest, hashes SHA-256, Build ID, versión, canal, ausencia de secretos falsos, ausencia de extensiones inesperadas, ausencia de contenido personal no autorizado.
+
+### 8.5 Plantilla de evidencia
+
+Documento: `docs/validation/FASE14_GUI_EVIDENCE_TEMPLATE.md`
+
+## 9. Estado actual
+
+| Área | Estado |
+|------|--------|
+| Implementación técnica Fase 14 | COMPLETADA |
+| Validación automatizada (ZIP/tests) | COMPLETADA |
+| Validación GUI visual | **BLOQUEO EXTERNO** |
+| Bloque G | **NO INICIADO** |
+
+## 10. Criterio para cerrar Fase 14
+
+Solo marcar `COMPLETADO` después de recibir evidencia manual con todas las casillas críticas del checklist aprobadas, 0 secretos encontrados y 0 P0/P1.
+
+## 11. Siguiente paso
 
 - **NO avanzar al Bloque G** hasta que Fase 14 quede `COMPLETADO`.
-- Para completar Fase 14 se requiere:
-  1. Validar manualmente la GUI compilada del build `internal-alpha-20260805-9d5cf43`.
-  2. Completar pruebas de reset/repair con datos temporales reales.
-  3. Verificar ausencia de secretos en un ZIP exportado manualmente.
+- Ejecutar `scripts/prepare-fase14-manual-validation.ps1` en un perfil Windows temporal.
+- Instalar el build `internal-alpha` y completar `docs/validation/FASE14_GUI_MANUAL_CHECKLIST.md`.
+- Ejecutar `scripts/validate-diagnostic-package.ps1` sobre el ZIP generado.
+- Rellenar `docs/validation/FASE14_GUI_EVIDENCE_TEMPLATE.md`.
+- Si todo es verde, actualizar este documento y marcar Fase 14 `COMPLETADO`.

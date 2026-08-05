@@ -98,9 +98,15 @@ mod stream_utf8_tests {
 
     #[test]
     fn accepts_the_sidecar_health_contract() {
-        assert!(is_ready_health_response("HTTP/1.1 200 OK\r\n\r\n{\"status\":\"healthy\"}"));
-        assert!(is_ready_health_response("HTTP/1.1 200 OK\r\n\r\n{\"status\":\"degraded\"}"));
-        assert!(!is_ready_health_response("HTTP/1.1 200 OK\r\n\r\n{\"status\":\"failed\"}"));
+        assert!(is_ready_health_response(
+            "HTTP/1.1 200 OK\r\n\r\n{\"status\":\"healthy\"}"
+        ));
+        assert!(is_ready_health_response(
+            "HTTP/1.1 200 OK\r\n\r\n{\"status\":\"degraded\"}"
+        ));
+        assert!(!is_ready_health_response(
+            "HTTP/1.1 200 OK\r\n\r\n{\"status\":\"failed\"}"
+        ));
     }
 }
 use tauri::ipc::Channel;
@@ -335,7 +341,9 @@ fn wait_for_sidecar(timeout_secs: u64, session_token: &str) -> bool {
             );
             if stream.write_all(request.as_bytes()).is_ok() {
                 let mut response = String::new();
-                if stream.read_to_string(&mut response).is_ok() && is_ready_health_response(&response) {
+                if stream.read_to_string(&mut response).is_ok()
+                    && is_ready_health_response(&response)
+                {
                     return true;
                 }
             }

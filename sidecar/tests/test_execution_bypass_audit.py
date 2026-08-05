@@ -35,6 +35,11 @@ from services.audit_service import AuditService
 _AIVO_ROOT = Path(__file__).resolve().parents[2]
 
 
+def _skip_artifact_path(path: Path) -> bool:
+    parts = set(path.parts)
+    return bool(parts & {"__pycache__", "build", "dist", "node_modules", "target", ".git"})
+
+
 def _identity(user_id="p1-user", session_id="p1-session"):
     return {
         "identity": {
@@ -126,6 +131,7 @@ def _registered_calls_in_tree(tree):
     return calls
 
 
+@pytest.mark.timeout(120)
 def test_inventory_gateway_execute_only_in_authorized_files():
     """`ToolGateway.execute` solo puede llamarse desde el guard, el
     `_execute_direct` del pipeline y el propio `confirm()` del gateway."""
@@ -139,6 +145,8 @@ def test_inventory_gateway_execute_only_in_authorized_files():
 
     for rel_root in ("sentinel", "sidecar"):
         for pyfile in (_AIVO_ROOT / rel_root).rglob("*.py"):
+            if _skip_artifact_path(pyfile):
+                continue
             rel = str(pyfile.relative_to(_AIVO_ROOT)).replace("\\", "/")
             if "/tests/" in rel or pyfile.name.startswith("test_"):
                 continue
@@ -154,6 +162,7 @@ def test_inventory_gateway_execute_only_in_authorized_files():
     )
 
 
+@pytest.mark.timeout(120)
 def test_inventory_tool_execute_only_in_gateway_dispatch():
     """Ningún código de producción llama a `tool.execute()` directamente;
     solo el dispatch interno de `ToolGateway`."""
@@ -162,6 +171,8 @@ def test_inventory_tool_execute_only_in_gateway_dispatch():
 
     for rel_root in ("sentinel", "sidecar"):
         for pyfile in (_AIVO_ROOT / rel_root).rglob("*.py"):
+            if _skip_artifact_path(pyfile):
+                continue
             rel = str(pyfile.relative_to(_AIVO_ROOT)).replace("\\", "/")
             if "/tests/" in rel or pyfile.name.startswith("test_"):
                 continue
@@ -187,6 +198,8 @@ def test_inventory_pipeline_is_single_governed_entry():
 
     for rel_root in ("sentinel", "sidecar"):
         for pyfile in (_AIVO_ROOT / rel_root).rglob("*.py"):
+            if _skip_artifact_path(pyfile):
+                continue
             rel = str(pyfile.relative_to(_AIVO_ROOT)).replace("\\", "/")
             if "/tests/" in rel or pyfile.name.startswith("test_"):
                 continue
@@ -324,6 +337,8 @@ def test_no_production_execution_path_exposes_skip_security():
     violations = []
     for rel_root in ("sentinel", "sidecar"):
         for pyfile in (_AIVO_ROOT / rel_root).rglob("*.py"):
+            if _skip_artifact_path(pyfile):
+                continue
             rel = str(pyfile.relative_to(_AIVO_ROOT)).replace("\\", "/")
             if "/tests/" in rel or pyfile.name.startswith("test_"):
                 continue

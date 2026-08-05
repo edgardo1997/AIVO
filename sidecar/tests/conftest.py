@@ -14,6 +14,14 @@ _test_data_dir = tempfile.mkdtemp(prefix="sentinel-tests-")
 os.environ["SENTINEL_DB_PATH"] = os.path.join(_test_data_dir, "sentinel-test.db")
 os.environ["AIVO_DB_PATH"] = os.environ["SENTINEL_DB_PATH"]
 os.environ["SENTINEL_PRODUCT_DIR"] = os.path.join(_test_data_dir, "product")
+os.environ["SENTINEL_DATA_DIR"] = os.path.join(_test_data_dir, "data")
+os.environ["SENTINEL_CACHE_DIR"] = os.path.join(_test_data_dir, "cache")
+os.environ["SENTINEL_CONFIG_DIR"] = os.path.join(_test_data_dir, "config")
+os.environ["SENTINEL_MODEL_DIR"] = os.path.join(_test_data_dir, "models")
+os.environ["LOCALAPPDATA"] = _test_data_dir
+os.environ["APPDATA"] = _test_data_dir
+os.environ["HOME"] = _test_data_dir
+os.environ["USERPROFILE"] = _test_data_dir
 _sidecar_dir = os.path.join(os.path.dirname(__file__), "..")
 _aivo_dir = os.path.join(_sidecar_dir, "..")
 sys.path.insert(0, os.path.abspath(_sidecar_dir))
@@ -173,3 +181,47 @@ def temp_config(tmp_path):
         os.environ["AIVO_CONFIG"] = old
     if os.path.exists(path):
         os.remove(path)
+
+
+_OFFICIAL_MARKERS = {
+    "unit",
+    "contract",
+    "integration",
+    "security",
+    "adversarial",
+    "e2e",
+    "e2e_real",
+    "performance",
+    "stability",
+    "smoke",
+    "build",
+    "legacy",
+    "experimental",
+    "alpha_constitutional_gate",
+    "local_runtime",
+    "production",
+    "stress",
+    "chaos",
+}
+
+
+def pytest_collection_modifyitems(config, items):
+    """Track unmarked tests and tag them so the suite can be audited."""
+    unmarked = []
+    for item in items:
+        if not any(m.name in _OFFICIAL_MARKERS for m in item.own_markers):
+            item.add_marker("legacy")
+            unmarked.append(item.nodeid)
+    if unmarked:
+        # Warnings are printed but the suite still runs. CI can fail with -W error::UserWarning if desired.
+        import warnings
+
+        warnings.warn(f"{len(unmarked)} tests have no official marker and were tagged as legacy")
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Fail the session if CI demands fully classified tests."""
+    if os.environ.get("SENTINEL_FAIL_UNMARKED") and session.config.getoption("--collect-only") is None:
+        # This is intentionally simple: the gate is enforced by CI, not by default local runs.
+        if any(True for item in session.items if any(m.name == "legacy" for m in item.own_markers)):
+            session.exitstatus = 1

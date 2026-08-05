@@ -15,13 +15,14 @@ logger = logging.getLogger(__name__)
 
 
 class ProviderManager:
-    def __init__(self, cloud_authority=None):
+    def __init__(self, cloud_authority=None, metrics_store=None):
         self._providers: Dict[str, Any] = {}
         self._key_map: Dict[str, str] = {}
         self._performance_store: Optional[ProviderPerformanceStore] = None
         self._clients: Dict[str, Any] = {}
         self._client_configs: Dict[str, tuple] = {}
         self._cloud_authority = cloud_authority
+        self._metrics_store = metrics_store
 
     def set_cloud_authority(self, cloud_authority):
         self._cloud_authority = cloud_authority
@@ -319,7 +320,37 @@ class ProviderManager:
 
     def execute_inference(self, decision: RouterDecision, provider: ProviderSpec, messages: List[Dict[str, str]], **kwargs) -> Dict[str, Any]:
         """Canonical non-streaming inference entry point."""
-        return self.call_provider(decision, provider, messages, **kwargs)
+        start = time.monotonic()
+        result: Any = None
+        try:
+            result = self.call_provider(decision, provider, messages, **kwargs)
+        finally:
+            latency_ms = (time.monotonic() - start) * 1000
+            if self._metrics_store is not None:
+                from sentinel.core.metrics import RoutingMetric
+                usage = result.get("usage", {}) if isinstance(result, dict) else {}
+                self._metrics_store.record(RoutingMetric(
+                    request_id="",
+                    correlation_id="",
+                    provider=provider.id,
+                    model=decision.model,
+                    operation=decision.task_type.value,
+                    routing_reason=str(decision.reason),
+                    candidate_count=0,
+                    latency_ms=latency_ms,
+                    time_to_first_token_ms=None,
+                    input_tokens=usage.get("prompt_tokens", 0),
+                    output_tokens=usage.get("completion_tokens", 0),
+                    total_tokens=usage.get("total_tokens", 0),
+                    estimated_cost=0.0,
+                    reserved_cost=0.0,
+                    actual_cost=0.0,
+                    fallback_used=False,
+                    fallback_reason="",
+                    status="completed",
+                    error_code="",
+                ))
+        return result
 
     def execute_inference_stream(self, decision: RouterDecision, provider: ProviderSpec, messages: List[Dict[str, str]], **kwargs) -> Iterator[Dict[str, Any]]:
         """Canonical streaming inference entry point."""
@@ -336,8 +367,8 @@ class ProviderManager:
             return {"state": ProviderState.NOT_INSTALLED, "configured": False}
         if provider_id == "sentinel_local":
             try:
-                from sentinel.local_model.runtime import SentinelLocalModelRuntime
-                status = SentinelLocalModelRuntime().status()
+                from sentinel.local_model.runtime import get_local_runtime
+                status = get_local_runtime().status()
                 state_map = {
                     "ready": ProviderState.READY,
                     "not_installed": ProviderState.NOT_INSTALLED,

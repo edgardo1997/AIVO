@@ -28,6 +28,16 @@ MODEL_SHA256 = "061b54daade076b5d3362dac252678d17da8c68f07560be70818cace6590cb1a
 MODEL_SIZE = 1_834_426_016
 
 
+_local_runtime_instance: Optional["SentinelLocalModelRuntime"] = None
+
+
+def get_local_runtime() -> "SentinelLocalModelRuntime":
+    global _local_runtime_instance
+    if _local_runtime_instance is None:
+        _local_runtime_instance = SentinelLocalModelRuntime()
+    return _local_runtime_instance
+
+
 class SentinelLocalModelRuntime:
     """Downloads, verifies, launches and monitors Sentinel's bundled inference stack."""
 

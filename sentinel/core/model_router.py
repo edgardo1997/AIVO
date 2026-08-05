@@ -64,6 +64,8 @@ class ModelRouter:
         from sentinel.core.budget import BudgetManager
 
         self._budget_manager = BudgetManager()
+        from sentinel.core.metrics import MetricsStore
+        self._metrics_store = MetricsStore()
         self._capability_manager = capability_manager or get_model_capabilities()
         self._task_capability_map: Dict[TaskType, List[str]] = {
             TaskType.CODE: TASK_CAPABILITY_MAP.get("coding", []),
@@ -446,6 +448,8 @@ class ModelRouter:
 
     def route(self, request: "ModelRequest") -> "RoutingDecision":
         """Canonical routing entry point: ModelRequest -> RoutingDecision."""
+        import time
+        route_start = time.monotonic()
         from sentinel.core.model_schemas import (
             CapabilityStatus,
             FallbackPolicy,
@@ -508,7 +512,7 @@ class ModelRouter:
         if request.provider_preference and selected_provider == request.provider_preference:
             reason = SelectionReasonCode.USER_PROVIDER_PREFERENCE_ALLOWED
 
-        return RoutingDecision(
+        decision = RoutingDecision(
             selected_provider=selected_provider,
             selected_model=selected_model,
             selection_reason_code=reason,
@@ -524,6 +528,31 @@ class ModelRouter:
             candidates=candidates,
             safe_explanation=f"Selected {selected_model} from {selected_provider} using {reason.value}.",
         )
+
+        from sentinel.core.metrics import RoutingMetric
+        self._metrics_store.record(RoutingMetric(
+            request_id=request.request_id,
+            correlation_id=request.correlation_id,
+            provider=selected_provider,
+            model=selected_model,
+            operation="route",
+            routing_reason=reason.value,
+            candidate_count=len(candidates),
+            latency_ms=(time.monotonic() - route_start) * 1000,
+            time_to_first_token_ms=None,
+            input_tokens=request.context_tokens,
+            output_tokens=0,
+            total_tokens=request.context_tokens,
+            estimated_cost=estimate,
+            reserved_cost=estimate,
+            actual_cost=0.0,
+            fallback_used=False,
+            fallback_reason="",
+            status="completed",
+            error_code="",
+        ))
+
+        return decision
 
     def execute(self, request: "ModelRequest", messages: List[Dict[str, str]]) -> Dict[str, Any]:
         """Canonical execution: route then execute through ProviderManager."""

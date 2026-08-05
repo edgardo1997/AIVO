@@ -121,13 +121,20 @@ No trabajar. Congelada.
 
 ## 6. Rama recomendada
 
-```bash
-git switch main
-git pull --ff-only
-git switch -c feature/technical-phase-completion
+Creada y en uso:
+
+```text
+feature/technical-phase-completion
 ```
 
-Si `feature/normal-user-experience` contiene cambios técnicos necesarios (por ejemplo `OAuthTransactionStore`, `LocalProfileRepository`, `rate_limiter`), evaluar cherry-pick individuales. No merge automático.
+Origen: `feature/normal-user-experience` (a930c4e) en lugar de `main`, porque `main` no contiene los contratos técnicos de identidad, OAuth y rate limiting implementados en `feature/normal-user-experience`.
+
+Decisión de contenido:
+
+- Conservar todo el trabajo técnico: `OAuthTransactionStore`, `LocalProfileRepository`, `AccountLinkingService`, `RateLimiter`, `OnboardingShell` funcional.
+- No agregar nuevas vistas, iconos, colores ni reorganización menú.
+- `feature/normal-user-experience` queda como referencia; no crecerá con fases nuevas.
+- No merge automático.
 
 ---
 

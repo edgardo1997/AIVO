@@ -108,7 +108,10 @@ class DiagnosticService:
             if not log_dir.exists():
                 return ""
             pieces: List[str] = []
-            for log_file in sorted(log_dir.glob("*.log")):
+            log_files = []
+            for pattern in ("*.log", "*.jsonl", "*.jsonl.*"):
+                log_files.extend(log_dir.glob(pattern))
+            for log_file in sorted(log_files):
                 try:
                     pieces.append(log_file.read_text(encoding="utf-8", errors="ignore"))
                 except Exception as e:

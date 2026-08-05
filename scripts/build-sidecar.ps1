@@ -9,6 +9,7 @@
 #>
 param(
     [string]$Channel = "internal-alpha",
+    [string]$BuildId = "",
     [switch]$SkipTests,
     [switch]$AllowDirty
 )
@@ -38,8 +39,13 @@ New-Item -ItemType Directory -Path $distDir -Force | Out-Null
 
 # Embed build metadata so the running sidecar can report it
 $commit = git rev-parse HEAD
-$buildId = "$Channel-$(Get-Date -Format 'yyyyMMdd')-$($commit.Substring(0,7))"
 $version = (Get-Content (Join-Path $repoRoot 'package.json') | ConvertFrom-Json).version
+if ([string]::IsNullOrWhiteSpace($BuildId)) {
+    $buildId = "$Channel-$(Get-Date -Format 'yyyyMMdd')-$($commit.Substring(0,7))"
+}
+else {
+    $buildId = $BuildId
+}
 $buildInfoPy = Join-Path $sidecarDir '_build_info.py'
 @(
     "BUILD_ID = `"$buildId`""

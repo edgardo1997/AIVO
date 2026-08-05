@@ -171,33 +171,15 @@ if (-not (Test-Path "$repoRoot\dist\index.html")) {
 # Sidecar
 # ---------------------------------------------------------------------------
 Step-Exec "uv sync" { python -m uv sync --frozen }
-
-# Embed build metadata for the frozen sidecar
-$buildInfoPy = Get-CanonicalPath "sidecar\_build_info.py"
-@(
-    "BUILD_ID = `"$buildId`""
-    "VERSION = `"$version`""
-    "COMMIT = `"$commit`""
-    "CHANNEL = `"$Channel`""
-    "TIMESTAMP_UTC = `"$timestamp`""
-) -join "`n" | Out-File -FilePath $buildInfoPy -Encoding utf8
-
-Step-Exec "sidecar PyInstaller" {
-    Push-Location sidecar
-    try {
-        python -m uv run pyinstaller sidecar.spec --noconfirm
-    }
-    finally {
-        Pop-Location
-    }
-}
+Step-Exec "sidecar build" { & { Set-Location $repoRoot; .\scripts\build-sidecar.ps1 -Channel $Channel -BuildId $buildId -AllowDirty } }
 
 $sidecarCanonical = Get-CanonicalPath "sidecar\dist\sidecar.exe"
 if (-not (Test-Path $sidecarCanonical)) {
-    throw "PyInstaller did not produce $sidecarCanonical"
+    throw "sidecar build did not produce $sidecarCanonical"
 }
 
-$sidecarHash = (Get-FileHash -Path $sidecarCanonical -Algorithm SHA256).Hash
+$sidecarHashFile = Get-CanonicalPath "sidecar\dist\sidecar.sha256"
+$sidecarHash = if (Test-Path $sidecarHashFile) { (Get-Content $sidecarHashFile).Trim().ToUpper() } else { (Get-FileHash -Path $sidecarCanonical -Algorithm SHA256).Hash }
 Write-Host "Sidecar canonical: $sidecarCanonical" -ForegroundColor Green
 Write-Host "Sidecar SHA-256:   $sidecarHash" -ForegroundColor Green
 

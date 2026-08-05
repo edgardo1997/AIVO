@@ -64,6 +64,9 @@ $env:SENTINEL_ENABLE_FLEET_STARTUP = "0"
 $env:SENTINEL_JWT_SECRET = "smoke-test-secret"
 $env:SENTINEL_DB_PATH = "$tempDir\smoke.db"
 $env:SENTINEL_DATA_DIR = "$tempDir\data"
+
+$prevLocalAppData = $env:LOCALAPPDATA
+$prevAppData = $env:APPDATA
 $env:LOCALAPPDATA = $tempDir
 $env:APPDATA = $tempDir
 
@@ -104,4 +107,6 @@ finally {
     if ($proc -and -not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
     Start-Sleep -Seconds 1
     Remove-Item -Recurse -Force $tempDir -ErrorAction SilentlyContinue
+    $env:LOCALAPPDATA = $prevLocalAppData
+    $env:APPDATA = $prevAppData
 }

@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import sys
+import uuid
 import hashlib
 import multiprocessing
 import socket
@@ -10,6 +11,7 @@ import time as time_mod
 from contextlib import asynccontextmanager
 from logging.handlers import RotatingFileHandler
 from datetime import datetime, timezone
+from pathlib import Path
 
 multiprocessing.freeze_support()
 
@@ -22,6 +24,7 @@ for _p in (_SIDECAR_DIR, _PROJECT_ROOT):
 
 from modules.sidecar_supervision import SidecarLifecycle
 from windows_acl import protect_path, secure_runtime_directories, sentinel_storage_paths
+from routers.support import set_build_info
 
 
 def _should_enable_acl() -> bool:
@@ -51,6 +54,15 @@ def _load_build_info() -> dict:
 
 
 _BUILD_INFO = _load_build_info()
+
+
+set_build_info(
+    build_id=_BUILD_INFO["build_id"],
+    version=_BUILD_INFO["version"],
+    commit="",
+    channel="internal-alpha",
+    data_dir=Path.home() / ".sentinel",
+)
 
 
 if _should_enable_acl():
@@ -256,7 +268,7 @@ def _create_app() -> FastAPI:
             "tauri://localhost",
         ],
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
+        allow_headers=["Authorization", "Content-Type", "X-Request-ID", "X-Correlation-ID"],
         allow_credentials=False,
         allow_private_network=True,
     )
@@ -297,6 +309,7 @@ from modules.product_experience import router as product_router
 from modules.sentinel_plugins import router as sentinel_plugins_router
 from modules.automations import router as automations_router
 from routers.onboarding import router as onboarding_router
+from routers.support import router as support_router
 
 
 def _register_routes(application: FastAPI) -> None:
@@ -329,6 +342,7 @@ def _register_routes(application: FastAPI) -> None:
         (product_router, "/api/sentinel", ["product"]),
         (sentinel_plugins_router, "", ["plugins"]),
         (automations_router, "/api/sentinel", ["automations"]),
+        (support_router, "", ["support"]),
     ):
         application.include_router(router, prefix=prefix, tags=tags)
 
@@ -396,6 +410,16 @@ async def rate_limit_middleware(request: Request, call_next):
     response = await call_next(request)
     response.headers["X-RateLimit-Limit"] = str(limit)
     response.headers["X-RateLimit-Remaining"] = str(decision.remaining)
+    return response
+
+
+@app.middleware("http")
+async def correlation_middleware(request: Request, call_next):
+    from sentinel.core.support import get_correlation_id, set_correlation_id
+    cid = request.headers.get("X-Correlation-ID") or str(uuid.uuid4().hex)
+    set_correlation_id(cid)
+    response = await call_next(request)
+    response.headers["X-Correlation-ID"] = get_correlation_id()
     return response
 
 

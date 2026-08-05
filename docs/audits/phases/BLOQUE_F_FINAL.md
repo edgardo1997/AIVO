@@ -42,6 +42,14 @@ e2e:               89  passed (inferred)
 
 > Nota: los conteos por marker se obtienen con `pytest -m <marker> -q`.
 
+### Justificación contractual de asserts modificados en Fase 4
+
+| Test | Contrato anterior | Contrato real | Evidencia | Motivo del cambio | Riesgo | Nueva regresión protegida |
+|------|-------------------|---------------|-----------|-------------------|--------|---------------------------|
+| `test_release_versions_are_consistent` | `version == "1.0.0"` y todas las fuentes deben coincidir | El canal `internal-alpha` usa `0.1.0-alpha.1`; la consistencia entre fuentes es la propiedad importante, no el valor fijo | `package.json`: `0.1.0-alpha.1`; `tauri.conf.json`: `0.1.0-alpha.1`; `Cargo.toml`: `version = "0.1.0-alpha.1"`; `main.py`: `version="0.1.0-alpha.1"` | La expectativa anterior era incorrecta para `internal-alpha`; exigir `1.0.0` habría forzado a falsear un canal alpha como estable | Bajo: se sigue verificando que las cuatro fuentes coincidan; un bump futuro de versión romperá el test si se olvida actualizar alguna fuente | Inconsistencia de versión en build |
+| `test_updater_requires_signed_artifacts` | `createUpdaterArtifacts is True`, `pubkey` y `endpoints` HTTPS deben existir | `internal-alpha` no genera updater artifacts y no requiere endpoints; `stable` sí debe hacerlo | `tauri.conf.json`: `bundle.createUpdaterArtifacts: false`; `updater.endpoints: []` | El canal alpha no tiene updater; exigirlo habría introducido firmas y endpoints fantasma | Bajo: para versiones sin `-` (estables) sigue exigiendo artifacts firmados y endpoints HTTPS | Updater accidentalmente habilitado en stable |
+| `test_windows_acl_hardening_is_packaged_and_documented` | `sidecar.windows_acl` debe aparecer en `sidecar.spec` | `windows_acl` se empaqueta bajo `modules.security.windows_acl` y con nombre corto `windows_acl` | `sidecar.spec` líneas 99-100: `'modules.security.windows_acl'`, `'windows_acl'` | El assert buscaba un nombre de importación que no se usaba en producción; la hardening real sí está en el spec | Bajo: el test sigue verificando que cualquier forma de `windows_acl` esté empaquetada, que `secure_runtime_directories()` exista en `main.py` y que `ACL de Windows` esté documentado | Módulo ACL no empaquetado, API no documentada |
+
 ### Seis fallos resueltos
 
 | # | Test | Causa raíz | Corrección |

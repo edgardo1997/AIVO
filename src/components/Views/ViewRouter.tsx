@@ -22,6 +22,7 @@ import { Profile } from "../Profile/Profile";
 import { ControlCenterView, MetricsView, ModelCenterView, ModesView } from "../Product";
 import { Reports } from "../Reports/Reports";
 import { Sentinel } from "../Sentinel/Sentinel";
+import Support from "../Support/Support";
 import { Triggers } from "../Triggers/Triggers";
 import { Vault } from "../Vault/Vault";
 
@@ -54,7 +55,8 @@ export type ViewKey =
   | "policies"
   | "proactive"
   | "profile"
-  | "reports";
+  | "reports"
+  | "support";
 
 export type ViewGroup = {
   id: string;
@@ -133,6 +135,7 @@ export const viewGroups: ViewGroup[] = [
     label: "Ayuda",
     items: [
       { key: "help", label: "Ayuda", icon: "?", description: "Documentación" },
+      { key: "support", label: "Soporte", icon: "☖", description: "Soporte y diagnóstico" },
     ],
   },
 ];
@@ -170,6 +173,7 @@ export function ViewRouter({ view, onNavigate }: { view: ViewKey; onNavigate?: (
     case "profile": return <Profile />;
     case "reports": return <Reports />;
     case "sentinel": return <Sentinel />;
+    case "support": return <Support />;
     case "triggers": return <Triggers />;
     case "vault": return <Vault />;
     default: return <div className="analysis-empty">Vista no encontrada: {view}</div>;

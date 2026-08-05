@@ -61,7 +61,9 @@ class ModelRouter:
         from sentinel.core.hardware_intelligence import ModelCapabilityManager, get_model_capabilities
         from sentinel.core.model_registry import ModelRegistry, TASK_CAPABILITY_MAP
         from sentinel.core.circuit_breaker import CircuitBreaker
+        from sentinel.core.budget import BudgetManager
 
+        self._budget_manager = BudgetManager()
         self._capability_manager = capability_manager or get_model_capabilities()
         self._task_capability_map: Dict[TaskType, List[str]] = {
             TaskType.CODE: TASK_CAPABILITY_MAP.get("coding", []),
@@ -478,30 +480,49 @@ class ModelRouter:
                 cand.reason_excluded = "not_selected"
             candidates.append(cand)
 
+        # ── Budget reservation before final selection ────────────────
+        estimate = self._estimate_cost(existing_decision.provider_id, existing_decision.model, request.context_tokens)
+        selected_provider = existing_decision.provider_id
+        selected_model = existing_decision.model
         reason = SelectionReasonCode.LOCAL_CAPABLE_PREFERRED
-        if existing_decision.provider_id != "sentinel_local" and not any(c.is_local for c in candidates if c.provider_id == existing_decision.provider_id):
+        budget_ok = self._budget_manager.reserve(selected_provider, selected_model, estimate)
+        if not budget_ok:
+            # Try local fallback if over budget
+            local = next((c for c in candidates if c.is_local and c.healthy), None)
+            if local and local.provider_id != selected_provider:
+                alt_estimate = self._estimate_cost(local.provider_id, local.model_id, request.context_tokens)
+                if self._budget_manager.reserve(local.provider_id, local.model_id, alt_estimate):
+                    self._budget_manager.release(selected_provider, selected_model, estimate)
+                    selected_provider = local.provider_id
+                    selected_model = local.model_id
+                    estimate = alt_estimate
+                    reason = SelectionReasonCode.LOWEST_ESTIMATED_COST
+                else:
+                    reason = SelectionReasonCode.BUDGET_EXCEEDED
+            else:
+                reason = SelectionReasonCode.BUDGET_EXCEEDED
+
+        if selected_provider != "sentinel_local" and not any(c.is_local for c in candidates if c.provider_id == selected_provider):
             if not request.cloud_allowed:
                 reason = SelectionReasonCode.CLOUD_NOT_AUTHORIZED
-            else:
-                reason = SelectionReasonCode.CLOUD_AUTHORIZED_LOCAL_INSUFFICIENT
-        if request.provider_preference and existing_decision.provider_id == request.provider_preference:
+        if request.provider_preference and selected_provider == request.provider_preference:
             reason = SelectionReasonCode.USER_PROVIDER_PREFERENCE_ALLOWED
 
         return RoutingDecision(
-            selected_provider=existing_decision.provider_id,
-            selected_model=existing_decision.model,
+            selected_provider=selected_provider,
+            selected_model=selected_model,
             selection_reason_code=reason,
             candidate_count=len(candidates),
             matched_capabilities=request.required_capabilities,
             missing_capabilities=[],
-            cloud_used=not self._providers.get(existing_decision.provider_id, ProviderSpec(id=existing_decision.provider_id, name=existing_decision.provider_id, task_types=[], is_local=False)).is_local,
+            cloud_used=not self._providers.get(selected_provider, ProviderSpec(id=selected_provider, name=selected_provider, task_types=[], is_local=False)).is_local,
             authority_reference=request.cloud_authority_reference,
-            estimated_cost=0.0,
+            estimated_cost=estimate,
             estimated_latency_ms=0,
             fallback_chain=existing_decision.fallback_chain if hasattr(existing_decision, "fallback_chain") else [],
             confidence="high",
             candidates=candidates,
-            safe_explanation=f"Selected {existing_decision.model} from {existing_decision.provider_id} using {reason.value}.",
+            safe_explanation=f"Selected {selected_model} from {selected_provider} using {reason.value}.",
         )
 
     def execute(self, request: "ModelRequest", messages: List[Dict[str, str]]) -> Dict[str, Any]:
@@ -537,6 +558,13 @@ class ModelRouter:
     def set_circuit_breaker(self, cb) -> None:
         self._cb_store = cb
         self._fallback_manager.set_circuit_breaker(cb)
+
+    def _estimate_cost(self, provider_id: str, model: str, tokens: int) -> float:
+        """Return a crude cost estimate per 1k tokens."""
+        from sentinel.core.cost_tracker import MODEL_PRICING
+        by_provider = MODEL_PRICING.get(provider_id, {})
+        per_1k = by_provider.get(model, by_provider.get("default", 0.0))
+        return (tokens / 1000.0) * per_1k
 
     def _filter_open_providers(self, candidates: List[RouterDecision]) -> List[RouterDecision]:
         return self._fallback_manager.filter_open_providers(candidates)

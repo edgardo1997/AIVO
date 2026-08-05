@@ -334,6 +334,27 @@ class ProviderManager:
         has_key = self.has_api_key(provider_id) or bool(os.environ.get(f"SENTINEL_API_KEY_{provider_id.upper()}"))
         if not configured:
             return {"state": ProviderState.NOT_INSTALLED, "configured": False}
+        if provider_id == "sentinel_local":
+            try:
+                from sentinel.local_model.runtime import SentinelLocalModelRuntime
+                status = SentinelLocalModelRuntime().status()
+                state_map = {
+                    "ready": ProviderState.READY,
+                    "not_installed": ProviderState.NOT_INSTALLED,
+                    "starting": ProviderState.STARTING,
+                    "warming": ProviderState.LOADING_MODEL,
+                    "unavailable": ProviderState.FAILED,
+                    "installed": ProviderState.STOPPED,
+                }
+                return {
+                    "state": state_map.get(status.get("state"), ProviderState.DEGRADED),
+                    "configured": configured,
+                    "authenticated": has_key,
+                    "installed": status.get("installed", False),
+                }
+            except Exception:
+                pass
+            return {"state": ProviderState.STOPPED, "configured": True, "authenticated": has_key}
         if spec.is_local:
             return {"state": ProviderState.READY if has_key else ProviderState.STOPPED, "configured": True, "authenticated": has_key}
         if not has_key:

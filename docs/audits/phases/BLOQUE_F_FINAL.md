@@ -3,7 +3,7 @@
 Fecha: 2026-08-05
 Repositorio canónico: `C:\Dev\AIVO`
 Commit inicial: `b89b929`
-Commit final: `b4327db`
+Commit final: `229cf37`
 
 ## 1. Estado final
 
@@ -16,7 +16,20 @@ Commit final: `b4327db`
 | FASE 14 | **RECHAZADA** |
 | Bloque G | **NO INICIADO** |
 
-**Motivo del rechazo:** P1 `INSTALL-BUILD-001` — el instalador de la build `internal-alpha-20260805-59be78e` registró e inició Sentinel desde `%TEMP%\sentinel-build-inspect` en lugar de una ubicación persistente. El P1 fue corregido y una nueva build (`internal-alpha-20260805-b4327db`) pasó las regresiones automáticas, pero la validación manual aún está pendiente.
+**Motivo del rechazo:** validación manual del build `internal-alpha-20260805-59be78e` encontró tres fallos graves:
+
+- `INSTALL-BUILD-001` (P1): el instalador registró `InstallLocation` y `UninstallString` bajo `%TEMP%\sentinel-build-inspect` e inició Sentinel desde allí.
+- `BUILD-LIFE-001` (P1): sidecars huérfanos previos del build/smoke (PID 17824, 21672) no fueron cerrados.
+- `INSTALL-RESIDUAL-001` (P2): tras desinstalar, permaneció `C:\Users\edgar\AppData\Local\Temp\sentinel-build-inspect\sidecar`.
+
+**Builds revocados:**
+
+- `internal-alpha-20260805-59be78e` — REVOCADO.
+- `internal-alpha-20260805-b4327db` — REVOCADO (corrección parcial sin ruta `%LOCALAPPDATA%\Programs`).
+
+**Build actual en validación:**
+
+- `internal-alpha-20260805-229cf37` — nuevo Build ID, instala bajo `%LOCALAPPDATA%\Programs`, pasa regresiones automáticas de instalación y smoke.
 
 ## 1.1 P1 INSTALL-BUILD-001 — Instalación desde %TEMP%
 
@@ -43,6 +56,13 @@ sentinel.exe PID 7624
 
 También existían sidecars huérfanos anteriores en `C:\Dev\AIVO\sidecar\dist\sidecar.exe` (PID 17824, PID 21672).
 
+### Fallos adicionales
+
+| ID | Prioridad | Hallazgo |
+|----|-----------|----------|
+| `BUILD-LIFE-001` | P1 | Sidecars huérfanos de ejecuciones previas de build/smoke; sus procesos padre ya no estaban activos. |
+| `INSTALL-RESIDUAL-001` | P2 | Tras ejecutar `uninstall.exe`, permaneció `C:\Users\edgar\AppData\Local\Temp\sentinel-build-inspect\sidecar`. |
+
 ### Causa raíz
 
 1. `scripts/build-alpha.ps1` ejecutaba el instalador NSIS en modo silencioso con `/S /D=$env:TEMP\sentinel-build-inspect` para extraer el sidecar e inspeccionar su hash.
@@ -56,7 +76,7 @@ También existían sidecars huérfanos anteriores en `C:\Dev\AIVO\sidecar\dist\s
 |---------|--------|
 | `scripts/build-alpha.ps1` | Reemplaza la ejecución del instalador por extracción con 7-Zip (`7z x`) en un directorio de inspección. Limpia claves `Uninstall\Sentinel` residuales que apunten a `%TEMP%`. Agrega gate de regresión del instalador y de smoke. |
 | `scripts/smoke-sidecar.ps1` | Usa `taskkill /T /F /PID <pid>` para matar el árbol completo. Guarda y restaura `$env:LOCALAPPDATA` y `$env:APPDATA`. |
-| `scripts/test-installer.ps1` | Instala en `C:\Users\<user>\AppData\Local\Sentinel-Install-Test-<guid>` (no `%TEMP%`), lee el registro, rechaza `InstallLocation`/`UninstallString` bajo `%TEMP%`, inicia `sentinel.exe`, desinstala y confirma cero procesos residuales. |
+| `scripts/test-installer.ps1` | Instala en `%LOCALAPPDATA%\Programs\Sentinel-Install-Test-<guid>` (no `%TEMP%`), lee el registro, rechaza `InstallLocation`/`UninstallString` bajo `%TEMP%`, inicia `sentinel.exe`, desinstala y confirma cero procesos residuales. |
 | `scripts/test-smoke-repetition.ps1` | Ejecuta `smoke-sidecar.ps1` 3 veces y verifica que no haya sidecars huérfanos. |
 
 ### Regresiones agregadas
@@ -74,11 +94,11 @@ El build falla automáticamente si:
 ```
 
 ```text
-BUILD SUCCESS: internal-alpha-20260805-b4327db
+BUILD SUCCESS: internal-alpha-20260805-229cf37
 Artifacts: C:\Dev\AIVO\artifacts\internal-alpha
 
-sentinel.exe SHA-256: 64AEBAE9F4A001ECE8C1C81056D824A793ABA956E95D6782C559A1E0AD89B5EE
-sidecar.exe SHA-256:  A6C164F11BF7517D109BEC50182935CCE68BB804913155A31E0671601C58C5B2
+sentinel.exe SHA-256: 4FC4AC27A45918CF5D19BF7391EEF60B04076C9452B20B9B2E1820328098D046
+sidecar.exe SHA-256:  261B7F063ACAF5CD415C60E7BB5B622FF858D7E7B916BF122C94269E986C51A9
 ```
 
 La nueva build pasó:

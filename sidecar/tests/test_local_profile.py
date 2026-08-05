@@ -13,7 +13,9 @@ def repo():
 
 @pytest.fixture
 def tx_store():
-    return OAuthTransactionStore(ttl=5)
+    store = OAuthTransactionStore(ttl=300)
+    store.startup_cleanup()
+    return store
 
 
 class TestLocalProfile:
@@ -48,11 +50,13 @@ class TestLocalProfile:
 class TestOAuthTransaction:
     def test_create_has_different_state_and_nonce(self, tx_store):
         tx = tx_store.create("google", "http://127.0.0.1:0/oauth/callback")
-        assert tx._raw_state != tx._raw_nonce
+        raw_state = tx_store._raw_states.get(tx.transaction_id)
+        raw_nonce = tx_store._raw_nonces.get(tx.transaction_id)
+        assert raw_state != raw_nonce
 
     def test_state_consume_validates_and_marks_used(self, tx_store):
         tx = tx_store.create("google", "http://127.0.0.1:0/oauth/callback")
-        state = tx._raw_state
+        state = tx_store._raw_states.get(tx.transaction_id)
         consumed = tx_store.consume_state(state)
         assert consumed is not None
         assert consumed.status == "waiting_callback"
@@ -72,3 +76,9 @@ class TestOAuthTransaction:
     def test_pkce_is_s256(self, tx_store):
         tx = tx_store.create("google", "http://127.0.0.1:0/oauth/callback")
         assert tx.code_challenge and len(tx.code_challenge) > 0
+
+    def test_startup_cleanup_invalidates_pending(self, tx_store):
+        tx = tx_store.create("google", "http://127.0.0.1:0/oauth/callback")
+        tx_store.startup_cleanup()
+        assert tx_store.get_verifier(tx.transaction_id) is None
+        assert tx_store.get(tx.transaction_id).status == "expired"

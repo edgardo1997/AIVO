@@ -6,7 +6,7 @@ These classes map existing tables; they must never create or alter them.
 
 from datetime import datetime, timezone
 
-from sqlalchemy import String
+from sqlalchemy import Integer, String
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -44,3 +44,22 @@ class UserPreferenceV2(Base):
         String,
         default=lambda: datetime.now(timezone.utc).isoformat(),
     )
+
+
+class OAuthTransactionModel(Base):
+    __tablename__ = "oauth_transactions"
+
+    transaction_id: Mapped[str] = mapped_column(String, primary_key=True)
+    provider: Mapped[str] = mapped_column(String, nullable=False)
+    state_hash: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    nonce_hash: Mapped[str] = mapped_column(String, nullable=False)
+    code_challenge: Mapped[str] = mapped_column(String, nullable=False)
+    code_verifier_hash: Mapped[str] = mapped_column(String, nullable=False)
+    redirect_uri: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[str] = mapped_column(String, nullable=False)
+    expires_at: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="created")
+    used_at: Mapped[str] = mapped_column(String, nullable=True)
+    owner_session_id: Mapped[str] = mapped_column(String, default="")
+    owner_user_id: Mapped[str] = mapped_column(String, default="")
+    correlation_id: Mapped[str] = mapped_column(String, default="")

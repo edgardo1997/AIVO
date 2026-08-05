@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getSession, markOnboardingComplete, type UserSession } from "../services/SessionService";
+import { completeOnboardingBackend, getSession, type UserSession } from "../services/SessionService";
 
 export function useSession() {
   const [session, setSession] = useState<UserSession | null>(null);
@@ -21,8 +21,8 @@ export function useSession() {
     setSession(s);
   };
 
-  const completeOnboarding = () => {
-    markOnboardingComplete();
+  const completeOnboarding = async (draft?: Record<string, unknown>) => {
+    await completeOnboardingBackend(draft);
     setSession((prev) => (prev ? { ...prev, onboardingCompleted: true } : prev));
   };
 

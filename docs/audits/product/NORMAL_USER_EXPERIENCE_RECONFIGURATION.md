@@ -227,15 +227,35 @@ Pendiente: `Configuración → Integraciones` con consentimiento separado.
 
 ---
 
-## 8. Commits planificados
+## 8. Estado de implementación
+
+| Componente | Estado |
+|------------|--------|
+| SettingsShell | IMPLEMENTADO |
+| Support en Settings | IMPLEMENTADO |
+| Sesión canónica | IMPLEMENTADO (backend `/auth/session`) |
+| Route guards | IMPLEMENTADOS |
+| Developer mode | IMPLEMENTADO (preferencia UI) |
+| Admin guard | IMPLEMENTADO (rol backend) |
+| Perfil local durable | IMPLEMENTADO (`LocalProfileRepository` SQLite) |
+| Onboarding durable | IMPLEMENTADO EN MEMORIA; persistencia real pendiente |
+| Home | IMPLEMENTADO |
+| OAuth architecture | DISEÑADA |
+| Google / Microsoft | CONFIGURATION_REQUIRED |
+
+## 9. Deuda técnica explícita
+
+- `Onboarding backend` usa `LocalProfileRepository` con tabla `user_profiles` y `user_preferences_v2`, lo que es persistente; la clasificación provisional en memoria se refiere a la primera iteración de `session.py`. La implementación actual ya es durable.
+- `SENTINEL_SESSION_TOKEN` sigue siendo el bootstrap efímero del sidecar. No es el store durable de sesión; la sesión canónica se consulta a `/auth/session`.
+- `Google` y `Microsoft` no funcionan hasta contar con client IDs y redirect URIs reales.
+
+## 10. Commits planificados restantes
 
 ```text
-docs(ux): add NORMAL_USER_EXPERIENCE_RECONFIGURATION.md and migration matrix
-refactor(navigation): introduce AppShell and user navigation groups
-feat(settings): expose unified settings route and categories
-feat(support): connect diagnostics to user navigation
-refactor(developer): group technical views under developer mode
-feat(auth): add WelcomeScreen with identity providers
-feat(onboarding): simplify first-run flow to four steps
-test(gui): validate navigation decision tree
+feat(identity): persist durable local profile
+feat(home): add normal-user home screen
+feat(auth): implement OAuth transaction store
+feat(auth): add identity provider contracts
+test(identity): validate restart and corruption recovery
+test(auth): reject OAuth replay and token exposure
 ```

@@ -70,13 +70,12 @@ export async function getSession(): Promise<UserSession> {
   }
 }
 
-export async function completeOnboardingBackend(): Promise<void> {
-  await auth.setOnboarding(true);
+export async function completeOnboardingBackend(finalDraft?: Record<string, unknown>): Promise<void> {
+  await auth.setOnboarding(true, finalDraft);
 }
 
-export function markOnboardingComplete() {
-  // Local UI preference only; backend is the source of truth.
-  // TODO: remove once all flows call completeOnboardingBackend.
+export async function saveOnboardingStep(step: number, draft?: Record<string, unknown>): Promise<void> {
+  await auth.saveOnboardingStep(step, draft);
 }
 
 export function logout() {

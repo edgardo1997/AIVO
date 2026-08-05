@@ -3,7 +3,7 @@ import { Agents } from "../Agents/Agents";
 import { Alertas } from "../Alertas/Alertas";
 import { Audit } from "../Audit/Audit";
 import { Console } from "../Console/Console";
-import { Dashboard } from "../Dashboard/Dashboard";
+import { Home } from "../Home/Home";
 import { LiveDashboard } from "../LiveDashboard/LiveDashboard";
 import { Execute } from "../Execute/Execute";
 import { FeedbackCosts } from "../FeedbackCosts/FeedbackCosts";
@@ -144,14 +144,14 @@ export const viewGroups: ViewGroup[] = userMenu;
 export const viewMeta: Record<ViewKey, { label: string; icon: string; description: string }> =
   Object.fromEntries([...userMenu, ...developerMenu].flatMap((g) => g.items.map((item) => [item.key, { label: item.label, icon: item.icon, description: item.description }]))) as any;
 
-export function ViewRouter({ view, onNavigate }: { view: ViewKey; onNavigate?: (tab: string) => void }) {
+export function ViewRouter({ view }: { view: ViewKey; onNavigate?: (tab: string) => void }) {
   switch (view) {
     case "admin": return <Admin />;
     case "agents": return <Agents />;
     case "alertas": return <Alertas />;
     case "audit": return <Audit />;
     case "console": return <Console />;
-    case "dashboard": return <Dashboard onTabChange={(tab) => onNavigate?.(tab)} />;
+    case "dashboard": return <Home />;
     case "livedashboard": return <LiveDashboard />;
     case "execute": return <Execute />;
     case "feedback": return <FeedbackCosts />;

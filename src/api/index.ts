@@ -121,8 +121,10 @@ export const auth = {
   createLocalProfile: async (display_name: string) =>
     postJSON<{ user_id: string; display_name: string; identity_provider: string; created_at: string }>(`${BASE}/auth/local/profile`, { display_name }),
   getOnboarding: async () => fetchJSON<{ onboarding_completed: boolean; required_steps: string[] }>(`${BASE}/auth/onboarding`),
-  setOnboarding: async (completed: boolean) =>
-    postJSON<{ onboarding_completed: boolean; required_steps: string[] }>(`${BASE}/auth/onboarding`, { completed }),
+  setOnboarding: async (completed: boolean, finalDraft?: Record<string, unknown> | null) =>
+    postJSON<{ onboarding_completed: boolean; required_steps: string[] }>(`${BASE}/auth/onboarding`, { completed, final_draft: finalDraft }),
+  saveOnboardingStep: async (step: number, draft?: Record<string, unknown> | null) =>
+    postJSON<{ onboarding_completed: boolean; required_steps: string[] }>(`${BASE}/auth/onboarding/step`, { step, draft }),
   login: async (user_id: string, password = "") => {
     const res = await fetch(`${BASE}/auth/login`, {
       method: "POST", headers: { "Content-Type": "application/json" },

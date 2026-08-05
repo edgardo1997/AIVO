@@ -9,12 +9,17 @@ interface Props {
 export function WelcomeScreen({ onLogin }: Props) {
   const [loading, setLoading] = useState<"local" | "google" | "microsoft" | null>(null);
   const [error, setError] = useState("");
+  const [displayName, setDisplayName] = useState("");
 
   const startLocal = async () => {
     setLoading("local");
     setError("");
     try {
       await auth.connectLocal();
+      const profile = await auth.createLocalProfile(displayName);
+      if (profile) {
+        await auth.getOnboarding();
+      }
       onLogin("local");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "No se pudo iniciar Sentinel localmente");
@@ -51,6 +56,20 @@ export function WelcomeScreen({ onLogin }: Props) {
         <p className="welcome-subtitle">
           Una capa de IA gobernada para trabajar con su computadora.
         </p>
+
+        <div className="welcome-local-form">
+          <label htmlFor="welcome-display-name">Nombre para esta cuenta local</label>
+          <input
+            id="welcome-display-name"
+            type="text"
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+            placeholder="Ej. Edgardo"
+            disabled={loading !== null}
+            maxLength={120}
+          />
+          <p className="welcome-local-hint">Puede ser tu nombre o un alias. No se sincroniza.</p>
+        </div>
 
         <div className="welcome-actions" role="group" aria-label="Opciones de inicio de sesión">
           <button

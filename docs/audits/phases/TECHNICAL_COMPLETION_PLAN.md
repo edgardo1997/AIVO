@@ -26,7 +26,7 @@
 | BLOQUE C | COMPLETADO | — | — | — | — |
 | BLOQUE D | COMPLETADO | — | — | — | — |
 | BLOQUE E | COMPLETADO | — | — | — | — |
-| BLOQUE F | PARCIAL | Deuda Rust/Tauri logs; frontend logging wrapper; encriptación logs en disco | Validación manual GUI | FASE 14 | Evaluar si priorizar Rust/frontend o avanzar ProviderManager |
+| BLOQUE F | PARCIAL | Deuda Rust/Tauri logs; frontend logging wrapper; encriptación logs en disco; ProviderManager consolidado parcial | Validación manual GUI | FASE 14 | Terminar provider/router, luego Rust/frontend |
 | BLOQUE G | NO DEFINIDO | Alcance por definir | — | FASE 7, 8, 9, 13 (sin documentar) | Documentar G1/G2/G3 y decidir qué parte es ejecutable sin GUI |
 
 ---

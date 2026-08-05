@@ -167,7 +167,7 @@ Origen: `declared` / `probed` / `verified` / `unknown`.
 
 ## 8. Deuda restante
 
-- Integrar `BudgetManager` en `ModelRouter` para filtrar por presupuesto en caliente.
+- [x] Integrar `BudgetManager` en `ModelRouter` para filtrar por presupuesto en caliente.
 - Migrar embeddings OpenRouter a adapters externos.
 - Tests de adapter contract suite.
 - Health/readiness real para modelo local (proceso vs. listo).

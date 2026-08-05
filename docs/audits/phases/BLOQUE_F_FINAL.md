@@ -3,7 +3,7 @@
 Fecha: 2026-08-05
 Repositorio canónico: `C:\Dev\AIVO`
 Commit inicial: `b89b929`
-Commit final: `9d5cf43`
+Commit final: `b4327db`
 
 ## 1. Estado final
 
@@ -13,7 +13,78 @@ Commit final: `9d5cf43`
 | FASE 4 | **COMPLETADO** |
 | FASE 5 | **COMPLETADO** |
 | FASE 6 | **COMPLETADO para internal-alpha** |
-| FASE 14 | **PARCIAL** |
+| FASE 14 | **RECHAZADA** |
+| Bloque G | **NO INICIADO** |
+
+**Motivo del rechazo:** P1 `INSTALL-BUILD-001` — el instalador de la build `internal-alpha-20260805-59be78e` registró e inició Sentinel desde `%TEMP%\sentinel-build-inspect` en lugar de una ubicación persistente. El P1 fue corregido y una nueva build (`internal-alpha-20260805-b4327db`) pasó las regresiones automáticas, pero la validación manual aún está pendiente.
+
+## 1.1 P1 INSTALL-BUILD-001 — Instalación desde %TEMP%
+
+### Hallazgo
+
+| Campo | Evidencia |
+|-------|-----------|
+| Build afectado | `internal-alpha-20260805-59be78e` |
+| Instalador | `C:\Dev\AIVO\artifacts\internal-alpha\Sentinel_0.1.0-alpha.1_x64-setup.exe` |
+| InstallLocation | `C:\Users\edgar\AppData\Local\Temp\sentinel-build-inspect` |
+| UninstallString | `C:\Users\edgar\AppData\Local\Temp\sentinel-build-inspect\uninstall.exe` |
+| `sentinel.exe` | `C:\Users\edgar\AppData\Local\Temp\sentinel-build-inspect\sentinel.exe` |
+| `sidecar.exe` | `C:\Users\edgar\AppData\Local\Temp\sentinel-build-inspect\sidecar\sidecar.exe` |
+
+Árbol observado:
+
+```text
+sentinel.exe PID 7624
+└── sidecar.exe PID 5056
+    └── sidecar.exe PID 34812
+        ├── escucha 127.0.0.1:8765
+        └── escucha 127.0.0.1:8766
+```
+
+También existían sidecars huérfanos anteriores en `C:\Dev\AIVO\sidecar\dist\sidecar.exe` (PID 17824, PID 21672).
+
+### Causa raíz
+
+1. `scripts/build-alpha.ps1` ejecutaba el instalador NSIS en modo silencioso con `/S /D=$env:TEMP\sentinel-build-inspect` para extraer el sidecar e inspeccionar su hash.
+2. Esta operación de inspección escribía la clave `Uninstall\Sentinel` en el registro con `InstallLocation` y `UninstallString` apuntando a `%TEMP%`.
+3. Al ejecutar el instalador publicado manualmente más tarde, Windows lo interpretó como reparación/actualización de la instalación anterior y reutilizó la ruta de `%TEMP%`.
+4. `scripts/smoke-sidecar.ps1` mataba solo el proceso padre; los sidecars hijos (multi-proceso PyInstaller) quedaban huérfanos.
+
+### Correcciones
+
+| Archivo | Cambio |
+|---------|--------|
+| `scripts/build-alpha.ps1` | Reemplaza la ejecución del instalador por extracción con 7-Zip (`7z x`) en un directorio de inspección. Limpia claves `Uninstall\Sentinel` residuales que apunten a `%TEMP%`. Agrega gate de regresión del instalador y de smoke. |
+| `scripts/smoke-sidecar.ps1` | Usa `taskkill /T /F /PID <pid>` para matar el árbol completo. Guarda y restaura `$env:LOCALAPPDATA` y `$env:APPDATA`. |
+| `scripts/test-installer.ps1` | Instala en `C:\Users\<user>\AppData\Local\Sentinel-Install-Test-<guid>` (no `%TEMP%`), lee el registro, rechaza `InstallLocation`/`UninstallString` bajo `%TEMP%`, inicia `sentinel.exe`, desinstala y confirma cero procesos residuales. |
+| `scripts/test-smoke-repetition.ps1` | Ejecuta `smoke-sidecar.ps1` 3 veces y verifica que no haya sidecars huérfanos. |
+
+### Regresiones agregadas
+
+El build falla automáticamente si:
+
+- `InstallLocation` o `UninstallString` comienzan con `%TEMP%`.
+- El `sidecar.exe` empaquetado no coincide con el canónico.
+- El smoke deja procesos huérfanos.
+
+### Nueva build
+
+```powershell
+.\scripts\build-alpha.ps1 -Channel internal-alpha
+```
+
+```text
+BUILD SUCCESS: internal-alpha-20260805-b4327db
+Artifacts: C:\Dev\AIVO\artifacts\internal-alpha
+
+sentinel.exe SHA-256: 64AEBAE9F4A001ECE8C1C81056D824A793ABA956E95D6782C559A1E0AD89B5EE
+sidecar.exe SHA-256:  A6C164F11BF7517D109BEC50182935CCE68BB804913155A31E0671601C58C5B2
+```
+
+La nueva build pasó:
+- sidecar smoke normal;
+- sidecar smoke repetition (3x, 0 huérfanos);
+- installer regression (instalación, inicio, desinstalación, 0 procesos residuales).
 
 ## 2. Fase 4 — COMPLETADO
 

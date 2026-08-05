@@ -72,6 +72,7 @@ sidecar/logs/
 # Local diagnostics and generated benchmark output
 tmp/
 .benchmarks/
+.local-data/
 .anchored_summary.md
 
 # Agent tool artifacts (not part of Sentinel)

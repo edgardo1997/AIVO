@@ -146,6 +146,10 @@ $buildId = "$Channel-$((Get-Date -Format 'yyyyMMdd'))-$short$dirtyTag"
 # ---------------------------------------------------------------------------
 # Clean
 # ---------------------------------------------------------------------------
+# Kill any stale sidecar process before removing sidecar/dist.
+Get-Process -Name sidecar -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 2
+
 Remove-Tree "$repoRoot\dist"
 Remove-Tree "$repoRoot\sidecar\dist"
 Remove-Tree "$repoRoot\sidecar\build"

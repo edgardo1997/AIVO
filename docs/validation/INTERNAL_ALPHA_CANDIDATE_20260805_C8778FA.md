@@ -24,7 +24,7 @@ artifacts/internal-alpha-candidate/sidecar.sha256
 
 | Artefacto | SHA-256 |
 |-----------|---------|
-| Instalador `Sentinel_0.1.0-alpha.1_x64-setup.exe` | (ver manifest) |
+| Instalador `Sentinel_internal-alpha-candidate-20260805-c8778fa_x64-setup.exe` | `86b7ad7e771071a89280f68b9ef88bff50b56b312899f542602caf3ded2394c0` |
 | Sidecar `sidecar.exe` | `d8c4ada4898615470f612bc734f51289bc18dabec4697f2961c2a94815154a1f` |
 
 ## Resumen de gates verificados

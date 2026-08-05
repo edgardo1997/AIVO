@@ -1,0 +1,63 @@
+name: Release Stable
+
+on:
+  push:
+    tags: ["v*"]
+
+concurrency:
+  group: release-stable-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: never
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    environment: release
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.10"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24.18.0"
+          cache: "npm"
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+      - run: python -m uv sync --frozen
+
+      - name: Build stable release
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          SENTINEL_AUTHENTICODE_THUMBPRINT: ${{ secrets.SENTINEL_AUTHENTICODE_THUMBPRINT }}
+          SENTINEL_TIMESTAMP_URL: ${{ vars.SENTINEL_TIMESTAMP_URL }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          .\scripts\build-alpha.ps1 -Channel stable
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sentinel-stable
+          path: artifacts/stable/**

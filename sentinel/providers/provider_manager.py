@@ -316,3 +316,38 @@ class ProviderManager:
             )
             logger.error("Stream error for %s: %s", provider.id, redact_text(str(e))[:200])
             raise
+
+    def execute_inference(self, decision: RouterDecision, provider: ProviderSpec, messages: List[Dict[str, str]], **kwargs) -> Dict[str, Any]:
+        """Canonical non-streaming inference entry point."""
+        return self.call_provider(decision, provider, messages, **kwargs)
+
+    def execute_inference_stream(self, decision: RouterDecision, provider: ProviderSpec, messages: List[Dict[str, str]], **kwargs) -> Iterator[Dict[str, Any]]:
+        """Canonical streaming inference entry point."""
+        yield from self.call_provider_stream(decision, provider, messages, **kwargs)
+
+    def get_provider_state(self, provider_id: str) -> Dict[str, Any]:
+        """Return canonical provider lifecycle state."""
+        from sentinel.core.model_schemas import ProviderState
+        from sentinel.core.router_types import BUILTIN_PROVIDERS
+        spec = next((p for p in BUILTIN_PROVIDERS if p.id == provider_id), None)
+        configured = spec is not None
+        has_key = self.has_api_key(provider_id) or bool(os.environ.get(f"SENTINEL_API_KEY_{provider_id.upper()}"))
+        if not configured:
+            return {"state": ProviderState.NOT_INSTALLED, "configured": False}
+        if spec.is_local:
+            return {"state": ProviderState.READY if has_key else ProviderState.STOPPED, "configured": True, "authenticated": has_key}
+        if not has_key:
+            return {"state": ProviderState.STOPPED, "configured": True, "authenticated": False}
+        return {"state": ProviderState.READY, "configured": True, "authenticated": True}
+
+    def get_model_state(self, provider_id: str, model_id: str) -> Dict[str, Any]:
+        """Return canonical model state."""
+        from sentinel.core.model_schemas import ModelState
+        pstate = self.get_provider_state(provider_id)
+        return ModelState(
+            provider_id=provider_id,
+            model_id=model_id,
+            state=pstate["state"],
+            configured=pstate.get("configured", False),
+            authenticated=pstate.get("authenticated", False),
+        ).model_dump()

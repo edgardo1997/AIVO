@@ -442,6 +442,98 @@ class ModelRouter:
     def select_all(self, task_type: TaskType, context: Optional[Dict[str, Any]] = None) -> List[RouterDecision]:
         return self._provider_selector.select_all(task_type, context=context)
 
+    def route(self, request: "ModelRequest") -> "RoutingDecision":
+        """Canonical routing entry point: ModelRequest -> RoutingDecision."""
+        from sentinel.core.model_schemas import (
+            CapabilityStatus,
+            FallbackPolicy,
+            ModelCandidate,
+            ModelRequest,
+            RoutingDecision,
+            SelectionReasonCode,
+        )
+        from sentinel.core.router_types import TaskType
+
+        task_type = TaskType(request.task_type) if request.task_type in {t.value for t in TaskType} else TaskType.QUICK
+        existing_decision = self.select(
+            task_type,
+            explicit_provider=request.provider_preference,
+            explicit_model=request.model_preference,
+        )
+        candidates: List[ModelCandidate] = []
+        for p in self._providers.values():
+            cand = ModelCandidate(
+                provider_id=p.id,
+                model_id=p.default_model,
+                model_name=p.default_model,
+                is_local=p.is_local,
+                is_cloud=not p.is_local,
+                capabilities=[
+                    {"name": c, "status": CapabilityStatus.DECLARED}
+                    for c in getattr(self._capability_manager, "capabilities_for", lambda m: [])(p.default_model)
+                ],
+                healthy=True,
+            )
+            if p.id != existing_decision.provider_id:
+                cand.reason_excluded = "not_selected"
+            candidates.append(cand)
+
+        reason = SelectionReasonCode.LOCAL_CAPABLE_PREFERRED
+        if existing_decision.provider_id != "sentinel_local" and not any(c.is_local for c in candidates if c.provider_id == existing_decision.provider_id):
+            if not request.cloud_allowed:
+                reason = SelectionReasonCode.CLOUD_NOT_AUTHORIZED
+            else:
+                reason = SelectionReasonCode.CLOUD_AUTHORIZED_LOCAL_INSUFFICIENT
+        if request.provider_preference and existing_decision.provider_id == request.provider_preference:
+            reason = SelectionReasonCode.USER_PROVIDER_PREFERENCE_ALLOWED
+
+        return RoutingDecision(
+            selected_provider=existing_decision.provider_id,
+            selected_model=existing_decision.model,
+            selection_reason_code=reason,
+            candidate_count=len(candidates),
+            matched_capabilities=request.required_capabilities,
+            missing_capabilities=[],
+            cloud_used=not self._providers.get(existing_decision.provider_id, ProviderSpec(id=existing_decision.provider_id, name=existing_decision.provider_id, task_types=[], is_local=False)).is_local,
+            authority_reference=request.cloud_authority_reference,
+            estimated_cost=0.0,
+            estimated_latency_ms=0,
+            fallback_chain=existing_decision.fallback_chain if hasattr(existing_decision, "fallback_chain") else [],
+            confidence="high",
+            candidates=candidates,
+            safe_explanation=f"Selected {existing_decision.model} from {existing_decision.provider_id} using {reason.value}.",
+        )
+
+    def execute(self, request: "ModelRequest", messages: List[Dict[str, str]]) -> Dict[str, Any]:
+        """Canonical execution: route then execute through ProviderManager."""
+        decision = self.route(request)
+        provider = self._providers.get(decision.selected_provider)
+        if provider is None:
+            raise RuntimeError(f"Unknown provider selected: {decision.selected_provider}")
+        rt_decision = RouterDecision(
+            provider_id=provider.id,
+            model=decision.selected_model,
+            task_type=TaskType(request.task_type) if request.task_type in {t.value for t in TaskType} else TaskType.QUICK,
+            strategy=self._strategy,
+            reason=decision.selection_reason_code,
+        )
+        return self._provider_manager.execute_inference(rt_decision, provider, messages)
+
+    def execute_stream(self, request: "ModelRequest", messages: List[Dict[str, str]]) -> Iterator[Dict[str, Any]]:
+        """Canonical streaming execution."""
+        decision = self.route(request)
+        provider = self._providers.get(decision.selected_provider)
+        if provider is None:
+            raise RuntimeError(f"Unknown provider selected: {decision.selected_provider}")
+        rt_decision = RouterDecision(
+            provider_id=provider.id,
+            model=decision.selected_model,
+            task_type=TaskType(request.task_type) if request.task_type in {t.value for t in TaskType} else TaskType.QUICK,
+            strategy=self._strategy,
+            reason=decision.selection_reason_code,
+        )
+        yield from self._provider_manager.execute_inference_stream(rt_decision, provider, messages)
+
     def set_circuit_breaker(self, cb) -> None:
         self._cb_store = cb
         self._fallback_manager.set_circuit_breaker(cb)

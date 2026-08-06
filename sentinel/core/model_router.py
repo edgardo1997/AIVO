@@ -866,14 +866,24 @@ class ModelRouter:
         return {"response": str(result), "provider": decision.provider_id, "model": decision.model, "correlation_id": getattr(request, "correlation_id", "")}
 
     def chat_with_provider(self, messages: List[Dict[str, str]], provider_id: str, model: str, task_type: TaskType = TaskType.QUICK) -> Dict[str, Any]:
+        from sentinel.core.model_schemas import ModelRequest
         provider = self._providers.get(provider_id)
         if not provider:
             raise ValueError(f"Unknown provider: {provider_id}")
         availability = self.provider_availability(provider_id)
         if not availability.available:
             raise RuntimeError(f"Provider '{provider_id}' is unavailable: {availability.reason}")
-        decision = RouterDecision(provider_id=provider_id, model=model, task_type=task_type, strategy="manual", reason=f"Direct call to {provider_id}/{model}")
-        return self._call_provider(decision, provider, messages)
+        request = ModelRequest(
+            task_type=task_type.value,
+            required_capabilities=["chat"],
+            provider_preference=provider_id,
+            preferred_model=model,
+            context_tokens=sum(len(str(m.get("content", "")).split()) for m in messages),
+        )
+        decision = self.route(request)
+        result = self.execute(request, messages)
+        rt_decision = RouterDecision(provider_id=decision.selected_provider, model=decision.selected_model, task_type=task_type, strategy="manual", reason=decision.selection_reason_code)
+        return self._to_legacy_response(result, rt_decision, request)
 
     def check_health(self, provider_id: str, timeout: float = 5.0) -> Dict[str, Any]:
         import httpx

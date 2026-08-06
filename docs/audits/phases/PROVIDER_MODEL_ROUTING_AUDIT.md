@@ -184,6 +184,9 @@ Origen: `declared` / `probed` / `verified` / `unknown`.
 - [x] `ModelRouter._call_provider` loguea deprecación.
 - [x] `ModelRouter._chat_canonical` con ruta `route` → `execute`.
 - [x] Feature flag `SENTINEL_CANONICAL_CHAT` para pruebas comparativas.
+- [x] Inventario de migración legacy en `MODEL_LEGACY_MIGRATION.md`.
+- [x] `RoutingError` usado correctamente en respuestas canónicas.
+- [x] `_call_provider` delega en `execute_inference`.
 - Migrar embeddings OpenRouter a adapters externos.
 - Tests de adapter contract suite.
 - Health/readiness real para modelo local (proceso vs. listo).

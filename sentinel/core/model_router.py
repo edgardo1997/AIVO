@@ -367,7 +367,7 @@ class ModelRouter:
         for round_idx in range(max_tool_rounds + 1):
             elapsed = time.monotonic()
             try:
-                result = self._call_provider(decision, provider, current_messages, model_override=model_override, tools=openai_tools)
+                result = self._provider_manager.execute_inference(decision, provider, current_messages, model_override=model_override, tools=openai_tools)
             except Exception as e:
                 raise RuntimeError(f"Provider call failed in chat_with_tools: {e}") from e
             elapsed = time.monotonic() - elapsed

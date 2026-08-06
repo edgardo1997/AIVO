@@ -204,3 +204,28 @@ class EmbeddingResult(BaseModel):
     correlation_id: str = ""
 
     model_config = ConfigDict(extra="forbid")
+
+
+class StreamEventType(str, Enum):
+    STARTED = "started"
+    DELTA = "delta"
+    USAGE = "usage"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+    FAILED = "failed"
+
+
+class StreamEvent(BaseModel):
+    """Canonical normalized streaming event."""
+    event_type: StreamEventType
+    request_id: str = ""
+    correlation_id: str = ""
+    provider: str = ""
+    model: str = ""
+    sequence: int = 0
+    timestamp: float = 0.0
+    payload: Dict[str, Any] = Field(default_factory=dict)
+    error_code: str = ""
+    safe_message: str = ""
+
+    model_config = ConfigDict(extra="forbid")

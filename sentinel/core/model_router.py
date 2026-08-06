@@ -574,7 +574,10 @@ class ModelRouter:
         return self._provider_manager.execute_inference(rt_decision, provider, messages)
 
     def execute_stream(self, request: "ModelRequest", messages: List[Dict[str, str]]) -> Iterator[Dict[str, Any]]:
-        """Canonical streaming execution."""
+        """Canonical streaming execution that wraps provider events into StreamEvent."""
+        from sentinel.core.model_schemas import StreamEvent, StreamEventType
+        import time
+        stream_started = time.time()
         decision = self.route(request)
         provider = self._providers.get(decision.selected_provider)
         if provider is None:
@@ -586,7 +589,80 @@ class ModelRouter:
             strategy=self._strategy,
             reason=decision.selection_reason_code,
         )
-        yield from self._provider_manager.execute_inference_stream(rt_decision, provider, messages)
+        seq = 0
+        started = False
+        has_emitted_delta = False
+        first_token_at = None
+        try:
+            for raw in self._provider_manager.execute_inference_stream(rt_decision, provider, messages):
+                if not started:
+                    started = True
+                    yield StreamEvent(
+                        event_type=StreamEventType.STARTED,
+                        request_id=request.request_id,
+                        correlation_id=request.correlation_id,
+                        provider=provider.id,
+                        model=decision.selected_model,
+                        sequence=seq,
+                        timestamp=time.time(),
+                        payload={"selection": {"provider": provider.id, "model": decision.selected_model}},
+                    ).model_dump()
+                    seq += 1
+                if raw.get("type") == "delta" or raw.get("content"):
+                    has_emitted_delta = True
+                    if first_token_at is None:
+                        first_token_at = time.time()
+                    yield StreamEvent(
+                        event_type=StreamEventType.DELTA,
+                        request_id=request.request_id,
+                        correlation_id=request.correlation_id,
+                        provider=provider.id,
+                        model=decision.selected_model,
+                        sequence=seq,
+                        timestamp=time.time(),
+                        payload={"content": raw.get("content", ""), "delta": raw},
+                    ).model_dump()
+                    seq += 1
+                elif raw.get("type") == "usage" or raw.get("usage"):
+                    yield StreamEvent(
+                        event_type=StreamEventType.USAGE,
+                        request_id=request.request_id,
+                        correlation_id=request.correlation_id,
+                        provider=provider.id,
+                        model=decision.selected_model,
+                        sequence=seq,
+                        timestamp=time.time(),
+                        payload={"usage": raw.get("usage", raw)},
+                    ).model_dump()
+                    seq += 1
+        except Exception as exc:
+            if has_emitted_delta:
+                yield StreamEvent(
+                    event_type=StreamEventType.FAILED,
+                    request_id=request.request_id,
+                    correlation_id=request.correlation_id,
+                    provider=provider.id,
+                    model=decision.selected_model,
+                    sequence=seq,
+                    timestamp=time.time(),
+                    payload={"partial_output": True},
+                    error_code="SEN-MODEL-STREAM-FAILED",
+                    safe_message="Stream failed after content was emitted",
+                ).model_dump()
+            else:
+                # Before first delta, let caller retry fallback
+                raise
+            return
+        yield StreamEvent(
+            event_type=StreamEventType.COMPLETED,
+            request_id=request.request_id,
+            correlation_id=request.correlation_id,
+            provider=provider.id,
+            model=decision.selected_model,
+            sequence=seq,
+            timestamp=time.time(),
+            payload={"first_token_latency_ms": (first_token_at - stream_started) * 1000 if first_token_at else None},
+        ).model_dump()
 
     def set_circuit_breaker(self, cb) -> None:
         self._cb_store = cb

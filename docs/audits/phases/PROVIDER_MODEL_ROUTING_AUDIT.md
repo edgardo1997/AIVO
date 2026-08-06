@@ -189,6 +189,9 @@ Origen: `declared` / `probed` / `verified` / `unknown`.
 - [x] `_call_provider` delega en `execute_inference`.
 - [x] `chat_with_provider` usa `route` + `execute` canónico.
 - [x] `chat_multi_model` usa `execute_inference` canónico.
+- [x] `chat` canónico por defecto.
+- [x] `test_fallback_chaining.py` adaptado a contrato público.
+- [x] `test_stability.py` sin cambios, continúa verde.
 - Migrar embeddings OpenRouter a adapters externos.
 - Tests de adapter contract suite.
 - Health/readiness real para modelo local (proceso vs. listo).

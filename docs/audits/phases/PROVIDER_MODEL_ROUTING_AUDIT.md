@@ -187,6 +187,7 @@ Origen: `declared` / `probed` / `verified` / `unknown`.
 - [x] Inventario de migración legacy en `MODEL_LEGACY_MIGRATION.md`.
 - [x] `RoutingError` usado correctamente en respuestas canónicas.
 - [x] `_call_provider` delega en `execute_inference`.
+- [x] `chat_with_provider` usa `route` + `execute` canónico.
 - Migrar embeddings OpenRouter a adapters externos.
 - Tests de adapter contract suite.
 - Health/readiness real para modelo local (proceso vs. listo).

@@ -57,6 +57,8 @@ class ModelRouter:
         self._offline_reason: Optional[str] = None
         self._routing_history: List[Dict[str, Any]] = []
         self._cloud_authority = cloud_authority
+        import os
+        self._canonical_chat = os.environ.get("SENTINEL_CANONICAL_CHAT", "0") == "1"
 
         from sentinel.core.hardware_intelligence import ModelCapabilityManager, get_model_capabilities
         from sentinel.core.model_registry import ModelRegistry, TASK_CAPABILITY_MAP
@@ -600,7 +602,74 @@ class ModelRouter:
     def _filter_open_providers(self, candidates: List[RouterDecision]) -> List[RouterDecision]:
         return self._fallback_manager.filter_open_providers(candidates)
 
+    def _chat_canonical(self, messages: List[Dict[str, str]], task_type: TaskType = TaskType.QUICK, model_override: Optional[str] = None, context: Optional[Dict[str, Any]] = None, fallback_chain_override: Optional[List[str]] = None) -> Dict[str, Any]:
+        from sentinel.core.context_validator import ContextWindowValidator
+        from sentinel.core.model_schemas import FallbackPolicy, ModelCapability, ModelCandidate, ModelRequest, CapabilityStatus
+        context = context or {}
+        capabilities = ["chat"]
+        if task_type == TaskType.CODE:
+            capabilities.append("coding")
+        elif task_type == TaskType.REASONING:
+            capabilities.append("reasoning")
+        validator = ContextWindowValidator()
+        system_prompt = context.get("system_prompt", "")
+        context_tokens = validator.estimate_request_tokens(system_prompt, messages, tool_schemas=context.get("tools"))
+        request = ModelRequest(
+            task_type=task_type.value,
+            required_capabilities=capabilities,
+            context_tokens=context_tokens,
+            fallback_policy=FallbackPolicy.ORDERED_CHAIN,
+            cloud_allowed=not self._offline_mode == "forced" and not bool(context.get("local_only")),
+            local_only=bool(context.get("local_only")),
+            cloud_authority_reference=context.get("cloud_authority_reference", ""),
+        )
+        try:
+            decision = self.route(request)
+        except Exception:
+            return self._to_safe_error("SEN-MODEL-ROUTING-FAILED", str("Routing failed"), request.correlation_id)
+        primary = self._providers.get(decision.selected_provider)
+        if not primary:
+            return self._to_safe_error("SEN-MODEL-ROUTING-FAILED", "Unknown provider selected", request.correlation_id)
+        # Context revalidation is still a known gap pending model metadata for the selected candidate.
+        try:
+            result = self.execute(request, messages)
+        except Exception as exc:
+            candidates: List[ModelCandidate] = []
+            for pid, spec in self._providers.items():
+                if pid == decision.selected_provider:
+                    continue
+                if request.local_only and not spec.is_local:
+                    continue
+                candidates.append(ModelCandidate(
+                    provider_id=pid,
+                    model_id=spec.default_model or model_override or "",
+                    is_local=spec.is_local,
+                    capabilities=[ModelCapability(name="chat", status=CapabilityStatus.DECLARED)],
+                    healthy=True,
+                ))
+            for candidate in candidates[: self._max_fallbacks]:
+                try:
+                    self._fallback_validator.revalidate(request, candidate, messages, request.context_tokens)
+                except Exception:
+                    continue
+                fb_request = request.model_copy(update={"provider_preference": candidate.provider_id})
+                try:
+                    result = self.execute(fb_request, messages)
+                    break
+                except Exception:
+                    continue
+            else:
+                return self._to_safe_error("SEN-PROVIDER-UNAVAILABLE", str(exc), request.correlation_id)
+        rt_decision = RouterDecision(provider_id=decision.selected_provider, model=decision.selected_model, task_type=task_type, strategy="priority", reason=decision.selection_reason_code)
+        return self._to_legacy_response(result, rt_decision, request)
+
+    def _to_safe_error(self, code: str, message: str, correlation_id: str) -> Dict[str, Any]:
+        from sentinel.core.model_errors import RoutingError
+        return RoutingError(code=code, message=message, correlation_id=correlation_id, retryable=code not in {"SEN-MODEL-CONTEXT-EXCEEDED", "SEN-MODEL-CLOUD-NOT-AUTHORIZED"}).to_safe_dict()
+
     def chat(self, messages: List[Dict[str, str]], task_type: TaskType = TaskType.QUICK, model_override: Optional[str] = None, context: Optional[Dict[str, Any]] = None, fallback_chain_override: Optional[List[str]] = None) -> Dict[str, Any]:
+        if self._canonical_chat:
+            return self._chat_canonical(messages, task_type=task_type, model_override=model_override, context=context, fallback_chain_override=fallback_chain_override)
         context = context or {}
         decision = self.select(task_type, context=context)
         try:
@@ -769,7 +838,27 @@ class ModelRouter:
         yield from self._provider_manager.call_provider_stream(decision, provider, messages, model_override=model_override, timeout_budget=timeout_budget)
 
     def _call_provider(self, decision: RouterDecision, provider: ProviderSpec, messages: List[Dict[str, str]], model_override: Optional[str] = None, timeout: Optional[float] = None, tools: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+        import logging
+        logging.getLogger(__name__).warning("SEN-MODEL-LEGACY-ROUTER-CALL: _call_provider is deprecated, use execute")
         return self._provider_manager.call_provider(decision, provider, messages, model_override=model_override, timeout=timeout, tools=tools)
+
+    def _to_legacy_response(self, result: Any, decision: RouterDecision, request) -> Dict[str, Any]:
+        """Adapt a canonical InferenceResult to the legacy chat contract."""
+        if isinstance(result, dict):
+            return {
+                "response": result.get("response", ""),
+                "selection": {
+                    "used": result.get("provider", decision.provider_id),
+                    "model": result.get("model", decision.model),
+                    "attempt": 1,
+                },
+                "provider": result.get("provider", decision.provider_id),
+                "model": result.get("model", decision.model),
+                "usage": result.get("usage", {}),
+                "tool_calls": result.get("tool_calls", []),
+                "correlation_id": result.get("correlation_id", getattr(request, "correlation_id", "")),
+            }
+        return {"response": str(result), "provider": decision.provider_id, "model": decision.model, "correlation_id": getattr(request, "correlation_id", "")}
 
     def chat_with_provider(self, messages: List[Dict[str, str]], provider_id: str, model: str, task_type: TaskType = TaskType.QUICK) -> Dict[str, Any]:
         provider = self._providers.get(provider_id)

@@ -214,6 +214,19 @@ class ModelRouter:
     def get_offline_mode(self) -> str:
         return self._offline_mode
 
+    def _is_cloud_authorized(self, provider_id: str, model_id: str, purpose: str = "conversation") -> bool:
+        if not self._cloud_authority:
+            return False
+        return self._cloud_authority.is_authorized(provider_id, model_id, purpose)
+
+    def _is_provider_ready(self, provider_id: str) -> bool:
+        provider = self._providers.get(provider_id)
+        if not provider or provider.is_local:
+            from sentinel.local_model.runtime import get_local_runtime
+            status = get_local_runtime().status()
+            return status.get("state") in ("ready", "running")
+        return True
+
     def set_cloud_authority(self, cloud_authority) -> None:
         self._cloud_authority = cloud_authority
         self._provider_manager.set_cloud_authority(cloud_authority)
@@ -488,11 +501,31 @@ class ModelRouter:
                 cand.reason_excluded = "not_selected"
             candidates.append(cand)
 
-        # ── Budget reservation before final selection ────────────────
-        estimate = self._estimate_cost(existing_decision.provider_id, existing_decision.model, request.context_tokens)
+        # ── Authority check before final selection ───────────────────
         selected_provider = existing_decision.provider_id
         selected_model = existing_decision.model
         reason = SelectionReasonCode.LOCAL_CAPABLE_PREFERRED
+        is_cloud = not self._providers.get(selected_provider, ProviderSpec(id=selected_provider, name=selected_provider, task_types=[], is_local=False)).is_local
+        if is_cloud and (not request.cloud_allowed or not self._is_cloud_authorized(selected_provider, selected_model, "conversation")):
+            # Try a local fallback when cloud is not authorized
+            local = next(
+                (c for c in candidates if c.is_local and self._is_provider_ready(c.provider_id)),
+                None,
+            )
+            if local:
+                selected_provider = local.provider_id
+                selected_model = local.model_id
+                reason = SelectionReasonCode.LOCAL_SELECTED_CLOUD_NOT_AUTHORIZED
+            else:
+                from sentinel.core.model_errors import RoutingError
+                raise RoutingError(
+                    "SEN-MODEL-CLOUD-NOT-AUTHORIZED",
+                    f"Cloud provider {selected_provider} is not authorized",
+                    retryable=False,
+                )
+
+        # ── Budget reservation before final selection ────────────────
+        estimate = self._estimate_cost(selected_provider, selected_model, request.context_tokens)
         budget_ok = self._budget_manager.reserve(selected_provider, selected_model, estimate)
         if not budget_ok:
             # Try local fallback if over budget
@@ -608,7 +641,7 @@ class ModelRouter:
                         payload={"selection": {"provider": provider.id, "model": decision.selected_model}},
                     ).model_dump()
                     seq += 1
-                if raw.get("type") == "delta" or raw.get("content"):
+                if raw.get("type") == "delta" or raw.get("content") or raw.get("text"):
                     has_emitted_delta = True
                     if first_token_at is None:
                         first_token_at = time.time()
@@ -620,7 +653,7 @@ class ModelRouter:
                         model=decision.selected_model,
                         sequence=seq,
                         timestamp=time.time(),
-                        payload={"content": raw.get("content", ""), "delta": raw},
+                        payload={"content": raw.get("text", raw.get("content", "")), "delta": raw},
                     ).model_dump()
                     seq += 1
                 elif raw.get("type") == "usage" or raw.get("usage"):
@@ -827,100 +860,107 @@ class ModelRouter:
         mm_result = await self._multi_model.process(user_message, execute_fn=execute_fn, context=context)
         return mm_result.to_dict()
 
-    def chat_stream(self, messages: List[Dict[str, str]], task_type: TaskType = TaskType.QUICK, model_override: Optional[str] = None, context: Optional[Dict[str, Any]] = None, explicit_provider: Optional[str] = None, explicit_model: Optional[str] = None) -> Iterator[Dict[str, Any]]:
-        context = context or {}
-        routing_start = time.monotonic()
-        decision = self.select(task_type, context=context, explicit_provider=explicit_provider, explicit_model=explicit_model)
-        candidates = self._filter_open_providers(self._build_fallback_chain(decision, task_type, context=context))
-        routing_end = time.monotonic()
-        routing_ms = (routing_end - routing_start) * 1000
-        logger.info(f"[TIMING] Router Selection: {routing_ms:.2f}ms, Provider: {decision.provider_id}")
-        
-        if not candidates:
-            raise RuntimeError(f"All providers unavailable for {task_type.value}")
-        primary_id = candidates[0].provider_id
-        last_error: Optional[str] = None
-        start_time = time.monotonic()
-        offline_fallback_happened = False
-        budget_remaining = TOTAL_TIMEOUT_BUDGET
-        
-        # Count tokens in messages with graceful fallback
-        input_tokens = None
-        token_counting_method = "exact"
-        try:
-            import tiktoken
-            encoder = tiktoken.get_encoding("cl100k_base")
-            input_tokens = sum(len(encoder.encode(str(msg.get("content", "")))) for msg in messages)
-            logger.info(f"[TIMING] Input Tokens: {input_tokens} (exact), Messages: {len(messages)}")
-        except ImportError:
-            # Fallback to heuristic token counting
-            token_counting_method = "estimated"
-            input_tokens = sum((len(str(msg.get("content", ""))) + 3) // 4 for msg in messages)
-            logger.info(f"[TIMING] Input Tokens: {input_tokens} (estimated, tiktoken unavailable), Messages: {len(messages)}")
-        except Exception as e:
-            # Fallback to heuristic token counting on any error
-            token_counting_method = "estimated"
-            input_tokens = sum((len(str(msg.get("content", ""))) + 3) // 4 for msg in messages)
-            logger.info(f"[TIMING] Input Tokens: {input_tokens} (estimated, tiktoken error: {e}), Messages: {len(messages)}")
-        
-        safe_trace = {k: v for k, v in (decision.selection_trace or {}).items() if k in {
-            "strategy", "eligible", "excluded", "resource_rejections", "resource_score_components",
-            "snapshot_summary", "preferred_rejection", "offline_reason",
-            "requested_provider", "requested_model", "actual_provider", "actual_model",
-        }}
-        correlation_id = (context or {}).get("correlation_id") or str(uuid.uuid4())
+    def _to_legacy_meta(self, first_event: Dict[str, Any], routing_decision, is_fallback: bool = False, actual_provider: Optional[str] = None, actual_model: Optional[str] = None) -> Dict[str, Any]:
+        return {
+            "type": "meta",
+            "request_id": first_event.get("request_id", ""),
+            "correlation_id": first_event.get("correlation_id", ""),
+            "provider": actual_provider or first_event.get("provider", ""),
+            "model": actual_model or first_event.get("model", ""),
+            "requested_provider": routing_decision.selected_provider,
+            "requested_model": routing_decision.selected_model,
+            "actual_provider": actual_provider or first_event.get("provider", ""),
+            "actual_model": actual_model or first_event.get("model", ""),
+            "fallback_required": is_fallback,
+            "route": "conversation",
+        }
 
-        for index, candidate in enumerate(candidates):
-            provider = self._providers.get(candidate.provider_id)
-            if provider is None:
+    def _chat_stream_canonical(self, messages: List[Dict[str, str]], task_type: TaskType = TaskType.QUICK, model_override: Optional[str] = None, context: Optional[Dict[str, Any]] = None, explicit_provider: Optional[str] = None, explicit_model: Optional[str] = None, fallback_chain_override: Optional[List[str]] = None) -> Iterator[Dict[str, Any]]:
+        from sentinel.core.model_schemas import FallbackPolicy, ModelRequest
+        context = context or {}
+        capabilities = ["chat"]
+        if task_type == TaskType.CODE:
+            capabilities.append("coding")
+        elif task_type == TaskType.REASONING:
+            capabilities.append("reasoning")
+        from sentinel.core.context_validator import ContextWindowValidator
+        validator = ContextWindowValidator()
+        system_prompt = context.get("system_prompt", "")
+        context_tokens = validator.estimate_request_tokens(system_prompt, messages, tool_schemas=context.get("tools"))
+        request = ModelRequest(
+            task_type=task_type.value,
+            required_capabilities=capabilities,
+            context_tokens=context_tokens,
+            fallback_policy=FallbackPolicy.ORDERED_CHAIN,
+            cloud_allowed=not self._offline_mode == "forced" and not bool(context.get("local_only")),
+            local_only=bool(context.get("local_only")),
+            cloud_authority_reference=context.get("cloud_authority_reference", ""),
+            provider_preference=explicit_provider,
+            model_preference=explicit_model,
+            correlation_id=context.get("correlation_id", ""),
+        )
+        routing_decision = self.route(request)
+        primary_gen = self.execute_stream(request, messages)
+        try:
+            first = next(primary_gen)
+            yield self._to_legacy_meta(first, routing_decision, is_fallback=False)
+            yield first
+            yield from primary_gen
+            return
+        except Exception:
+            pass
+        # Before first delta: fallback allowed. Build fallback candidates from remaining providers.
+        primary_decision = self.route(request)
+        if fallback_chain_override:
+            ordered_ids = list(fallback_chain_override)
+        else:
+            remaining = [p for p in self._providers if p != primary_decision.selected_provider]
+            ordered_ids = sorted(remaining, key=lambda pid: 0 if self._providers.get(pid, ProviderSpec(id=pid, name=pid, task_types=[], is_local=False)).is_local else 1)
+        from sentinel.core.model_schemas import CapabilityStatus, ModelCandidate, ModelCapability
+        for pid in ordered_ids[: self._max_fallbacks]:
+            spec = self._providers.get(pid)
+            if not spec:
                 continue
-            elapsed = time.monotonic() - start_time
-            remaining = max(10.0, budget_remaining - elapsed)
-            emitted_content = False
-            is_offline_fallback = candidate.provider_id != primary_id and self._offline_reason is not None and provider.is_local and not offline_fallback_happened
-            if is_offline_fallback:
-                offline_fallback_happened = True
-                yield {"type": "offline_fallback", "primary": primary_id, "used": candidate.provider_id, "reason": self._offline_reason, "explanation": f"Internet no disponible ({self._offline_reason}). Usando modelo local ({candidate.provider_id}) como fallback."}
-            is_fallback = candidate.provider_id != decision.provider_id
-            fallback_reason = None
-            if is_fallback:
-                fallback_reason = last_error or candidate.reason or "fallback"
-            yield {
-                "type": "meta",
-                "provider": candidate.provider_id,
-                "model": model_override or candidate.model,
-                "requested_provider": decision.provider_id,
-                "requested_model": decision.model,
-                "actual_provider": candidate.provider_id,
-                "actual_model": model_override or candidate.model,
-                "strategy": decision.strategy,
-                "fallback_required": is_fallback,
-                "fallback_reason": fallback_reason,
-                "selection_trace": safe_trace,
-                "route": "conversation",
-                "correlation_id": correlation_id,
-                "token_counting_method": token_counting_method,
-                "input_tokens": input_tokens,
-                "routing_ms": routing_ms,
-            }
+            if request.local_only and not spec.is_local:
+                continue
+            candidate = ModelCandidate(
+                provider_id=pid,
+                model_id=spec.default_model or model_override or "",
+                is_local=spec.is_local,
+                capabilities=[ModelCapability(name="chat", status=CapabilityStatus.DECLARED)],
+                healthy=True,
+            )
             try:
-                for chunk in self._call_provider_stream(candidate, provider, messages, model_override, timeout_budget=remaining):
-                    if chunk["type"] == "delta" and chunk.get("text"):
-                        emitted_content = True
-                    yield chunk
-                self._cb_store.record_success(candidate.provider_id)
-                if candidate.provider_id != primary_id:
-                    self._record_fallback(candidate.provider_id, "success_after_fallback")
-                return
-            except Exception as e:
-                classification = classify_provider_error(e, candidate.provider_id) if not emitted_content else {"category": "stream_interrupted", "message": str(e)}
-                last_error = f"[{classification['category']}] {classification['message']}"
-                self._cb_store.record_failure(candidate.provider_id)
-                if emitted_content:
-                    yield {"type": "error", "category": "stream_interrupted", "message": f"Provider {candidate.provider_id} interrupted the response"}
-                    return
+                self._fallback_validator.revalidate(request, candidate, messages, request.context_tokens)
+            except Exception:
                 continue
-        raise RuntimeError(f"All providers failed for {task_type.value}. Last: {last_error}. Elapsed: {format_elapsed(time.monotonic() - start_time)}")
+            fb_request = request.model_copy(update={"provider_preference": candidate.provider_id})
+            fb_gen = self.execute_stream(fb_request, messages)
+            try:
+                first = next(fb_gen)
+                yield self._to_legacy_meta(first, routing_decision, is_fallback=True, actual_provider=candidate.provider_id, actual_model=candidate.model_id)
+                yield first
+                yield from fb_gen
+                self._record_fallback(candidate.provider_id, "stream")
+                return
+            except Exception:
+                continue
+        from sentinel.core.model_schemas import StreamEvent, StreamEventType
+        yield StreamEvent(
+            event_type=StreamEventType.FAILED,
+            request_id=request.request_id,
+            correlation_id=request.correlation_id,
+            provider=primary_decision.selected_provider,
+            model=primary_decision.selected_model,
+            sequence=0,
+            timestamp=time.time(),
+            payload={"partial_output": False},
+            error_code="SEN-MODEL-STREAM-FAILED",
+            safe_message="All providers failed for streaming",
+        ).model_dump()
+
+    def chat_stream(self, messages: List[Dict[str, str]], task_type: TaskType = TaskType.QUICK, model_override: Optional[str] = None, context: Optional[Dict[str, Any]] = None, explicit_provider: Optional[str] = None, explicit_model: Optional[str] = None, fallback_chain_override: Optional[List[str]] = None) -> Iterator[Dict[str, Any]]:
+        yield from self._chat_stream_canonical(messages, task_type=task_type, model_override=model_override, context=context, explicit_provider=explicit_provider, explicit_model=explicit_model, fallback_chain_override=fallback_chain_override)
 
     def _call_provider_stream(self, decision: RouterDecision, provider: ProviderSpec, messages: List[Dict[str, str]], model_override: Optional[str] = None, timeout_budget: Optional[float] = None) -> Iterator[Dict[str, Any]]:
         yield from self._provider_manager.call_provider_stream(decision, provider, messages, model_override=model_override, timeout_budget=timeout_budget)

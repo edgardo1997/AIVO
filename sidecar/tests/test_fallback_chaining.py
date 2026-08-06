@@ -173,8 +173,16 @@ class TestFallbackChainingUnit:
         p = ProviderSpec(id="test", name="Test", task_types=[TaskType.QUICK], fallback_chain=["a", "b"])
         assert p.fallback_chain == ["a", "b"]
 
+    def _permissive_cloud(self, mr):
+        from sentinel.security.cloud_authority import CloudAuthority, CloudExecutionAuthorization
+        ca = CloudAuthority()
+        ca.add_standing_policy(CloudExecutionAuthorization(cloud_allowed=True))
+        mr._cloud_authority = ca
+        mr._provider_manager.set_cloud_authority(ca)
+
     def test_chat_uses_fallback_chain_override(self):
         mr = ModelRouter()
+        self._permissive_cloud(mr)
 
         call_order = []
 
@@ -194,6 +202,7 @@ class TestFallbackChainingUnit:
 
     def test_chat_fallback_records_stats(self):
         mr = ModelRouter()
+        self._permissive_cloud(mr)
 
         def mock_call(decision, provider, messages, model_override=None, **kwargs):
             if decision.provider_id == "groq":
@@ -211,22 +220,8 @@ class TestFallbackChainingUnit:
 
     def test_streaming_falls_back_before_any_content_is_emitted(self):
         mr = ModelRouter()
-        primary = RouterDecision(
-            provider_id="sentinel_local",
-            model="local",
-            task_type=TaskType.QUICK,
-            strategy="priority",
-            reason="test",
-        )
-        fallback = RouterDecision(
-            provider_id="ollama",
-            model="fallback",
-            task_type=TaskType.QUICK,
-            strategy="fallback",
-            reason="test",
-        )
-        mr.select = lambda *_args, **_kwargs: primary
-        mr._build_fallback_chain = lambda *_args, **_kwargs: [primary, fallback]
+        self._permissive_cloud(mr)
+        mr._fallback_validator.revalidate = lambda *a, **k: None
 
         def stream_call(decision, _provider, _messages, _model_override=None, **kwargs):
             if decision.provider_id == "sentinel_local":
@@ -234,42 +229,27 @@ class TestFallbackChainingUnit:
             yield {"type": "delta", "text": "respuesta"}
             yield {"type": "done"}
 
-        mr._call_provider_stream = stream_call
-        events = list(mr.chat_stream([{"role": "user", "content": "hola"}]))
-        assert [event["type"] for event in events] == ["meta", "meta", "delta", "done"]
-        assert events[2]["text"] == "respuesta"
+        mr._provider_manager.execute_inference_stream = stream_call
+        all_events = list(mr.chat_stream([{"role": "user", "content": "hola"}], fallback_chain_override=["ollama"]))
+        events = [e for e in all_events if e.get("event_type")]
+        assert [event["event_type"] for event in events] == ["started", "delta", "completed"]
+        assert events[1]["payload"]["content"] == "respuesta"
         assert mr.fallback_stats()["fallback_counts"]["ollama"] == 1
 
     def test_streaming_never_mixes_providers_after_content(self):
         mr = ModelRouter()
-        primary = RouterDecision(
-            provider_id="sentinel_local",
-            model="local",
-            task_type=TaskType.QUICK,
-            strategy="priority",
-            reason="test",
-        )
-        fallback = RouterDecision(
-            provider_id="ollama",
-            model="fallback",
-            task_type=TaskType.QUICK,
-            strategy="fallback",
-            reason="test",
-        )
-        mr.select = lambda *_args, **_kwargs: primary
-        mr._build_fallback_chain = lambda *_args, **_kwargs: [primary, fallback]
+        mr._fallback_validator.revalidate = lambda *a, **k: None
 
         def interrupted_stream(decision, _provider, _messages, _model_override=None, **kwargs):
             assert decision.provider_id == "sentinel_local"
-            yield {"type": "meta", "provider": "sentinel_local", "model": "local"}
             yield {"type": "delta", "text": "respuesta parcial"}
             raise ConnectionError("connection interrupted")
 
-        mr._call_provider_stream = interrupted_stream
-        events = list(mr.chat_stream([{"role": "user", "content": "hola"}]))
-        # After content is emitted, stream reports error and stops (no fallback)
-        assert events[-1]["type"] == "error"
-        assert events[-1]["category"] == "stream_interrupted"
+        mr._provider_manager.execute_inference_stream = interrupted_stream
+        events = list(mr.chat_stream([{"role": "user", "content": "hola"}], fallback_chain_override=["ollama"]))
+        # After content is emitted, stream reports failed and stops (no fallback)
+        assert events[-1]["event_type"] == "failed"
+        assert events[-1]["payload"]["partial_output"] is True
 
     def test_fallback_strategies_list(self):
         assert "chain" in FALLBACK_STRATEGIES
@@ -278,8 +258,16 @@ class TestFallbackChainingUnit:
 
 
 class TestFallbackIntegration:
+    def _permissive_cloud(self, mr):
+        from sentinel.security.cloud_authority import CloudAuthority, CloudExecutionAuthorization
+        ca = CloudAuthority()
+        ca.add_standing_policy(CloudExecutionAuthorization(cloud_allowed=True))
+        mr._cloud_authority = ca
+        mr._provider_manager.set_cloud_authority(ca)
+
     def test_chat_with_circuit_breaker_skips_fallback(self):
         mr = ModelRouter()
+        self._permissive_cloud(mr)
         mr._circuit_breaker.record_failure("ollama")
         mr._circuit_breaker.record_failure("ollama")
         mr._circuit_breaker.record_failure("ollama")

@@ -28,8 +28,13 @@ class ProviderManager:
         self._cloud_authority = cloud_authority
 
     def _assert_cloud_authorized(self, provider: ProviderSpec, model: str) -> None:
-        if not self._cloud_authority or provider.is_local:
+        if provider.is_local:
             return
+        if not self._cloud_authority:
+            raise CloudAuthorizationError(
+                f"Cloud execution not authorized for {provider.id}/{model}: no cloud authority configured",
+                reason="missing_authority",
+            )
         if not self._cloud_authority.is_authorized(provider.id, model):
             reason = self._cloud_authority.require_authorization_reason(provider.id, model)
             raise CloudAuthorizationError(

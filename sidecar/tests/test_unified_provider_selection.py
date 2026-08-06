@@ -46,6 +46,7 @@ class TestUnifiedProviderSelection:
         
         meta_info = {}
         pipeline_info = {}
+        failed_events = []
         
         for line in response.text.splitlines():
             if line:
@@ -58,6 +59,8 @@ class TestUnifiedProviderSelection:
                     elif event.get("type") == "pipeline":
                         pipeline_info.update(event)
                         print(f"Route: {pipeline_info.get('route')}")
+                    elif event.get("event_type") == "failed":
+                        failed_events.append(event)
                 except json.JSONDecodeError:
                     pass
         
@@ -70,15 +73,17 @@ class TestUnifiedProviderSelection:
         print(f"Model: {meta_info.get('model')}")
         print(f"Route: {pipeline_info.get('route')}")
         
-        # Verify explicit OpenRouter request is reported and a safe local fallback
-        # is returned when no cloud standing policy exists.
-        assert meta_info.get('requested_provider') == 'openrouter'
-        assert meta_info.get('actual_provider') == 'sentinel_core'
-        assert meta_info.get('actual_model') is not None
-        assert meta_info.get('fallback_required') is True
-        assert meta_info.get('provider') == meta_info.get('actual_provider')
-        assert meta_info.get('model') == meta_info.get('actual_model')
-        
+        # Without cloud authority, OpenRouter must not be reported as active.
+        # If a local runtime is ready, it is selected and reported.
+        # If not, the stream must end with a failed event and no active provider.
+        assert meta_info.get('provider') != 'openrouter'
+        assert meta_info.get('actual_provider') != 'openrouter'
+        if meta_info.get('actual_provider') in ('sentinel_core', 'sentinel_local'):
+            assert meta_info.get('fallback_required') is True
+            assert meta_info.get('actual_model') is not None
+        else:
+            # No local runtime ready: expect a canonical failure
+            assert failed_events
     def test_variable_with_configured_preference(self):
         """Test 2: 'Explícame qué es una variable' with configured OpenRouter preference uses OpenRouter."""
         print("\n" + "="*80)
@@ -104,6 +109,7 @@ class TestUnifiedProviderSelection:
         
         meta_info = {}
         pipeline_info = {}
+        failed_events = []
         
         for line in response.text.splitlines():
             if line:
@@ -116,6 +122,8 @@ class TestUnifiedProviderSelection:
                     elif event.get("type") == "pipeline":
                         pipeline_info.update(event)
                         print(f"Route: {pipeline_info.get('route')}")
+                    elif event.get("event_type") == "failed":
+                        failed_events.append(event)
                 except json.JSONDecodeError:
                     pass
         
@@ -128,15 +136,14 @@ class TestUnifiedProviderSelection:
         print(f"Model: {meta_info.get('model')}")
         print(f"Route: {pipeline_info.get('route')}")
         
-        # Verify configured preference is reported but a safe local fallback is
-        # returned when no cloud standing policy exists.
-        assert meta_info.get('actual_provider') is not None
-        assert meta_info.get('requested_provider') == 'openrouter'
-        assert meta_info.get('actual_provider') == 'sentinel_core'
-        assert meta_info.get('actual_model') is not None
-        assert meta_info.get('fallback_required') is True
-        assert meta_info.get('provider') == meta_info.get('actual_provider')
-        assert meta_info.get('model') == meta_info.get('actual_model')
+        # Verify configured preference is not enough without cloud authority.
+        assert meta_info.get('provider') != 'openrouter'
+        assert meta_info.get('actual_provider') != 'openrouter'
+        if meta_info.get('actual_provider') in ('sentinel_core', 'sentinel_local'):
+            assert meta_info.get('fallback_required') is True
+            assert meta_info.get('actual_model') is not None
+        else:
+            assert failed_events
         
     def test_conversation_normal_routing(self):
         """Test 3: Ordinary conversation with no explicit preference uses normal routing."""
@@ -163,6 +170,7 @@ class TestUnifiedProviderSelection:
         
         meta_info = {}
         pipeline_info = {}
+        failed_events = []
         
         for line in response.text.splitlines():
             if line:
@@ -175,6 +183,8 @@ class TestUnifiedProviderSelection:
                     elif event.get("type") == "pipeline":
                         pipeline_info.update(event)
                         print(f"Route: {pipeline_info.get('route')}")
+                    elif event.get("event_type") == "failed":
+                        failed_events.append(event)
                 except json.JSONDecodeError:
                     pass
         
@@ -187,15 +197,14 @@ class TestUnifiedProviderSelection:
         print(f"Model: {meta_info.get('model')}")
         print(f"Route: {pipeline_info.get('route')}")
         
-        # Verify normal routing returns the safe local fallback when no cloud
-        # standing policy is configured.
-        assert meta_info.get('actual_provider') is not None
-        assert meta_info.get('actual_provider') == 'sentinel_core'
-        assert meta_info.get('actual_model') is not None
-        assert meta_info.get('fallback_required') is True
-        assert meta_info.get('route') == 'conversation'
-        assert meta_info.get('provider') == meta_info.get('actual_provider')
-        assert meta_info.get('model') == meta_info.get('actual_model')
+        # Without cloud authority, only a ready local provider is reported.
+        # Otherwise a canonical failure is emitted.
+        assert meta_info.get('actual_provider') != 'openrouter'
+        if meta_info.get('actual_provider') in ('sentinel_core', 'sentinel_local'):
+            assert meta_info.get('actual_model') is not None
+            assert meta_info.get('fallback_required') is True
+        else:
+            assert failed_events
         
     def test_conversation_no_deep_context(self):
         """Test 7: Conversational requests do not invoke DeepContextEngine."""

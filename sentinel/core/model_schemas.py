@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -229,3 +229,6 @@ class StreamEvent(BaseModel):
     safe_message: str = ""
 
     model_config = ConfigDict(extra="forbid")
+
+
+StreamEvent.model_rebuild()

@@ -190,7 +190,12 @@ Origen: `declared` / `probed` / `verified` / `unknown`.
 - [x] `chat_with_provider` usa `route` + `execute` canónico.
 - [x] `chat_multi_model` usa `execute_inference` canónico.
 - [x] `chat` canónico por defecto.
+- [x] `chat_stream` canónico con `StreamEvent`.
+- [x] `CloudAuthority` integrado en `ModelRouter.route`.
+- [x] `FallbackValidator` revalida autoridad en cadena.
+- [x] `ProviderManager._assert_cloud_authorized` defensa en profundidad.
 - [x] `test_fallback_chaining.py` adaptado a contrato público.
+- [x] `test_unified_provider_selection.py` alineado con contrato estricto.
 - [x] `test_stability.py` sin cambios, continúa verde.
 - Migrar embeddings OpenRouter a adapters externos.
 - Tests de adapter contract suite.

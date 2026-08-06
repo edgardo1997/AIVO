@@ -840,7 +840,7 @@ class ModelRouter:
     def _call_provider(self, decision: RouterDecision, provider: ProviderSpec, messages: List[Dict[str, str]], model_override: Optional[str] = None, timeout: Optional[float] = None, tools: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
         import logging
         logging.getLogger(__name__).warning("SEN-MODEL-LEGACY-ROUTER-CALL: _call_provider is deprecated, use execute")
-        return self._provider_manager.call_provider(decision, provider, messages, model_override=model_override, timeout=timeout, tools=tools)
+        return self._provider_manager.execute_inference(decision, provider, messages, model_override=model_override, timeout=timeout, tools=tools)
 
     def _to_legacy_response(self, result: Any, decision: RouterDecision, request) -> Dict[str, Any]:
         """Adapt a canonical InferenceResult to the legacy chat contract."""

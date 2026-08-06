@@ -665,7 +665,12 @@ class ModelRouter:
 
     def _to_safe_error(self, code: str, message: str, correlation_id: str) -> Dict[str, Any]:
         from sentinel.core.model_errors import RoutingError
-        return RoutingError(code=code, message=message, correlation_id=correlation_id, retryable=code not in {"SEN-MODEL-CONTEXT-EXCEEDED", "SEN-MODEL-CLOUD-NOT-AUTHORIZED"}).to_safe_dict()
+        return RoutingError(
+            code=code,
+            safe_message=message,
+            retryable=code not in {"SEN-MODEL-CONTEXT-EXCEEDED", "SEN-MODEL-CLOUD-NOT-AUTHORIZED"},
+            details={"correlation_id": correlation_id},
+        ).to_safe_dict(correlation_id=correlation_id)
 
     def chat(self, messages: List[Dict[str, str]], task_type: TaskType = TaskType.QUICK, model_override: Optional[str] = None, context: Optional[Dict[str, Any]] = None, fallback_chain_override: Optional[List[str]] = None) -> Dict[str, Any]:
         if self._canonical_chat:

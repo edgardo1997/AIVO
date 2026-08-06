@@ -58,7 +58,7 @@ class ModelRouter:
         self._routing_history: List[Dict[str, Any]] = []
         self._cloud_authority = cloud_authority
         import os
-        self._canonical_chat = os.environ.get("SENTINEL_CANONICAL_CHAT", "0") == "1"
+        self._canonical_chat = os.environ.get("SENTINEL_CANONICAL_CHAT", "1") != "0"
 
         from sentinel.core.hardware_intelligence import ModelCapabilityManager, get_model_capabilities
         from sentinel.core.model_registry import ModelRegistry, TASK_CAPABILITY_MAP
@@ -625,18 +625,24 @@ class ModelRouter:
         )
         try:
             decision = self.route(request)
-        except Exception:
-            return self._to_safe_error("SEN-MODEL-ROUTING-FAILED", str("Routing failed"), request.correlation_id)
+        except Exception as exc:
+            if not self._providers:
+                raise RuntimeError(str(exc)) from exc
+            return self._to_safe_error("SEN-MODEL-ROUTING-FAILED", str(exc), request.correlation_id)
         primary = self._providers.get(decision.selected_provider)
         if not primary:
+            if not self._providers:
+                raise RuntimeError("No providers available")
             return self._to_safe_error("SEN-MODEL-ROUTING-FAILED", "Unknown provider selected", request.correlation_id)
         # Context revalidation is still a known gap pending model metadata for the selected candidate.
         try:
             result = self.execute(request, messages)
         except Exception as exc:
             candidates: List[ModelCandidate] = []
-            for pid, spec in self._providers.items():
-                if pid == decision.selected_provider:
+            ordered_ids = fallback_chain_override if fallback_chain_override else [pid for pid in self._providers if pid != decision.selected_provider]
+            for pid in ordered_ids:
+                spec = self._providers.get(pid)
+                if not spec:
                     continue
                 if request.local_only and not spec.is_local:
                     continue
@@ -655,6 +661,7 @@ class ModelRouter:
                 fb_request = request.model_copy(update={"provider_preference": candidate.provider_id})
                 try:
                     result = self.execute(fb_request, messages)
+                    self._record_fallback(candidate.provider_id, category="chat")
                     break
                 except Exception:
                     continue

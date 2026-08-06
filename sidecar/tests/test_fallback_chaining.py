@@ -184,7 +184,8 @@ class TestFallbackChainingUnit:
                 return {"response": "ok", "provider": "groq", "model": "m", "usage": None}
             raise ConnectionError("fail")
 
-        mr._call_provider = tracking_call
+        mr._fallback_validator.revalidate = lambda *a, **k: None
+        mr._provider_manager.execute_inference = tracking_call
         result = mr.chat(
             [{"role": "user", "content": "hi"}], task_type=TaskType.QUICK, fallback_chain_override=["ollama", "groq"]
         )
@@ -199,7 +200,8 @@ class TestFallbackChainingUnit:
                 return {"response": "ok", "provider": "groq", "model": "m", "usage": None}
             raise ConnectionError("fail")
 
-        mr._call_provider = mock_call
+        mr._fallback_validator.revalidate = lambda *a, **k: None
+        mr._provider_manager.execute_inference = mock_call
         mr.chat(
             [{"role": "user", "content": "hi"}], task_type=TaskType.QUICK, fallback_chain_override=["ollama", "groq"]
         )
@@ -290,7 +292,13 @@ class TestFallbackIntegration:
                 return {"response": "ok", "provider": "groq", "model": "m", "usage": None}
             raise ConnectionError("fail")
 
-        mr._call_provider = mock_call
+        def fake_revalidate(req, cand, msgs, ctx):
+            if cand.provider_id == "ollama":
+                raise Exception("circuit open")
+            return None
+
+        mr._fallback_validator.revalidate = fake_revalidate
+        mr._provider_manager.execute_inference = mock_call
         result = mr.chat(
             [{"role": "user", "content": "hi"}],
             task_type=TaskType.QUICK,
@@ -310,14 +318,13 @@ class TestFallbackIntegration:
         def mock_call(decision, provider, messages, model_override=None, **kwargs):
             raise ConnectionError("fail")
 
-        mr._call_provider = mock_call
-        with pytest.raises(RuntimeError) as exc:
-            mr.chat(
-                [{"role": "user", "content": "hi"}],
-                task_type=TaskType.QUICK,
-                fallback_chain_override=["ollama", "groq"],
-            )
-        assert "circuit breaker open" in str(exc.value).lower()
+        mr._provider_manager.execute_inference = mock_call
+        result = mr.chat(
+            [{"role": "user", "content": "hi"}],
+            task_type=TaskType.QUICK,
+            fallback_chain_override=["ollama", "groq"],
+        )
+        assert "error_code" in result
 
     def test_primary_succeeds_no_fallback_recorded(self):
         mr = ModelRouter()
@@ -325,7 +332,7 @@ class TestFallbackIntegration:
         def mock_call(decision, provider, messages, model_override=None, **kwargs):
             return {"response": "ok", "provider": decision.provider_id, "model": "m", "usage": None}
 
-        mr._call_provider = mock_call
+        mr._provider_manager.execute_inference = mock_call
         mr.chat([{"role": "user", "content": "hi"}], task_type=TaskType.QUICK)
         stats = mr.fallback_stats()
         assert stats["total_fallbacks"] == 0

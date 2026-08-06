@@ -177,7 +177,8 @@ class ProviderManager:
             logger.error("Provider call failed for %s: %s", provider.id, redact_text(str(e))[:200])
             raise
 
-    def call_provider_stream(self, decision: RouterDecision, provider: ProviderSpec, messages: List[Dict[str, str]], model_override: Optional[str] = None, timeout_budget: Optional[float] = None) -> Iterator[Dict[str, Any]]:
+    def execute_inference_stream(self, decision: RouterDecision, provider: ProviderSpec, messages: List[Dict[str, str]], model_override: Optional[str] = None, timeout_budget: Optional[float] = None) -> Iterator[Dict[str, Any]]:
+        """Canonical streaming inference."""
         model = model_override or decision.model
         self._assert_cloud_authorized(provider, model)
         try:
@@ -364,9 +365,11 @@ class ProviderManager:
         logging.getLogger(__name__).warning("SEN-MODEL-LEGACY-CALL-PROVIDER: call_provider is deprecated, use execute_inference")
         return self.execute_inference(decision, provider, messages, model_override=model_override, timeout=timeout, tools=tools)
 
-    def execute_inference_stream(self, decision: RouterDecision, provider: ProviderSpec, messages: List[Dict[str, str]], **kwargs) -> Iterator[Dict[str, Any]]:
-        """Canonical streaming inference entry point."""
-        yield from self.call_provider_stream(decision, provider, messages, **kwargs)
+    def call_provider_stream(self, decision: RouterDecision, provider: ProviderSpec, messages: List[Dict[str, str]], **kwargs) -> Iterator[Dict[str, Any]]:
+        """Legacy wrapper. Use execute_inference_stream() for new code."""
+        import logging
+        logging.getLogger(__name__).warning("SEN-MODEL-LEGACY-CALL-PROVIDER-STREAM: call_provider_stream is deprecated, use execute_inference_stream")
+        yield from self.execute_inference_stream(decision, provider, messages, **kwargs)
 
     def get_provider_state(self, provider_id: str) -> Dict[str, Any]:
         """Return canonical provider lifecycle state."""

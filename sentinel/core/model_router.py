@@ -963,7 +963,9 @@ class ModelRouter:
         yield from self._chat_stream_canonical(messages, task_type=task_type, model_override=model_override, context=context, explicit_provider=explicit_provider, explicit_model=explicit_model, fallback_chain_override=fallback_chain_override)
 
     def _call_provider_stream(self, decision: RouterDecision, provider: ProviderSpec, messages: List[Dict[str, str]], model_override: Optional[str] = None, timeout_budget: Optional[float] = None) -> Iterator[Dict[str, Any]]:
-        yield from self._provider_manager.call_provider_stream(decision, provider, messages, model_override=model_override, timeout_budget=timeout_budget)
+        import logging
+        logging.getLogger(__name__).warning("SEN-MODEL-LEGACY-ROUTER-CALL-STREAM: _call_provider_stream is deprecated, use execute_stream")
+        yield from self._provider_manager.execute_inference_stream(decision, provider, messages, model_override=model_override, timeout_budget=timeout_budget)
 
     def _call_provider(self, decision: RouterDecision, provider: ProviderSpec, messages: List[Dict[str, str]], model_override: Optional[str] = None, timeout: Optional[float] = None, tools: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
         import logging

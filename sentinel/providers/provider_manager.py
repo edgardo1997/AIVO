@@ -128,7 +128,8 @@ class ProviderManager:
         self._client_configs[provider_id] = config
         return client
 
-    def call_provider(self, decision: RouterDecision, provider: ProviderSpec, messages: List[Dict[str, str]], model_override: Optional[str] = None, timeout: Optional[float] = None, tools: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+    def _do_inference(self, decision: RouterDecision, provider: ProviderSpec, messages: List[Dict[str, str]], model_override: Optional[str] = None, timeout: Optional[float] = None, tools: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+        """Canonical non-streaming inference implementation."""
         model = model_override or decision.model
         timeout = timeout or (LOCAL_CALL_TIMEOUT if provider.is_local else CALL_TIMEOUT)
         self._assert_cloud_authorized(provider, model)
@@ -323,7 +324,7 @@ class ProviderManager:
         start = time.monotonic()
         result: Any = None
         try:
-            result = self.call_provider(decision, provider, messages, **kwargs)
+            result = self._do_inference(decision, provider, messages, **kwargs)
         finally:
             latency_ms = (time.monotonic() - start) * 1000
             if self._metrics_store is not None:
@@ -351,6 +352,12 @@ class ProviderManager:
                     error_code="",
                 ))
         return result
+
+    def call_provider(self, decision: RouterDecision, provider: ProviderSpec, messages: List[Dict[str, str]], model_override: Optional[str] = None, timeout: Optional[float] = None, tools: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+        """Legacy wrapper. Use execute_inference() for new code."""
+        import logging
+        logging.getLogger(__name__).warning("SEN-MODEL-LEGACY-CALL-PROVIDER: call_provider is deprecated, use execute_inference")
+        return self.execute_inference(decision, provider, messages, model_override=model_override, timeout=timeout, tools=tools)
 
     def execute_inference_stream(self, decision: RouterDecision, provider: ProviderSpec, messages: List[Dict[str, str]], **kwargs) -> Iterator[Dict[str, Any]]:
         """Canonical streaming inference entry point."""

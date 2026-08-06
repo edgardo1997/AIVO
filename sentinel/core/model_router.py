@@ -715,7 +715,7 @@ class ModelRouter:
                 return ModelResponse(model_id=task.get("model_id", "unknown"), provider=task.get("provider", "unknown"), response_text="", success=False, error="Unknown provider")
             messages = [{"role": "user", "content": task.get("objective", user_message)}]
             try:
-                result = self._call_provider(
+                result = self._provider_manager.execute_inference(
                     RouterDecision(
                         provider_id=task["provider"],
                         model=task["model_id"],

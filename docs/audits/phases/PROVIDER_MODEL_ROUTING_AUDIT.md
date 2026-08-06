@@ -178,6 +178,9 @@ Origen: `declared` / `probed` / `verified` / `unknown`.
 - [x] `FallbackManager` invoca `FallbackValidator` para candidatos secundarios.
 - [x] Tests de contrato público para `chat`.
 - [x] Fakes adapters para tests canónicos.
+- [x] `call_provider` es wrapper delegado a `execute_inference`.
+- [x] `_do_inference` contiene lógica canónica.
+- [x] Test de contrato público `call_provider`.
 - Migrar embeddings OpenRouter a adapters externos.
 - Tests de adapter contract suite.
 - Health/readiness real para modelo local (proceso vs. listo).

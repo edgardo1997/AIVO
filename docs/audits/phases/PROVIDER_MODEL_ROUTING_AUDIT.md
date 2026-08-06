@@ -181,6 +181,9 @@ Origen: `declared` / `probed` / `verified` / `unknown`.
 - [x] `call_provider` es wrapper delegado a `execute_inference`.
 - [x] `_do_inference` contiene lógica canónica.
 - [x] Test de contrato público `call_provider`.
+- [x] `ModelRouter._call_provider` loguea deprecación.
+- [x] `ModelRouter._chat_canonical` con ruta `route` → `execute`.
+- [x] Feature flag `SENTINEL_CANONICAL_CHAT` para pruebas comparativas.
 - Migrar embeddings OpenRouter a adapters externos.
 - Tests de adapter contract suite.
 - Health/readiness real para modelo local (proceso vs. listo).
